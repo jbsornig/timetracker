@@ -3,12 +3,19 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 
-// Use persistent disk in production, local directory in development
-const DATA_DIR = process.env.NODE_ENV === 'production' && fs.existsSync('/data')
-  ? '/data'
-  : __dirname;
-const DB_PATH = path.join(DATA_DIR, 'timetracker.db');
+// Use persistent disk in production if available
+let DATA_DIR = __dirname;
 
+// Check for Render persistent disk
+if (fs.existsSync('/data')) {
+  DATA_DIR = '/data';
+  console.log('✅ Persistent disk found at /data');
+} else {
+  console.log('⚠️ No persistent disk at /data, using local directory');
+  console.log(`   NODE_ENV: ${process.env.NODE_ENV}`);
+}
+
+const DB_PATH = path.join(DATA_DIR, 'timetracker.db');
 console.log(`📁 Database location: ${DB_PATH}`);
 
 let db;
