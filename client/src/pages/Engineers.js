@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyEngineer = { name: '', email: '', password: '', engineer_id: '' };
+const emptyUser = { name: '', email: '', password: '', engineer_id: '', role: 'engineer' };
 
 export default function Engineers() {
   const [engineers, setEngineers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(emptyEngineer);
+  const [form, setForm] = useState(emptyUser);
+  const [admins, setAdmins] = useState([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [selectedEngineer, setSelectedEngineer] = useState(null);
@@ -26,6 +27,7 @@ export default function Engineers() {
         apiFetch('/projects'),
       ]);
       setEngineers(users.filter((u) => u.role === 'engineer'));
+      setAdmins(users.filter((u) => u.role === 'admin'));
       setProjects(projs);
     } catch (e) {
       setError(e.message);
@@ -40,15 +42,15 @@ export default function Engineers() {
     }).length;
   };
 
-  const openAdd = () => {
-    setForm(emptyEngineer);
+  const openAdd = (role = 'engineer') => {
+    setForm({ ...emptyUser, role });
     setError('');
     setModal('add');
   };
 
-  const openEdit = (engineer) => {
+  const openEdit = (user) => {
     setForm({
-      ...engineer,
+      ...user,
       password: '',
     });
     setError('');
@@ -94,8 +96,8 @@ export default function Engineers() {
       const body = {
         name: form.name,
         email: form.email,
-        role: 'engineer',
-        engineer_id: form.engineer_id || null,
+        role: form.role,
+        engineer_id: form.role === 'engineer' ? (form.engineer_id || null) : null,
       };
       if (form.password) {
         body.password = form.password;
@@ -130,13 +132,54 @@ export default function Engineers() {
     <div>
       <div className="page-header">
         <div>
-          <div className="page-title">Engineers</div>
-          <div className="page-subtitle">Manage engineer accounts and assignments</div>
+          <div className="page-title">Users</div>
+          <div className="page-subtitle">Manage admin and engineer accounts</div>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}>+ Add Engineer</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => openAdd('admin')}>+ Add Admin</button>
+          <button className="btn btn-primary" onClick={() => openAdd('engineer')}>+ Add Engineer</button>
+        </div>
       </div>
 
+      {/* Admin Users Section */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-title">Administrators</div>
+        {admins.length === 0 ? (
+          <div className="empty-state">
+            <p>No admin users.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th style={{ width: 180 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {admins.map((admin) => (
+                  <tr key={admin.id}>
+                    <td><strong>{admin.name}</strong></td>
+                    <td>{admin.email}</td>
+                    <td>
+                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(admin)} style={{ marginRight: 8 }}>Edit</button>
+                      {admins.length > 1 && (
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(admin.id)}>Delete</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Engineers Section */}
       <div className="card">
+        <div className="card-title">Engineers</div>
         {engineers.length === 0 ? (
           <div className="empty-state">
             <h3>No engineers yet</h3>
@@ -183,19 +226,30 @@ export default function Engineers() {
 
       {(modal === 'add' || modal === 'edit') && (
         <Modal
-          title={modal === 'add' ? 'Add Engineer' : 'Edit Engineer'}
+          title={modal === 'add' ? `Add ${form.role === 'admin' ? 'Admin' : 'Engineer'}` : `Edit ${form.role === 'admin' ? 'Admin' : 'Engineer'}`}
           onClose={() => setModal(null)}
           footer={
             <>
               <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
-                {saving ? 'Saving...' : modal === 'add' ? 'Add Engineer' : 'Save Changes'}
+                {saving ? 'Saving...' : 'Save'}
               </button>
             </>
           }
         >
           <form onSubmit={handleSubmit}>
             {error && <div className="alert alert-error">{error}</div>}
+            <div className="form-group">
+              <label className="form-label">Role</label>
+              <select
+                className="form-select"
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+              >
+                <option value="engineer">Engineer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
             <div className="form-group">
               <label className="form-label">Full Name *</label>
               <input
@@ -215,17 +269,17 @@ export default function Engineers() {
                 placeholder="john@company.com"
               />
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">{modal === 'add' ? 'Password *' : 'Password (leave blank to keep current)'}</label>
-                <input
-                  className="form-input"
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder={modal === 'add' ? 'Enter password' : 'Leave blank to keep current'}
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label">{modal === 'add' ? 'Password *' : 'Password (leave blank to keep current)'}</label>
+              <input
+                className="form-input"
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder={modal === 'add' ? 'Enter password' : 'Leave blank to keep current'}
+              />
+            </div>
+            {form.role === 'engineer' && (
               <div className="form-group">
                 <label className="form-label">Engineer ID</label>
                 <input
@@ -236,7 +290,7 @@ export default function Engineers() {
                 />
                 <div className="form-hint">Optional identifier for timesheets</div>
               </div>
-            </div>
+            )}
           </form>
         </Modal>
       )}

@@ -31,7 +31,7 @@ export default function Layout({ page, setPage, children }) {
     { key: 'timesheets', label: 'Timesheets', icon: Icons.clock },
     { key: 'customers', label: 'Customers', icon: Icons.building },
     { key: 'projects', label: 'Projects', icon: Icons.folder },
-    { key: 'engineers', label: 'Engineers', icon: Icons.users },
+    { key: 'engineers', label: 'Users', icon: Icons.users },
     { key: 'invoices', label: 'Invoices', icon: Icons.invoice },
     { key: 'reports', label: 'Reports', icon: Icons.chart },
     { key: 'settings', label: 'Settings', icon: Icons.settings },

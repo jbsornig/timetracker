@@ -31,6 +31,50 @@ function getDayName(dateStr) {
   return DAYS[d.getDay()];
 }
 
+// Parse time input and default to AM for hours 1-11, PM for 12
+function parseTimeInput(value) {
+  if (!value) return '';
+
+  // Already in HH:MM format
+  if (/^\d{2}:\d{2}$/.test(value)) return value;
+
+  // Remove any non-digits except colon
+  let cleaned = value.replace(/[^\d:]/g, '');
+
+  // Handle formats like "7", "07", "730", "0730", "7:30"
+  let hours, minutes;
+
+  if (cleaned.includes(':')) {
+    [hours, minutes] = cleaned.split(':').map(Number);
+  } else if (cleaned.length <= 2) {
+    // Just hours: "7" or "07"
+    hours = parseInt(cleaned, 10);
+    minutes = 0;
+  } else if (cleaned.length === 3) {
+    // "730" -> 7:30
+    hours = parseInt(cleaned[0], 10);
+    minutes = parseInt(cleaned.slice(1), 10);
+  } else if (cleaned.length === 4) {
+    // "0730" -> 07:30
+    hours = parseInt(cleaned.slice(0, 2), 10);
+    minutes = parseInt(cleaned.slice(2), 10);
+  } else {
+    return value; // Return as-is if we can't parse
+  }
+
+  // Validate
+  if (isNaN(hours) || isNaN(minutes) || hours > 23 || minutes > 59) {
+    return value;
+  }
+
+  // For hours 1-11 entered without leading zero, assume AM (already correct in 24h)
+  // For hour 12 entered alone, assume PM (noon) = 12:00 (already correct)
+  // Hours 13-23 are already PM in 24h format
+
+  // Format as HH:MM
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+}
+
 export default function Timesheets() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -171,6 +215,27 @@ export default function Timesheets() {
           updated[idx].hours = hours;
         } else {
           updated[idx].hours = 0;
+        }
+      }
+      return updated;
+    });
+  };
+
+  const handleTimeBlur = (idx, field) => {
+    setEntries((prev) => {
+      const updated = [...prev];
+      const parsed = parseTimeInput(updated[idx][field]);
+      if (parsed !== updated[idx][field]) {
+        updated[idx] = { ...updated[idx], [field]: parsed };
+        // Recalculate hours
+        const start = field === 'start_time' ? parsed : updated[idx].start_time;
+        const end = field === 'end_time' ? parsed : updated[idx].end_time;
+        if (start && end && start.includes(':') && end.includes(':')) {
+          const [sh, sm] = start.split(':').map(Number);
+          const [eh, em] = end.split(':').map(Number);
+          let hours = (eh * 60 + em - sh * 60 - sm) / 60;
+          if (hours < 0) hours += 24;
+          updated[idx].hours = hours;
         }
       }
       return updated;
@@ -362,19 +427,23 @@ export default function Timesheets() {
                     <td>
                       <input
                         className="time-input"
-                        type="time"
+                        type="text"
                         value={entry.start_time}
                         onChange={(e) => handleEntryChange(idx, 'start_time', e.target.value)}
+                        onBlur={() => handleTimeBlur(idx, 'start_time')}
                         disabled={!canEdit}
+                        placeholder="7:00"
                       />
                     </td>
                     <td>
                       <input
                         className="time-input"
-                        type="time"
+                        type="text"
                         value={entry.end_time}
                         onChange={(e) => handleEntryChange(idx, 'end_time', e.target.value)}
+                        onBlur={() => handleTimeBlur(idx, 'end_time')}
                         disabled={!canEdit}
+                        placeholder="15:30"
                       />
                     </td>
                     <td className="hours-display">{(entry.hours || 0).toFixed(2)}</td>
@@ -453,20 +522,26 @@ export default function Timesheets() {
                   <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Start Time</label>
                   <input
                     className="timesheet-time-input"
-                    type="time"
+                    type="text"
+                    inputMode="numeric"
                     value={entry.start_time}
                     onChange={(e) => handleEntryChange(idx, 'start_time', e.target.value)}
+                    onBlur={() => handleTimeBlur(idx, 'start_time')}
                     disabled={!canEdit}
+                    placeholder="7:00"
                   />
                 </div>
                 <div>
                   <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>End Time</label>
                   <input
                     className="timesheet-time-input"
-                    type="time"
+                    type="text"
+                    inputMode="numeric"
                     value={entry.end_time}
                     onChange={(e) => handleEntryChange(idx, 'end_time', e.target.value)}
+                    onBlur={() => handleTimeBlur(idx, 'end_time')}
                     disabled={!canEdit}
+                    placeholder="15:30"
                   />
                 </div>
               </div>
