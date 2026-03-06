@@ -33,6 +33,26 @@ app.get('/api/me', auth, (req, res) => {
   res.json(user);
 });
 
+app.put('/api/users/change-password', auth, (req, res) => {
+  const { current_password, new_password } = req.body;
+  const db = getDb();
+
+  // Get current user
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  // Verify current password
+  if (!bcrypt.compareSync(current_password, user.password)) {
+    return res.status(400).json({ error: 'Current password is incorrect' });
+  }
+
+  // Update password
+  const hashed = bcrypt.hashSync(new_password, 10);
+  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, req.user.id);
+
+  res.json({ message: 'Password changed successfully' });
+});
+
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 
 app.get('/api/settings', auth, adminOnly, (req, res) => {

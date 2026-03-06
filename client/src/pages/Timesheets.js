@@ -177,6 +177,21 @@ export default function Timesheets() {
     });
   };
 
+  const handleClearEntry = (idx) => {
+    setEntries((prev) => {
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        start_time: '',
+        end_time: '',
+        hours: 0,
+        description: '',
+        shift: 1
+      };
+      return updated;
+    });
+  };
+
   const handleSaveEntries = async () => {
     setSaving(true);
     setError('');
@@ -336,6 +351,7 @@ export default function Timesheets() {
                   <th style={{ width: 80 }}>Hours</th>
                   <th style={{ width: 60 }}>Shift</th>
                   <th>Description</th>
+                  {canEdit && <th style={{ width: 60 }}></th>}
                 </tr>
               </thead>
               <tbody>
@@ -384,12 +400,25 @@ export default function Timesheets() {
                         style={{ fontSize: 13 }}
                       />
                     </td>
+                    {canEdit && (
+                      <td>
+                        {entry.hours > 0 && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleClearEntry(idx)}
+                            style={{ padding: '4px 8px', fontSize: 11 }}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
                 <tr className="total-row">
                   <td colSpan={4} style={{ textAlign: 'right' }}>Total Hours:</td>
                   <td style={{ textAlign: 'center' }}>{totalHours.toFixed(2)}</td>
-                  <td colSpan={2}></td>
+                  <td colSpan={canEdit ? 3 : 2}></td>
                 </tr>
               </tbody>
             </table>
@@ -405,7 +434,18 @@ export default function Timesheets() {
                   <div className="timesheet-day-name">{getDayName(entry.entry_date)}</div>
                   <div className="timesheet-day-date">{formatShortDate(entry.entry_date)}</div>
                 </div>
-                <div className="timesheet-day-hours">{(entry.hours || 0).toFixed(2)} hrs</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className="timesheet-day-hours">{(entry.hours || 0).toFixed(2)} hrs</div>
+                  {canEdit && entry.hours > 0 && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleClearEntry(idx)}
+                      style={{ padding: '4px 8px', fontSize: 11 }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="timesheet-time-row">
