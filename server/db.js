@@ -1,8 +1,15 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const fs = require('fs');
 
-const DB_PATH = path.join(__dirname, 'timetracker.db');
+// Use persistent disk in production, local directory in development
+const DATA_DIR = process.env.NODE_ENV === 'production' && fs.existsSync('/data')
+  ? '/data'
+  : __dirname;
+const DB_PATH = path.join(DATA_DIR, 'timetracker.db');
+
+console.log(`📁 Database location: ${DB_PATH}`);
 
 let db;
 
