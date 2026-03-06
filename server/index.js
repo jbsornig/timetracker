@@ -55,6 +55,17 @@ app.put('/api/users/change-password', auth, (req, res) => {
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 
+// Public settings for printing (available to all authenticated users)
+app.get('/api/settings/print', auth, (req, res) => {
+  const db = getDb();
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('company_name', 'company_logo')").all();
+  const settings = {};
+  for (const row of rows) {
+    settings[row.key] = row.value;
+  }
+  res.json(settings);
+});
+
 app.get('/api/settings', auth, adminOnly, (req, res) => {
   const db = getDb();
   const rows = db.prepare('SELECT key, value FROM settings').all();

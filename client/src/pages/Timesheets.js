@@ -75,8 +75,8 @@ function parseTimeInput(value) {
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
-// Print view component for timesheet
-function TimesheetPrintView({ ts, entries }) {
+// Print view component for timesheet (matches invoice DailyTimeReport format)
+function TimesheetPrintView({ ts, entries, settings }) {
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   // Create entries map by date
@@ -99,23 +99,26 @@ function TimesheetPrintView({ ts, entries }) {
   };
 
   const weekDates = getWeekDates();
-  const weekEnding = ts.week_ending ? new Date(ts.week_ending + 'T00:00:00').toLocaleDateString() : '';
+  const weekEnding = ts.week_ending
+    ? new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
+    : '';
 
   // Calculate totals
-  let totalHours = 0;
+  let totalST = 0;
   weekDates.forEach(date => {
     const entry = entriesByDate[date];
-    if (entry && entry.hours) totalHours += entry.hours;
+    if (entry && entry.hours) totalST += entry.hours;
   });
+  const grandTotal = totalST;
+  const rate = ts.pay_rate || 0;
+  const laborSubtotal = grandTotal * rate;
 
-  const payRate = ts.pay_rate || 0;
-  const totalPay = totalHours * payRate;
-
-  // Styles
+  // Styles - matches invoice format
   const cellStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '22px', verticalAlign: 'middle' };
   const headerCell = { ...cellStyle, fontWeight: 'bold', background: '#f5f5f5', textAlign: 'center', height: '18px' };
   const centerCell = { ...cellStyle, textAlign: 'center' };
-  const descRowStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '70px', verticalAlign: 'top' };
+  const rightCell = { ...cellStyle, textAlign: 'right' };
+  const descRowStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '100px', verticalAlign: 'top' };
 
   const formatTime = (time) => {
     if (!time) return '';
@@ -127,116 +130,178 @@ function TimesheetPrintView({ ts, entries }) {
   };
 
   return (
-    <div style={{ fontFamily: 'Arial, sans-serif', fontSize: '8pt', padding: '10px', width: '100%' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-        <div style={{ flex: '0 0 auto', width: '200px' }}>
+    <div className="daily-time-report" style={{ fontFamily: 'Arial, sans-serif', fontSize: '8pt', padding: 0, width: '100%' }}>
+      {/* Header Section - using flexbox for better control */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', width: '100%' }}>
+        {/* Left: Logo and Company Info */}
+        <div style={{ flex: '0 0 auto', width: '200px', paddingRight: '15px' }}>
+          {settings?.company_logo && (
+            <img src={settings.company_logo} alt="Logo" style={{ maxWidth: '120px', maxHeight: '50px', marginBottom: '2px', display: 'block' }} />
+          )}
+          <div style={{ fontWeight: 'bold', fontStyle: 'italic', fontSize: '9pt', marginBottom: '2px' }}>
+            {settings?.company_name || 'Company Name'}
+          </div>
           <div style={{ fontSize: '7pt' }}>Service Required at:</div>
           <div style={{ fontSize: '7pt' }}><strong>Company:</strong> {ts.customer_name}</div>
           <div style={{ fontSize: '7pt' }}><strong>Location:</strong> {ts.location || ''}</div>
         </div>
-        <div style={{ flex: '0 0 auto', width: '200px', textAlign: 'center' }}>
+        {/* Center: Title and Rate Info */}
+        <div style={{ flex: '0 0 auto', width: '200px', textAlign: 'center', padding: '0 15px' }}>
           <div style={{ fontWeight: 'bold', fontSize: '11pt', marginBottom: '2px' }}>Daily Time Report</div>
           <div style={{ fontSize: '7pt', lineHeight: '1.4' }}>
             Work week is Mon shift 1 through Sun shift 3<br/>
-            ${payRate.toFixed(2)}/hr Pay Rate<br/>
-            ST = All &nbsp; OT = N/A &nbsp; PT = N/A
+            ${rate.toFixed(2)}/hr Pay Rate<br/>
+            ST = All &nbsp; OT = N/A &nbsp; PT = N/A<br/>
+            No Travel time or Expenses
           </div>
         </div>
-        <div style={{ flex: '0 0 auto', width: '300px' }}>
+        {/* Right: Timesheet Info - fixed width */}
+        <div style={{ flex: '0 0 auto', width: '350px' }}>
           <table style={{ borderCollapse: 'collapse', fontSize: '7pt' }}>
             <tbody>
-              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Week Ending:</td><td style={{ fontWeight: 'bold' }}>{weekEnding}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Engineer:</td><td>{ts.engineer_name}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Engineer ID:</td><td>{ts.eng_id || ''}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Work Order #:</td><td>{ts.po_number || ''}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Project Name:</td><td>{ts.project_name}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Week Ending:</td><td style={{ fontWeight: 'bold' }}>{weekEnding}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Engineer:</td><td>{ts.engineer_name}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Engineer ID:</td><td>{ts.eng_id || ''}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Work Order #:</td><td>{ts.po_number || ''}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Systems SO#:</td><td></td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Project Name:</td><td>{ts.project_name}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Startup SO#:</td><td></td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       {/* Daily Entries Table */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '4px' }}>
         <thead>
           <tr>
-            <th style={{ ...headerCell, width: '70px' }}>Date</th>
+            <th style={{ ...headerCell, width: '55px' }}>Date</th>
             <th style={{ ...headerCell, width: '50px' }}>Travel To</th>
             <th style={{ ...headerCell, width: '55px' }}>Travel From</th>
-            <th style={{ ...headerCell, width: '35px' }}>Shift</th>
-            <th style={{ ...headerCell, width: '55px' }}>Start Time</th>
-            <th style={{ ...headerCell, width: '55px' }}>End Time</th>
-            <th style={{ ...headerCell, width: '35px' }}>ST</th>
-            <th style={{ ...headerCell, width: '35px' }}>OT</th>
-            <th style={{ ...headerCell, width: '35px' }}>PT</th>
-            <th style={{ ...headerCell, width: '40px' }}>Total</th>
+            <th style={{ ...headerCell, width: '30px' }}>Shift</th>
+            <th style={{ ...headerCell, width: '40px' }}>On Call</th>
+            <th style={{ ...headerCell, width: '50px' }}>Start Time</th>
+            <th style={{ ...headerCell, width: '50px' }}>End Time</th>
+            <th style={{ ...headerCell, width: '28px' }}>ST</th>
+            <th style={{ ...headerCell, width: '28px' }}>OT</th>
+            <th style={{ ...headerCell, width: '28px' }}>PT</th>
+            <th style={{ ...headerCell, width: '28px' }}>STT</th>
+            <th style={{ ...headerCell, width: '28px' }}>OTT</th>
+            <th style={{ ...headerCell, width: '35px' }}>Total</th>
           </tr>
         </thead>
         <tbody>
           {weekDates.map((date, idx) => {
             const entry = entriesByDate[date] || {};
             const dateObj = new Date(date + 'T00:00:00');
-            const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+            const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
             const hours = entry.hours || 0;
+            const st = hours > 0 ? hours.toFixed(1) : '0.0';
 
             return (
               <React.Fragment key={date}>
+                {/* Time Row */}
                 <tr>
                   <td style={{ ...centerCell, whiteSpace: 'nowrap' }}>{formattedDate} {dayNames[idx]}</td>
-                  <td style={centerCell}>{hours > 0 ? (ts.location || '') : ''}</td>
+                  <td style={centerCell}>{ts.location || ''}</td>
                   <td style={centerCell}></td>
                   <td style={centerCell}>{entry.shift || '1'}</td>
+                  <td style={centerCell}></td>
                   <td style={centerCell}>{formatTime(entry.start_time)}</td>
                   <td style={centerCell}>{formatTime(entry.end_time)}</td>
-                  <td style={centerCell}>{hours > 0 ? hours.toFixed(1) : '0.0'}</td>
+                  <td style={centerCell}>{hours > 0 ? st : '0.0'}</td>
                   <td style={centerCell}>0.0</td>
                   <td style={centerCell}>0.0</td>
-                  <td style={{ ...centerCell, fontWeight: 'bold' }}>{hours > 0 ? hours.toFixed(1) : '0.0'}</td>
+                  <td style={centerCell}>0.0</td>
+                  <td style={centerCell}>0.0</td>
+                  <td style={{ ...centerCell, fontWeight: 'bold' }}>{hours > 0 ? st : '0.0'}</td>
                 </tr>
+                {/* Description Row */}
                 <tr>
-                  <td style={descRowStyle}><strong>Work Description:</strong></td>
-                  <td colSpan={9} style={descRowStyle}>{entry.description || ''}</td>
+                  <td style={descRowStyle}><strong>Detailed Description of Work:</strong></td>
+                  <td colSpan={12} style={descRowStyle}>{entry.description || ''}</td>
                 </tr>
               </React.Fragment>
             );
           })}
-          {/* Totals Row */}
+          {/* Weekly Totals Row */}
           <tr style={{ background: '#f5f5f5' }}>
-            <td colSpan={6} style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold' }}>Weekly Totals:</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalHours.toFixed(1)}</td>
+            <td colSpan={7} style={{ ...cellStyle, fontWeight: 'bold' }}>Weekly Totals:</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalST.toFixed(1)}</td>
             <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
             <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalHours.toFixed(1)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{grandTotal.toFixed(1)}</td>
           </tr>
         </tbody>
       </table>
 
-      {/* Pay Summary */}
-      <div style={{ marginTop: '10px', padding: '10px', border: '1px solid #000' }}>
-        <table style={{ width: '300px', borderCollapse: 'collapse', fontSize: '9pt' }}>
-          <tbody>
-            <tr>
-              <td style={{ padding: '4px 8px' }}>Total Hours:</td>
-              <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 'bold' }}>{totalHours.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '4px 8px' }}>Pay Rate:</td>
-              <td style={{ padding: '4px 8px', textAlign: 'right' }}>${payRate.toFixed(2)}/hr</td>
-            </tr>
-            <tr style={{ borderTop: '1px solid #000' }}>
-              <td style={{ padding: '4px 8px', fontWeight: 'bold' }}>Total Pay:</td>
-              <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '11pt' }}>${totalPay.toFixed(2)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {/* Signatures */}
-      <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between' }}>
-        <div style={{ borderTop: '1px solid #000', width: '200px', paddingTop: '5px', fontSize: '9pt' }}>Employee Signature</div>
-        <div style={{ borderTop: '1px solid #000', width: '200px', paddingTop: '5px', fontSize: '9pt' }}>Supervisor Signature</div>
-        <div style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px', fontSize: '9pt' }}>Date</div>
-      </div>
+      {/* Bottom Section: Signatures and Pay Totals */}
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <tbody>
+          <tr>
+            {/* Left: Signatures */}
+            <td style={{ verticalAlign: 'top', width: '55%', paddingRight: '10px' }}>
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{ borderBottom: '1px solid #000', height: '20px', marginBottom: '2px' }}></div>
+                <div style={{ fontSize: '7pt' }}>Certified correct by: <span style={{ marginLeft: '60px' }}>Date: ___________</span></div>
+                <div style={{ fontSize: '6pt', marginLeft: '20px' }}>{settings?.company_name || 'Company'} Site Lead</div>
+              </div>
+              <div>
+                <div style={{ borderBottom: '1px solid #000', height: '20px', marginBottom: '2px' }}></div>
+                <div style={{ fontSize: '7pt' }}>Approved by: <span style={{ marginLeft: '80px' }}>Date: ___________</span></div>
+                <div style={{ fontSize: '6pt', marginLeft: '20px' }}>Customer Representative</div>
+              </div>
+            </td>
+            {/* Right: Pay Summary (instead of expenses) */}
+            <td style={{ verticalAlign: 'top', width: '45%' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '7pt' }}>
+                <tbody>
+                  <tr>
+                    <td colSpan={6} style={{ ...headerCell, textAlign: 'center' }}>Pay Summary</td>
+                  </tr>
+                  <tr>
+                    <td style={rightCell}>Air:</td><td style={cellStyle}>$0.00</td>
+                    <td style={rightCell}>Car/Taxi:</td><td style={cellStyle}>$0.00</td>
+                    <td style={rightCell}>Mileage:</td><td style={cellStyle}></td>
+                  </tr>
+                  <tr>
+                    <td style={rightCell}></td><td style={cellStyle}>$0.00</td>
+                    <td style={rightCell}>Meals:</td><td style={cellStyle}>$0.00</td>
+                    <td style={rightCell}>Parking:</td><td style={cellStyle}>$0.00</td>
+                  </tr>
+                  <tr>
+                    <td style={rightCell}></td><td style={cellStyle}>$0.00</td>
+                    <td style={rightCell}>Misc:</td><td style={cellStyle}>$0.00</td>
+                    <td style={rightCell}></td><td style={cellStyle}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={4}></td>
+                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Exp Subtotal:</td>
+                    <td style={cellStyle}>$0.00</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={4}></td>
+                    <td style={rightCell}>Pay Rate:</td>
+                    <td style={cellStyle}>${rate.toFixed(2)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={4}></td>
+                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Labor Subtotal:</td>
+                    <td style={cellStyle}>${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={4}></td>
+                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Total:</td>
+                    <td style={{ ...cellStyle, fontWeight: 'bold' }}>${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -247,6 +312,7 @@ export default function Timesheets() {
   const [timesheets, setTimesheets] = useState([]);
   const [projects, setProjects] = useState([]);
   const [engineers, setEngineers] = useState([]);
+  const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('list');
   const [selectedTimesheet, setSelectedTimesheet] = useState(null);
@@ -296,15 +362,21 @@ export default function Timesheets() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [ts, projs] = await Promise.all([
+        const [ts, projs, printSettings] = await Promise.all([
           apiFetch('/timesheets'),
           apiFetch('/projects'),
+          apiFetch('/settings/print'),
         ]);
         setTimesheets(ts);
         setProjects(projs);
+        setSettings(printSettings);
         if (isAdmin) {
-          const users = await apiFetch('/users');
+          const [users, fullSettings] = await Promise.all([
+            apiFetch('/users'),
+            apiFetch('/settings'),
+          ]);
           setEngineers(users.filter((u) => u.role === 'engineer'));
+          setSettings(fullSettings);
         }
       } catch (e) {
         setError(e.message);
@@ -775,22 +847,27 @@ export default function Timesheets() {
           )}
         </div>
 
-        {/* Print-only section - Daily Time Report format */}
+        {/* Print-only section - Daily Time Report format (matches invoice format) */}
         <div className="print-only timesheet-print-page" style={{ display: 'none' }}>
           <style>
             {`
+              .print-only { display: none; }
               @media print {
-                .no-print, .sidebar, .mobile-header, .page-header, .timesheet-desktop, .timesheet-mobile { display: none !important; }
                 .print-only { display: block !important; }
-                body { background: white !important; margin: 0 !important; }
+                .no-print, .sidebar, .mobile-header, .page-header, .timesheet-desktop, .timesheet-mobile { display: none !important; }
+                body { background: white !important; padding: 0 !important; margin: 0 !important; font-size: 8pt !important; }
                 .main-content { margin: 0 !important; padding: 0 !important; }
                 .card { display: none !important; }
-                .timesheet-print-page { page-break-inside: avoid; }
-                @page { margin: 0.5in; size: letter; }
+                .timesheet-print-page { page-break-inside: avoid; padding: 10px; }
+                .daily-time-report { font-family: Arial, sans-serif; font-size: 7pt; padding: 0; display: flex; flex-direction: column; height: 100%; }
+                .daily-time-report table { border-collapse: collapse; width: 100%; }
+                .daily-time-report th, .daily-time-report td { border: 1px solid #000; padding: 2px 4px; }
+                .daily-time-report th { background: #f5f5f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
               }
+              @page { margin: 0.25in; size: letter; }
             `}
           </style>
-          <TimesheetPrintView ts={ts} entries={entries} />
+          <TimesheetPrintView ts={ts} entries={entries} settings={settings} />
         </div>
       </div>
     );
