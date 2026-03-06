@@ -23,6 +23,7 @@ export default function Layout({ page, setPage, children }) {
   const navEngineer = [
     { key: 'dashboard', label: 'Dashboard', icon: Icons.dashboard },
     { key: 'timesheets', label: 'My Timesheets', icon: Icons.clock },
+    { key: 'account', label: 'My Account', icon: Icons.settings },
   ];
 
   const navAdmin = [

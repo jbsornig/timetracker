@@ -10,8 +10,9 @@ import Engineers from './pages/Engineers';
 import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import Account from './pages/Account';
 
-const ENGINEER_PAGES = ['dashboard', 'timesheets'];
+const ENGINEER_PAGES = ['dashboard', 'timesheets', 'account'];
 const ADMIN_PAGES = ['dashboard', 'timesheets', 'customers', 'projects', 'engineers', 'invoices', 'reports', 'settings'];
 
 function AppInner() {
@@ -50,6 +51,7 @@ function AppInner() {
       case 'invoices': return <Invoices />;
       case 'reports': return <Reports />;
       case 'settings': return <Settings />;
+      case 'account': return <Account />;
       default: return <Dashboard setPage={setPage} />;
     }
   };
