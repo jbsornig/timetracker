@@ -129,10 +129,17 @@ app.get('/api/customers', auth, (req, res) => {
 });
 
 app.post('/api/customers', auth, adminOnly, (req, res) => {
-  const { name, contact, email, phone, address, supplier_number, payment_terms } = req.body;
+  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms } = req.body;
   const db = getDb();
   const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30');
-  res.json({ id: result.lastInsertRowid, ...req.body });
+  const customerId = result.lastInsertRowid;
+
+  // Auto-create a contact record if primary contact name is provided
+  if (contact && contact.trim()) {
+    db.prepare('INSERT INTO customer_contacts (customer_id, name, title, email, phone) VALUES (?, ?, ?, ?, ?)').run(customerId, contact, contact_title || '', email || '', phone || '');
+  }
+
+  res.json({ id: customerId, ...req.body });
 });
 
 app.put('/api/customers/:id', auth, adminOnly, (req, res) => {

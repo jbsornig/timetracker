@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyCustomer = { name: '', contact: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30' };
+const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30' };
 const PAYMENT_TERMS_OPTIONS = ['Immediate', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 75', 'Net 90'];
 const emptyContact = { name: '', title: '', email: '', phone: '' };
 
@@ -274,46 +274,58 @@ export default function Customers() {
                 <div className="form-hint">When payment is due after invoice date</div>
               </div>
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Primary Contact</label>
-                <input
-                  className="form-input"
-                  value={form.contact}
-                  onChange={(e) => setForm({ ...form, contact: e.target.value })}
-                  placeholder="Primary contact name"
-                />
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: '#64748b' }}>Primary Contact</div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Contact Name</label>
+                  <input
+                    className="form-input"
+                    value={form.contact}
+                    onChange={(e) => setForm({ ...form, contact: e.target.value })}
+                    placeholder="Primary contact name"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Title</label>
+                  <input
+                    className="form-input"
+                    value={form.contact_title}
+                    onChange={(e) => setForm({ ...form, contact_title: e.target.value })}
+                    placeholder="Job title"
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Email</label>
-                <input
-                  className="form-input"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  placeholder="contact@company.com"
-                />
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input
+                    className="form-input"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    placeholder="contact@company.com"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input
+                    className="form-input"
+                    value={form.phone}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                    placeholder="(555) 123-4567"
+                  />
+                </div>
               </div>
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Phone</label>
-                <input
-                  className="form-input"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  placeholder="(555) 123-4567"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Address</label>
-                <input
-                  className="form-input"
-                  value={form.address}
-                  onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  placeholder="123 Main St, City, State ZIP"
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label">Address</label>
+              <input
+                className="form-input"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                placeholder="123 Main St, City, State ZIP"
+              />
             </div>
           </form>
         </Modal>

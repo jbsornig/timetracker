@@ -115,7 +115,7 @@ function TimesheetPrintView({ ts, entries }) {
   const cellStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '22px', verticalAlign: 'middle' };
   const headerCell = { ...cellStyle, fontWeight: 'bold', background: '#f5f5f5', textAlign: 'center', height: '18px' };
   const centerCell = { ...cellStyle, textAlign: 'center' };
-  const descRowStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '100px', verticalAlign: 'top' };
+  const descRowStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '70px', verticalAlign: 'top' };
 
   const formatTime = (time) => {
     if (!time) return '';
@@ -776,15 +776,17 @@ export default function Timesheets() {
         </div>
 
         {/* Print-only section - Daily Time Report format */}
-        <div className="print-only" style={{ display: 'none' }}>
+        <div className="print-only timesheet-print-page" style={{ display: 'none' }}>
           <style>
             {`
               @media print {
-                .no-print { display: none !important; }
+                .no-print, .sidebar, .mobile-header, .page-header, .timesheet-desktop, .timesheet-mobile { display: none !important; }
                 .print-only { display: block !important; }
-                body { background: white !important; }
+                body { background: white !important; margin: 0 !important; }
                 .main-content { margin: 0 !important; padding: 0 !important; }
-                .card { box-shadow: none !important; border: none !important; padding: 0 !important; }
+                .card { display: none !important; }
+                .timesheet-print-page { page-break-inside: avoid; }
+                @page { margin: 0.5in; size: letter; }
               }
             `}
           </style>
