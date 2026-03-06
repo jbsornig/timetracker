@@ -75,6 +75,172 @@ function parseTimeInput(value) {
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
+// Print view component for timesheet
+function TimesheetPrintView({ ts, entries }) {
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  // Create entries map by date
+  const entriesByDate = {};
+  entries.forEach(e => {
+    if (e.entry_date) entriesByDate[e.entry_date] = e;
+  });
+
+  // Get week dates (Monday through Sunday)
+  const getWeekDates = () => {
+    if (!ts.week_ending) return [];
+    const weekEnd = new Date(ts.week_ending + 'T00:00:00');
+    const dates = [];
+    for (let i = -6; i <= 0; i++) {
+      const d = new Date(weekEnd);
+      d.setDate(weekEnd.getDate() + i);
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    return dates;
+  };
+
+  const weekDates = getWeekDates();
+  const weekEnding = ts.week_ending ? new Date(ts.week_ending + 'T00:00:00').toLocaleDateString() : '';
+
+  // Calculate totals
+  let totalHours = 0;
+  weekDates.forEach(date => {
+    const entry = entriesByDate[date];
+    if (entry && entry.hours) totalHours += entry.hours;
+  });
+
+  const payRate = ts.pay_rate || 0;
+  const totalPay = totalHours * payRate;
+
+  // Styles
+  const cellStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '22px', verticalAlign: 'middle' };
+  const headerCell = { ...cellStyle, fontWeight: 'bold', background: '#f5f5f5', textAlign: 'center', height: '18px' };
+  const centerCell = { ...cellStyle, textAlign: 'center' };
+  const descRowStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '100px', verticalAlign: 'top' };
+
+  const formatTime = (time) => {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${hour12}:${m} ${ampm}`;
+  };
+
+  return (
+    <div style={{ fontFamily: 'Arial, sans-serif', fontSize: '8pt', padding: '10px', width: '100%' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+        <div style={{ flex: '0 0 auto', width: '200px' }}>
+          <div style={{ fontSize: '7pt' }}>Service Required at:</div>
+          <div style={{ fontSize: '7pt' }}><strong>Company:</strong> {ts.customer_name}</div>
+          <div style={{ fontSize: '7pt' }}><strong>Location:</strong> {ts.location || ''}</div>
+        </div>
+        <div style={{ flex: '0 0 auto', width: '200px', textAlign: 'center' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '11pt', marginBottom: '2px' }}>Daily Time Report</div>
+          <div style={{ fontSize: '7pt', lineHeight: '1.4' }}>
+            Work week is Mon shift 1 through Sun shift 3<br/>
+            ${payRate.toFixed(2)}/hr Pay Rate<br/>
+            ST = All &nbsp; OT = N/A &nbsp; PT = N/A
+          </div>
+        </div>
+        <div style={{ flex: '0 0 auto', width: '300px' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: '7pt' }}>
+            <tbody>
+              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Week Ending:</td><td style={{ fontWeight: 'bold' }}>{weekEnding}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Engineer:</td><td>{ts.engineer_name}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Engineer ID:</td><td>{ts.eng_id || ''}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Work Order #:</td><td>{ts.po_number || ''}</td></tr>
+              <tr><td style={{ textAlign: 'right', paddingRight: '4px' }}>Project Name:</td><td>{ts.project_name}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Daily Entries Table */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
+        <thead>
+          <tr>
+            <th style={{ ...headerCell, width: '70px' }}>Date</th>
+            <th style={{ ...headerCell, width: '50px' }}>Travel To</th>
+            <th style={{ ...headerCell, width: '55px' }}>Travel From</th>
+            <th style={{ ...headerCell, width: '35px' }}>Shift</th>
+            <th style={{ ...headerCell, width: '55px' }}>Start Time</th>
+            <th style={{ ...headerCell, width: '55px' }}>End Time</th>
+            <th style={{ ...headerCell, width: '35px' }}>ST</th>
+            <th style={{ ...headerCell, width: '35px' }}>OT</th>
+            <th style={{ ...headerCell, width: '35px' }}>PT</th>
+            <th style={{ ...headerCell, width: '40px' }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {weekDates.map((date, idx) => {
+            const entry = entriesByDate[date] || {};
+            const dateObj = new Date(date + 'T00:00:00');
+            const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+            const hours = entry.hours || 0;
+
+            return (
+              <React.Fragment key={date}>
+                <tr>
+                  <td style={{ ...centerCell, whiteSpace: 'nowrap' }}>{formattedDate} {dayNames[idx]}</td>
+                  <td style={centerCell}>{hours > 0 ? (ts.location || '') : ''}</td>
+                  <td style={centerCell}></td>
+                  <td style={centerCell}>{entry.shift || '1'}</td>
+                  <td style={centerCell}>{formatTime(entry.start_time)}</td>
+                  <td style={centerCell}>{formatTime(entry.end_time)}</td>
+                  <td style={centerCell}>{hours > 0 ? hours.toFixed(1) : '0.0'}</td>
+                  <td style={centerCell}>0.0</td>
+                  <td style={centerCell}>0.0</td>
+                  <td style={{ ...centerCell, fontWeight: 'bold' }}>{hours > 0 ? hours.toFixed(1) : '0.0'}</td>
+                </tr>
+                <tr>
+                  <td style={descRowStyle}><strong>Work Description:</strong></td>
+                  <td colSpan={9} style={descRowStyle}>{entry.description || ''}</td>
+                </tr>
+              </React.Fragment>
+            );
+          })}
+          {/* Totals Row */}
+          <tr style={{ background: '#f5f5f5' }}>
+            <td colSpan={6} style={{ ...cellStyle, textAlign: 'right', fontWeight: 'bold' }}>Weekly Totals:</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalHours.toFixed(1)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalHours.toFixed(1)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Pay Summary */}
+      <div style={{ marginTop: '10px', padding: '10px', border: '1px solid #000' }}>
+        <table style={{ width: '300px', borderCollapse: 'collapse', fontSize: '9pt' }}>
+          <tbody>
+            <tr>
+              <td style={{ padding: '4px 8px' }}>Total Hours:</td>
+              <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 'bold' }}>{totalHours.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '4px 8px' }}>Pay Rate:</td>
+              <td style={{ padding: '4px 8px', textAlign: 'right' }}>${payRate.toFixed(2)}/hr</td>
+            </tr>
+            <tr style={{ borderTop: '1px solid #000' }}>
+              <td style={{ padding: '4px 8px', fontWeight: 'bold' }}>Total Pay:</td>
+              <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', fontSize: '11pt' }}>${totalPay.toFixed(2)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Signatures */}
+      <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between' }}>
+        <div style={{ borderTop: '1px solid #000', width: '200px', paddingTop: '5px', fontSize: '9pt' }}>Employee Signature</div>
+        <div style={{ borderTop: '1px solid #000', width: '200px', paddingTop: '5px', fontSize: '9pt' }}>Supervisor Signature</div>
+        <div style={{ borderTop: '1px solid #000', width: '150px', paddingTop: '5px', fontSize: '9pt' }}>Date</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Timesheets() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -332,7 +498,7 @@ export default function Timesheets() {
     window.print();
   };
 
-  const handleBackToList = () => {
+  const handleBackToList = async () => {
     if (hasUnsavedChanges()) {
       const confirmed = window.confirm(
         'You have unsaved changes. Are you sure you want to leave? Your changes will be lost.'
@@ -343,6 +509,8 @@ export default function Timesheets() {
     setSelectedTimesheet(null);
     setEntries([]);
     setOriginalEntries([]);
+    // Reload timesheets to show updated hours
+    await loadTimesheets();
   };
 
   const totalHours = entries.reduce((sum, e) => sum + (e.hours || 0), 0);
@@ -607,43 +775,20 @@ export default function Timesheets() {
           )}
         </div>
 
-        {/* Print-only section */}
+        {/* Print-only section - Daily Time Report format */}
         <div className="print-only" style={{ display: 'none' }}>
           <style>
             {`
               @media print {
+                .no-print { display: none !important; }
                 .print-only { display: block !important; }
-                .print-header { text-align: center; margin-bottom: 20px; }
-                .print-header h1 { font-size: 18px; margin: 0; }
-                .print-info { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 12px; }
-                .signature-section { margin-top: 40px; display: flex; justify-content: space-between; }
-                .signature-line { border-top: 1px solid #000; width: 200px; padding-top: 5px; font-size: 11px; }
+                body { background: white !important; }
+                .main-content { margin: 0 !important; padding: 0 !important; }
+                .card { box-shadow: none !important; border: none !important; padding: 0 !important; }
               }
             `}
           </style>
-          <div className="print-header">
-            <h1>DAILY TIME REPORT</h1>
-            <p>Week Ending: {formatDate(ts.week_ending)}</p>
-          </div>
-          <div className="print-info">
-            <div>
-              <strong>Engineer:</strong> {ts.engineer_name}<br />
-              <strong>Engineer ID:</strong> {ts.eng_id || 'N/A'}
-            </div>
-            <div>
-              <strong>Project:</strong> {ts.project_name}<br />
-              <strong>Work Order:</strong> {ts.po_number || 'N/A'}
-            </div>
-            <div>
-              <strong>Customer:</strong> {ts.customer_name}<br />
-              <strong>Location:</strong> {ts.location || 'N/A'}
-            </div>
-          </div>
-          <div className="signature-section">
-            <div className="signature-line">Employee Signature</div>
-            <div className="signature-line">Supervisor Signature</div>
-            <div className="signature-line">Date</div>
-          </div>
+          <TimesheetPrintView ts={ts} entries={entries} />
         </div>
       </div>
     );
