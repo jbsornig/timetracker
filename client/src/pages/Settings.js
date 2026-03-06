@@ -1,10 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../api';
-import { useAuth } from '../contexts/AuthContext';
 
 export default function Settings() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
   const [settings, setSettings] = useState({
     company_name: '',
     company_address: '',
@@ -20,16 +17,6 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const fileInputRef = useRef(null);
-
-  // Password change state
-  const [passwordForm, setPasswordForm] = useState({
-    current_password: '',
-    new_password: '',
-    confirm_password: '',
-  });
-  const [passwordSaving, setPasswordSaving] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   useEffect(() => {
     loadSettings();
@@ -100,39 +87,6 @@ export default function Settings() {
       setError(e.message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handlePasswordChange = async (e) => {
-    e.preventDefault();
-    setPasswordError('');
-    setPasswordSuccess('');
-
-    if (passwordForm.new_password !== passwordForm.confirm_password) {
-      setPasswordError('New passwords do not match');
-      return;
-    }
-    if (passwordForm.new_password.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
-      return;
-    }
-
-    setPasswordSaving(true);
-    try {
-      await apiFetch('/users/change-password', {
-        method: 'PUT',
-        body: {
-          current_password: passwordForm.current_password,
-          new_password: passwordForm.new_password,
-        },
-      });
-      setPasswordSuccess('Password changed successfully!');
-      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
-      setTimeout(() => setPasswordSuccess(''), 3000);
-    } catch (e) {
-      setPasswordError(e.message);
-    } finally {
-      setPasswordSaving(false);
     }
   };
 
@@ -304,61 +258,6 @@ export default function Settings() {
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </form>
-
-      {/* Password Change Section - Available to all users */}
-      <div className="card" style={{ marginTop: 20 }}>
-        <div className="card-title">Change Password</div>
-        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
-          Update your account password.
-        </p>
-
-        {passwordError && <div className="alert alert-error">{passwordError}</div>}
-        {passwordSuccess && <div className="alert alert-success">{passwordSuccess}</div>}
-
-        <form onSubmit={handlePasswordChange}>
-          <div className="form-group">
-            <label className="form-label">Current Password</label>
-            <input
-              className="form-input"
-              type="password"
-              value={passwordForm.current_password}
-              onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
-              required
-              style={{ maxWidth: 300 }}
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">New Password</label>
-            <input
-              className="form-input"
-              type="password"
-              value={passwordForm.new_password}
-              onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
-              required
-              minLength={6}
-              style={{ maxWidth: 300 }}
-            />
-            <div className="form-hint">Minimum 6 characters</div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Confirm New Password</label>
-            <input
-              className="form-input"
-              type="password"
-              value={passwordForm.confirm_password}
-              onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
-              required
-              style={{ maxWidth: 300 }}
-            />
-          </div>
-
-          <button className="btn btn-primary" type="submit" disabled={passwordSaving}>
-            {passwordSaving ? 'Changing...' : 'Change Password'}
-          </button>
-        </form>
-      </div>
     </div>
   );
 }
