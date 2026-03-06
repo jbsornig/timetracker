@@ -1,0 +1,17 @@
+{
+  "name": "timetracker",
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "dev": "concurrently \"cd server && node index.js\" \"cd client && set BROWSER=none&& react-scripts start\"",
+    "start": "cd server && NODE_ENV=production node index.js",
+    "build": "cd client && npm install && npm run build && cd ../server && npm install",
+    "render-build": "cd client && npm install && npm run build && cd ../server && npm install"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
