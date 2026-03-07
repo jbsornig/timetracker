@@ -64,13 +64,13 @@ export default function Layout({ page, setPage, children }) {
     <div className="app-shell">
       {/* Mobile top header */}
       <header className="mobile-top-header">
-        <h1>Time<span>Tracker</span></h1>
+        <h1><span>UTech</span> TimeTracker</h1>
       </header>
 
       {/* Sidebar - desktop only */}
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <h1>Time<span>Tracker</span></h1>
+          <h1><span>UTech</span> TimeTracker</h1>
           <p>Engineering Billing System</p>
         </div>
         <nav className="sidebar-nav">

@@ -19,7 +19,7 @@ export default function Login() {
     <div className="login-page">
       <div className="login-card">
         <div className="login-logo">
-          <h1>Time<span>Tracker</span></h1>
+          <h1><span>UTech</span> TimeTracker</h1>
           <p>Engineering Time &amp; Billing System</p>
         </div>
         {error && <div className="login-error">{error}</div>}
