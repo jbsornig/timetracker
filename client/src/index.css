@@ -257,8 +257,8 @@ tr:hover td { background: var(--surface2); }
     color: var(--text-secondary);
   }
   .timesheet-day-hours {
-    font-size: 20px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 600;
     font-family: 'DM Mono', monospace;
     color: var(--primary);
   }
