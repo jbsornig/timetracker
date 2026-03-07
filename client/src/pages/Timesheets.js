@@ -830,7 +830,7 @@ export default function Timesheets() {
           <div className="page-title">Timesheets</div>
           <div className="page-subtitle">{isAdmin ? 'Manage all timesheets' : 'My timesheets'}</div>
         </div>
-        <button className="btn btn-primary" onClick={openNew}>+ New Timesheet</button>
+        {!isAdmin && <button className="btn btn-primary" onClick={openNew}>+ New Timesheet</button>}
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
