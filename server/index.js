@@ -390,6 +390,14 @@ app.put('/api/timesheets/:id/reject', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+app.delete('/api/timesheets/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  // Delete entries first, then the timesheet
+  db.prepare('DELETE FROM timesheet_entries WHERE timesheet_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM timesheets WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // ─── INVOICES ────────────────────────────────────────────────────────────────
 
 app.get('/api/invoices', auth, adminOnly, (req, res) => {

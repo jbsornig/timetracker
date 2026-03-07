@@ -518,6 +518,19 @@ export default function Timesheets() {
     }
   };
 
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this timesheet? This cannot be undone.')) return;
+    try {
+      await apiFetch(`/timesheets/${id}`, { method: 'DELETE' });
+      await loadTimesheets();
+      if (selectedTimesheet && selectedTimesheet.id === id) {
+        setSelectedTimesheet(null);
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -905,9 +918,14 @@ export default function Timesheets() {
                       <span className={`badge badge-${ts.status}`}>{ts.status}</span>
                     </td>
                     <td>
-                      <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
                         {ts.status === 'draft' ? 'Edit' : 'View'}
                       </button>
+                      {isAdmin && (
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(ts.id)}>
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
