@@ -817,12 +817,12 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
   const rate = ts.bill_rate || 0;
   const laborSubtotal = grandTotal * rate;
 
-  // Styles - fixed heights to fill the page
-  const cellStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '22px', verticalAlign: 'middle' };
-  const headerCell = { ...cellStyle, fontWeight: 'bold', background: '#f5f5f5', textAlign: 'center', height: '18px' };
+  // Styles - ultra compact to fit on one page even on mobile
+  const cellStyle = { border: '1px solid #000', padding: '1px 2px', fontSize: '6pt', height: '14px', verticalAlign: 'middle' };
+  const headerCell = { ...cellStyle, fontWeight: 'bold', background: '#f5f5f5', textAlign: 'center', height: '12px' };
   const centerCell = { ...cellStyle, textAlign: 'center' };
   const rightCell = { ...cellStyle, textAlign: 'right' };
-  const descRowStyle = { border: '1px solid #000', padding: '2px 4px', fontSize: '7pt', height: '100px', verticalAlign: 'top' };
+  const descRowStyle = { border: '1px solid #000', padding: '1px 2px', fontSize: '6pt', height: '45px', verticalAlign: 'top' };
 
   const formatTime = (time) => {
     if (!time) return '';
@@ -834,44 +834,35 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
   };
 
   return (
-    <div className="daily-time-report" style={{ fontFamily: 'Arial, sans-serif', fontSize: '8pt', padding: 0, width: '100%' }}>
-      {/* Header Section - using flexbox for better control */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', width: '100%' }}>
+    <div className="daily-time-report" style={{ fontFamily: 'Arial, sans-serif', fontSize: '6pt', padding: 0, width: '100%' }}>
+      {/* Header Section - ultra compact */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px', width: '100%' }}>
         {/* Left: Logo and Company Info */}
-        <div style={{ flex: '0 0 auto', width: '200px', paddingRight: '15px' }}>
+        <div style={{ flex: '0 0 auto', width: '160px', paddingRight: '5px' }}>
           {settings?.company_logo && (
-            <img src={settings.company_logo} alt="Logo" style={{ maxWidth: '120px', maxHeight: '50px', marginBottom: '2px', display: 'block' }} />
+            <img src={settings.company_logo} alt="Logo" style={{ maxWidth: '80px', maxHeight: '30px', marginBottom: '1px', display: 'block' }} />
           )}
-          <div style={{ fontWeight: 'bold', fontStyle: 'italic', fontSize: '9pt', marginBottom: '2px' }}>
+          <div style={{ fontWeight: 'bold', fontStyle: 'italic', fontSize: '7pt' }}>
             {settings?.company_name || 'Company Name'}
           </div>
-          <div style={{ fontSize: '7pt' }}>Service Required at:</div>
-          <div style={{ fontSize: '7pt' }}><strong>Company:</strong> {customerName}</div>
-          <div style={{ fontSize: '7pt' }}><strong>Location:</strong> {location}</div>
+          <div style={{ fontSize: '5pt' }}>Service at: <strong>{customerName}</strong></div>
+          <div style={{ fontSize: '5pt' }}>Location: {location || ''}</div>
         </div>
         {/* Center: Title and Rate Info */}
-        <div style={{ flex: '0 0 auto', width: '200px', textAlign: 'center', padding: '0 15px' }}>
-          <div style={{ fontWeight: 'bold', fontSize: '11pt', marginBottom: '2px' }}>Daily Time Report</div>
-          <div style={{ fontSize: '7pt', lineHeight: '1.4' }}>
-            Work week is Mon shift 1 through Sun shift 3<br/>
-            ${rate.toFixed(2)}/hr for Local Engineer<br/>
-            ST = All &nbsp; OT = N/A &nbsp; PT = N/A<br/>
-            No Travel time or Expenses
+        <div style={{ flex: '0 0 auto', width: '160px', textAlign: 'center', padding: '0 5px' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '9pt', marginBottom: '1px' }}>Daily Time Report</div>
+          <div style={{ fontSize: '5pt', lineHeight: '1.2' }}>
+            Mon shift 1 - Sun shift 3<br/>
+            ${rate.toFixed(2)}/hr | ST = All | OT/PT = N/A
           </div>
         </div>
-        {/* Right: Timesheet Info - fixed width */}
-        <div style={{ flex: '0 0 auto', width: '350px' }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: '7pt' }}>
-            <tbody>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Week Ending:</td><td style={{ fontWeight: 'bold' }}>{weekEnding}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Engineer:</td><td>{ts.engineer_name}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Engineer ID:</td><td>{ts.engineer_id || ''}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Work Order #:</td><td>{poNumber || ''}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Systems SO#:</td><td></td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Project Name:</td><td>{projectName}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Startup SO#:</td><td></td></tr>
-            </tbody>
-          </table>
+        {/* Right: Timesheet Info - compact */}
+        <div style={{ flex: '0 0 auto', width: '180px', fontSize: '5pt', lineHeight: '1.1' }}>
+          <div><span style={{ display: 'inline-block', width: '55px', textAlign: 'right', paddingRight: '2px' }}>Week Ending:</span><strong>{weekEnding}</strong></div>
+          <div><span style={{ display: 'inline-block', width: '55px', textAlign: 'right', paddingRight: '2px' }}>Engineer:</span>{ts.engineer_name}</div>
+          <div><span style={{ display: 'inline-block', width: '55px', textAlign: 'right', paddingRight: '2px' }}>Engineer ID:</span>{ts.engineer_id || ''}</div>
+          <div><span style={{ display: 'inline-block', width: '55px', textAlign: 'right', paddingRight: '2px' }}>Work Order #:</span>{poNumber || ''}</div>
+          <div><span style={{ display: 'inline-block', width: '55px', textAlign: 'right', paddingRight: '2px' }}>Project:</span>{projectName}</div>
         </div>
       </div>
 
@@ -941,71 +932,32 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
         </tbody>
       </table>
 
-      {/* Bottom Section: Signatures and Expenses/Totals */}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <tbody>
-          <tr>
-            {/* Left: Signatures */}
-            <td style={{ verticalAlign: 'top', width: '55%', paddingRight: '10px' }}>
-              <div style={{ marginBottom: '8px' }}>
-                <div style={{ borderBottom: '1px solid #000', height: '20px', marginBottom: '2px' }}></div>
-                <div style={{ fontSize: '7pt' }}>Certified correct by: <span style={{ marginLeft: '60px' }}>Date: ___________</span></div>
-                <div style={{ fontSize: '6pt', marginLeft: '20px' }}>{settings?.company_name || 'Company'} Site Lead</div>
-              </div>
-              <div>
-                <div style={{ borderBottom: '1px solid #000', height: '20px', marginBottom: '2px' }}></div>
-                <div style={{ fontSize: '7pt' }}>Approved by: <span style={{ marginLeft: '80px' }}>Date: ___________</span></div>
-                <div style={{ fontSize: '6pt', marginLeft: '20px' }}>Customer Representative</div>
-              </div>
-            </td>
-            {/* Right: Expenses and Totals */}
-            <td style={{ verticalAlign: 'top', width: '45%' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '7pt' }}>
-                <tbody>
-                  <tr>
-                    <td colSpan={6} style={{ ...headerCell, textAlign: 'center' }}>Expenses</td>
-                  </tr>
-                  <tr>
-                    <td style={rightCell}>Air:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Car/Taxi:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Mileage:</td><td style={cellStyle}></td>
-                  </tr>
-                  <tr>
-                    <td style={rightCell}></td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Meals:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Parking:</td><td style={cellStyle}>$0.00</td>
-                  </tr>
-                  <tr>
-                    <td style={rightCell}></td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Misc:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}></td><td style={cellStyle}></td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Exp Subtotal:</td>
-                    <td style={cellStyle}>$0.00</td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={rightCell}>Rate:</td>
-                    <td style={cellStyle}>${rate.toFixed(2)}</td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Labor Subtotal:</td>
-                    <td style={cellStyle}>${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Total:</td>
-                    <td style={{ ...cellStyle, fontWeight: 'bold' }}>${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      {/* Bottom Section: Signatures and Pay Totals - ultra compact */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '5pt', lineHeight: '1.1', marginTop: '2px' }}>
+        {/* Left: Signatures */}
+        <div style={{ width: '48%', paddingRight: '5px' }}>
+          <div style={{ marginBottom: '2px' }}>
+            <div style={{ borderBottom: '1px solid #000', height: '10px', marginBottom: '1px' }}></div>
+            <div>Certified by: <span style={{ marginLeft: '20px' }}>Date: _______</span></div>
+            <div style={{ fontSize: '4pt' }}>{settings?.company_name || 'Company'} Site Lead</div>
+          </div>
+          <div>
+            <div style={{ borderBottom: '1px solid #000', height: '10px', marginBottom: '1px' }}></div>
+            <div>Approved by: <span style={{ marginLeft: '20px' }}>Date: _______</span></div>
+            <div style={{ fontSize: '4pt' }}>Customer Representative</div>
+          </div>
+        </div>
+        {/* Right: Expenses/Pay Summary - compact */}
+        <div style={{ width: '50%', border: '1px solid #000' }}>
+          <div style={{ background: '#f5f5f5', textAlign: 'center', fontWeight: 'bold', borderBottom: '1px solid #000', padding: '0px 1px', fontSize: '5pt' }}>Expenses</div>
+          <div style={{ display: 'flex', padding: '0px 2px', fontSize: '5pt' }}>
+            <span>Air: $0 | Car: $0 | Meals: $0 | Parking: $0 | Misc: $0</span>
+          </div>
+          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}><strong>Exp Subtotal:</strong> $0.00</div>
+          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>Rate: ${rate.toFixed(2)}/hr | Hours: {grandTotal.toFixed(1)}</div>
+          <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold', fontSize: '6pt' }}>Total: ${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+        </div>
+      </div>
     </div>
   );
 }
