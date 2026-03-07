@@ -176,9 +176,6 @@ tr:hover td { background: var(--surface2); }
 .modal-title { font-size: 18px; font-weight: 700; color: var(--text); }
 .modal-footer { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
 
-/* ── MOBILE HEADER ── */
-.mobile-header { display: none; }
-
 /* ── MOBILE BOTTOM NAV ── */
 .mobile-nav { display: none; }
 @media (max-width: 768px) {
@@ -257,7 +254,6 @@ tr:hover td { background: var(--surface2); }
   /* Completely hide sidebar on mobile */
   .sidebar { display: none !important; }
   .main-content { margin-left: 0; padding: 16px; }
-  .mobile-header { display: flex; }
   .form-row { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .page-header { flex-direction: column; gap: 12px; align-items: stretch; }
