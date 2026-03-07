@@ -896,7 +896,7 @@ export default function Timesheets() {
                   <th>Project</th>
                   <th>Hours</th>
                   <th>Status</th>
-                  <th style={{ width: 100 }}>Actions</th>
+                  <th style={{ width: 150 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -922,7 +922,10 @@ export default function Timesheets() {
                         {ts.status === 'draft' ? 'Edit' : 'View'}
                       </button>
                       {isAdmin && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(ts.id)}>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={(e) => { e.stopPropagation(); handleDelete(ts.id); }}
+                        >
                           Delete
                         </button>
                       )}
