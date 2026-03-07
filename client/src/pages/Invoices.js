@@ -601,7 +601,7 @@ export default function Invoices() {
                   .main-content { margin: 0 !important; padding: 0 !important; }
                   .card { display: none !important; }
                   .app-shell { display: block !important; }
-                  .print-invoice { padding: 8px; font-size: 10px; page-break-after: always !important; break-after: page !important; }
+                  .print-invoice { padding: 8px; font-size: 10px; }
                   .print-invoice table { font-size: 9px; }
                   .timesheet-page { page-break-before: always !important; break-before: page !important; page-break-inside: avoid; padding: 10px; }
                   .daily-time-report { font-family: Arial, sans-serif; font-size: 6pt; padding: 0; }
