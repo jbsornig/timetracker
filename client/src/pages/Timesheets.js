@@ -231,71 +231,45 @@ function TimesheetPrintView({ ts, entries, settings }) {
         </tbody>
       </table>
 
-      {/* Bottom Section: Signatures and Pay Totals - compact */}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <tbody>
-          <tr>
-            {/* Left: Signatures */}
-            <td style={{ verticalAlign: 'top', width: '55%', paddingRight: '8px' }}>
-              <div style={{ marginBottom: '4px' }}>
-                <div style={{ borderBottom: '1px solid #000', height: '15px', marginBottom: '1px' }}></div>
-                <div style={{ fontSize: '6pt' }}>Certified correct by: <span style={{ marginLeft: '40px' }}>Date: ___________</span></div>
-                <div style={{ fontSize: '5pt', marginLeft: '15px' }}>{settings?.company_name || 'Company'} Site Lead</div>
-              </div>
-              <div>
-                <div style={{ borderBottom: '1px solid #000', height: '15px', marginBottom: '1px' }}></div>
-                <div style={{ fontSize: '6pt' }}>Approved by: <span style={{ marginLeft: '60px' }}>Date: ___________</span></div>
-                <div style={{ fontSize: '5pt', marginLeft: '15px' }}>Customer Representative</div>
-              </div>
-            </td>
-            {/* Right: Pay Summary */}
-            <td style={{ verticalAlign: 'top', width: '45%' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '6pt' }}>
-                <tbody>
-                  <tr>
-                    <td colSpan={6} style={{ ...headerCell, textAlign: 'center', fontSize: '6pt' }}>Expenses</td>
-                  </tr>
-                  <tr>
-                    <td style={rightCell}>Air:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Car/Taxi:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Mileage:</td><td style={cellStyle}></td>
-                  </tr>
-                  <tr>
-                    <td style={rightCell}></td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Meals:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Parking:</td><td style={cellStyle}>$0.00</td>
-                  </tr>
-                  <tr>
-                    <td style={rightCell}></td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}>Misc:</td><td style={cellStyle}>$0.00</td>
-                    <td style={rightCell}></td><td style={cellStyle}></td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Exp Subtotal:</td>
-                    <td style={cellStyle}>$0.00</td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={rightCell}>Pay Rate:</td>
-                    <td style={cellStyle}>${rate.toFixed(2)}</td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Labor Subtotal:</td>
-                    <td style={cellStyle}>${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-                  <tr>
-                    <td colSpan={4}></td>
-                    <td style={{ ...rightCell, fontWeight: 'bold' }}>Total:</td>
-                    <td style={{ ...cellStyle, fontWeight: 'bold' }}>${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      {/* Bottom Section: Signatures and Pay Totals - compact with tight line spacing */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '6pt', lineHeight: '1.2' }}>
+        {/* Left: Signatures */}
+        <div style={{ width: '50%', paddingRight: '10px' }}>
+          <div style={{ marginBottom: '3px' }}>
+            <div style={{ borderBottom: '1px solid #000', height: '12px', marginBottom: '1px' }}></div>
+            <div>Certified correct by: <span style={{ marginLeft: '30px' }}>Date: ___________</span></div>
+            <div style={{ fontSize: '5pt', marginLeft: '10px' }}>{settings?.company_name || 'Company'} Site Lead</div>
+          </div>
+          <div>
+            <div style={{ borderBottom: '1px solid #000', height: '12px', marginBottom: '1px' }}></div>
+            <div>Approved by: <span style={{ marginLeft: '50px' }}>Date: ___________</span></div>
+            <div style={{ fontSize: '5pt', marginLeft: '10px' }}>Customer Representative</div>
+          </div>
+        </div>
+        {/* Right: Expenses/Pay Summary - compact */}
+        <div style={{ width: '48%', border: '1px solid #000' }}>
+          <div style={{ background: '#f5f5f5', textAlign: 'center', fontWeight: 'bold', borderBottom: '1px solid #000', padding: '1px' }}>Expenses</div>
+          <div style={{ display: 'flex', padding: '1px 2px' }}>
+            <span style={{ width: '25px', textAlign: 'right' }}>Air:</span><span style={{ width: '35px', borderBottom: '1px solid #ccc', marginRight: '5px' }}>$0.00</span>
+            <span style={{ width: '40px', textAlign: 'right' }}>Car/Taxi:</span><span style={{ width: '35px', borderBottom: '1px solid #ccc', marginRight: '5px' }}>$0.00</span>
+            <span style={{ width: '40px', textAlign: 'right' }}>Mileage:</span><span style={{ width: '30px', borderBottom: '1px solid #ccc' }}></span>
+          </div>
+          <div style={{ display: 'flex', padding: '1px 2px' }}>
+            <span style={{ width: '25px' }}></span><span style={{ width: '35px', borderBottom: '1px solid #ccc', marginRight: '5px' }}>$0.00</span>
+            <span style={{ width: '40px', textAlign: 'right' }}>Meals:</span><span style={{ width: '35px', borderBottom: '1px solid #ccc', marginRight: '5px' }}>$0.00</span>
+            <span style={{ width: '40px', textAlign: 'right' }}>Parking:</span><span style={{ width: '30px', borderBottom: '1px solid #ccc' }}>$0.00</span>
+          </div>
+          <div style={{ display: 'flex', padding: '1px 2px' }}>
+            <span style={{ width: '25px' }}></span><span style={{ width: '35px', borderBottom: '1px solid #ccc', marginRight: '5px' }}>$0.00</span>
+            <span style={{ width: '40px', textAlign: 'right' }}>Misc:</span><span style={{ width: '35px', borderBottom: '1px solid #ccc', marginRight: '5px' }}>$0.00</span>
+            <span style={{ width: '70px' }}></span>
+          </div>
+          <div style={{ textAlign: 'right', padding: '1px 2px' }}><strong>Exp Subtotal:</strong> $0.00</div>
+          <div style={{ textAlign: 'right', padding: '1px 2px' }}>Pay Rate: ${rate.toFixed(2)}</div>
+          <div style={{ textAlign: 'right', padding: '1px 2px' }}><strong>Labor Subtotal:</strong> ${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold' }}>Total: ${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+        </div>
+      </div>
     </div>
   );
 }
