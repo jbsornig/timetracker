@@ -596,14 +596,17 @@ export default function Invoices() {
                 .print-only { display: none; }
                 @media print {
                   .print-only { display: block !important; }
-                  .no-print { display: none !important; }
+                  .no-print, .sidebar, .mobile-header, .mobile-top-header, .mobile-nav, .page-header { display: none !important; }
                   body { background: white !important; padding: 0 !important; margin: 0 !important; font-size: 8pt !important; }
-                  .print-invoice { padding: 8px; font-size: 10px; page-break-after: always; }
+                  .main-content { margin: 0 !important; padding: 0 !important; }
+                  .card { display: none !important; }
+                  .app-shell { display: block !important; }
+                  .print-invoice { padding: 8px; font-size: 10px; page-break-after: always !important; break-after: page !important; }
                   .print-invoice table { font-size: 9px; }
-                  .timesheet-page { page-break-before: always; page-break-inside: avoid; padding: 10px; }
-                  .daily-time-report { font-family: Arial, sans-serif; font-size: 7pt; padding: 0; display: flex; flex-direction: column; height: 100%; }
+                  .timesheet-page { page-break-before: always !important; break-before: page !important; page-break-inside: avoid; padding: 10px; }
+                  .daily-time-report { font-family: Arial, sans-serif; font-size: 6pt; padding: 0; }
                   .daily-time-report table { border-collapse: collapse; width: 100%; }
-                  .daily-time-report th, .daily-time-report td { border: 1px solid #000; padding: 2px 4px; }
+                  .daily-time-report th, .daily-time-report td { border: 1px solid #000; padding: 1px 2px; font-size: 6pt; }
                   .daily-time-report th { background: #f5f5f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 }
                 @page { margin: 0.25in; size: letter; }
