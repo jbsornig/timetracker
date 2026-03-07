@@ -1025,9 +1025,11 @@ function InvoiceContent({ inv, settings }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <div style={{ fontWeight: 'bold', marginBottom: 4 }}>To:</div>
-          <div style={{ lineHeight: 1.4, marginLeft: 20 }}>
+          <div style={{ lineHeight: 1.5, marginLeft: 20 }}>
             <div style={{ fontWeight: 'bold' }}>{customerName}</div>
-            {customerAddress && <div>{customerAddress}</div>}
+            {customerAddress && customerAddress.split('\n').map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
           </div>
         </div>
         {settings.company_logo && (

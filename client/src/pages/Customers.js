@@ -320,11 +320,12 @@ export default function Customers() {
             </div>
             <div className="form-group">
               <label className="form-label">Address</label>
-              <input
-                className="form-input"
+              <textarea
+                className="form-textarea"
+                rows={3}
                 value={form.address}
                 onChange={(e) => setForm({ ...form, address: e.target.value })}
-                placeholder="123 Main St, City, State ZIP"
+                placeholder="123 Main Street&#10;City, State 12345"
               />
             </div>
           </form>
