@@ -11,6 +11,9 @@ export default function Settings() {
     company_email: '',
     company_logo: '',
     next_invoice_number: '1000',
+    admin_notification_email: '',
+    smtp_email: '',
+    smtp_password: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -251,6 +254,55 @@ export default function Settings() {
               style={{ maxWidth: 200 }}
             />
             <div className="form-hint">The next invoice will use this number (auto-increments after each invoice)</div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">Email Notifications</div>
+          <p style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
+            Get notified when engineers submit timesheets. Uses Gmail/Google Workspace SMTP.
+          </p>
+
+          <div className="form-group">
+            <label className="form-label">Send Notifications To</label>
+            <input
+              className="form-input"
+              type="email"
+              value={settings.admin_notification_email}
+              onChange={(e) => handleChange('admin_notification_email', e.target.value)}
+              placeholder="admin@yourcompany.com"
+            />
+            <div className="form-hint">Email address that will receive timesheet notifications</div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">SMTP Email (Sender)</label>
+            <input
+              className="form-input"
+              type="email"
+              value={settings.smtp_email}
+              onChange={(e) => handleChange('smtp_email', e.target.value)}
+              placeholder="noreply@yourcompany.com"
+            />
+            <div className="form-hint">Gmail/Google Workspace email used to send notifications</div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">SMTP App Password</label>
+            <input
+              className="form-input"
+              type="password"
+              value={settings.smtp_password}
+              onChange={(e) => handleChange('smtp_password', e.target.value)}
+              placeholder="••••••••••••••••"
+            />
+            <div className="form-hint">
+              Generate an App Password at{' '}
+              <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">
+                Google Account → App Passwords
+              </a>
+              {' '}(requires 2-factor auth enabled)
+            </div>
           </div>
         </div>
 

@@ -3,12 +3,49 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 const { getDb } = require('./db');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
+
+async function sendNotificationEmail(subject, htmlBody) {
+  const db = getDb();
+  const settings = {};
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('smtp_email', 'smtp_password', 'admin_notification_email')").all();
+  for (const row of rows) {
+    settings[row.key] = row.value;
+  }
+
+  if (!settings.smtp_email || !settings.smtp_password || !settings.admin_notification_email) {
+    console.log('Email notifications not configured - skipping');
+    return;
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: settings.smtp_email,
+        pass: settings.smtp_password,
+      },
+    });
+
+    await transporter.sendMail({
+      from: settings.smtp_email,
+      to: settings.admin_notification_email,
+      subject: subject,
+      html: htmlBody,
+    });
+    console.log('Notification email sent successfully');
+  } catch (err) {
+    console.error('Failed to send notification email:', err.message);
+  }
+}
 
 // Serve React app in production
 if (process.env.NODE_ENV === 'production') {
@@ -369,12 +406,39 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
   res.json({ success: true });
 });
 
-app.put('/api/timesheets/:id/submit', auth, (req, res) => {
+app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
   const db = getDb();
-  const ts = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
+  const ts = db.prepare(`
+    SELECT ts.*, u.name as engineer_name, p.name as project_name, c.name as customer_name,
+           COALESCE((SELECT SUM(hours) FROM timesheet_entries WHERE timesheet_id = ts.id), 0) as total_hours
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE ts.id = ?
+  `).get(req.params.id);
   if (!ts) return res.status(404).json({ error: 'Not found' });
   if (req.user.role !== 'admin' && ts.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
   db.prepare("UPDATE timesheets SET status='submitted', submitted_at=CURRENT_TIMESTAMP WHERE id=?").run(req.params.id);
+
+  // Send notification email to admin
+  const weekEnding = new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  sendNotificationEmail(
+    `Timesheet Submitted - ${ts.engineer_name}`,
+    `
+    <h2>New Timesheet Submitted</h2>
+    <p>A timesheet has been submitted and is ready for your review.</p>
+    <table style="border-collapse: collapse; margin: 20px 0;">
+      <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Engineer:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.engineer_name}</td></tr>
+      <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Project:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.project_name}</td></tr>
+      <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Customer:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.customer_name}</td></tr>
+      <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Week Ending:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${weekEnding}</td></tr>
+      <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Total Hours:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.total_hours.toFixed(2)}</td></tr>
+    </table>
+    <p>Log in to <a href="https://timetracker.utechconsulting.net">UTech TimeTracker</a> to review and approve.</p>
+    `
+  );
+
   res.json({ success: true });
 });
 
