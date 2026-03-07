@@ -59,6 +59,11 @@ export default function Layout({ page, setPage, children }) {
 
   return (
     <div className="app-shell">
+      {/* Mobile top header */}
+      <header className="mobile-top-header">
+        <h1>Time<span>Tracker</span></h1>
+      </header>
+
       {/* Sidebar - desktop only */}
       <aside className="sidebar">
         <div className="sidebar-logo">
