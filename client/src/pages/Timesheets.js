@@ -578,10 +578,35 @@ export default function Timesheets() {
                 {saving ? 'Saving...' : 'Save'}
               </button>
             )}
+            {ts.status === 'draft' && (
+              <button className="btn btn-success" onClick={handleSubmit} disabled={saving}>
+                Submit for Approval
+              </button>
+            )}
+            {isAdmin && ts.status === 'submitted' && (
+              <>
+                <button className="btn btn-danger" onClick={handleReject} disabled={saving}>
+                  Reject
+                </button>
+                <button className="btn btn-success" onClick={handleApprove} disabled={saving}>
+                  Approve
+                </button>
+              </>
+            )}
           </div>
-          <div className="timesheet-mobile" style={{ display: 'flex', gap: 8, width: '100%' }}>
-            <button className="btn btn-secondary" onClick={handleBackToList} style={{ flex: 1 }}>← Back</button>
-            <button className="btn btn-secondary" onClick={handlePrint} style={{ flex: 1 }}>Print</button>
+          <div className="timesheet-mobile" style={{ display: 'flex', gap: 8, width: '100%', flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary" onClick={handleBackToList} style={{ flex: '1 1 45%' }}>← Back</button>
+            <button className="btn btn-secondary" onClick={handlePrint} style={{ flex: '1 1 45%' }}>Print</button>
+            {canEdit && (
+              <button className="btn btn-primary" onClick={handleSaveEntries} disabled={saving} style={{ flex: '1 1 45%' }}>
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            )}
+            {ts.status === 'draft' && (
+              <button className="btn btn-success" onClick={handleSubmit} disabled={saving} style={{ flex: '1 1 45%' }}>
+                Submit
+              </button>
+            )}
           </div>
         </div>
 
@@ -771,48 +796,6 @@ export default function Timesheets() {
             <div className="timesheet-total-label">Total Hours This Week</div>
             <div className="timesheet-total-hours">{totalHours.toFixed(2)}</div>
           </div>
-
-          <div className="mobile-actions">
-            {canEdit && (
-              <button className="btn btn-primary" onClick={handleSaveEntries} disabled={saving}>
-                {saving ? 'Saving...' : 'Save Timesheet'}
-              </button>
-            )}
-            {ts.status === 'draft' && (
-              <button className="btn btn-success" onClick={handleSubmit} disabled={saving}>
-                Submit for Approval
-              </button>
-            )}
-            {isAdmin && ts.status === 'submitted' && (
-              <>
-                <button className="btn btn-success" onClick={handleApprove} disabled={saving}>
-                  Approve Timesheet
-                </button>
-                <button className="btn btn-danger" onClick={handleReject} disabled={saving}>
-                  Reject Timesheet
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Desktop action buttons */}
-        <div className="no-print timesheet-desktop" style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          {ts.status === 'draft' && (
-            <button className="btn btn-success" onClick={handleSubmit} disabled={saving}>
-              Submit for Approval
-            </button>
-          )}
-          {isAdmin && ts.status === 'submitted' && (
-            <>
-              <button className="btn btn-danger" onClick={handleReject} disabled={saving}>
-                Reject
-              </button>
-              <button className="btn btn-success" onClick={handleApprove} disabled={saving}>
-                Approve
-              </button>
-            </>
-          )}
         </div>
 
         {/* Print-only section - Daily Time Report format (matches invoice format) */}
