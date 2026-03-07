@@ -7,14 +7,17 @@ export default function Dashboard({ setPage }) {
   const [projects, setProjects] = useState([]);
   const [timesheets, setTimesheets] = useState([]);
   const [budgets, setBudgets] = useState([]);
+  const [earnings, setEarnings] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const year = new Date().getFullYear();
     Promise.all([
       apiFetch('/projects'),
       apiFetch('/timesheets'),
       user.role === 'admin' ? apiFetch('/reports/project-budget') : Promise.resolve([]),
-    ]).then(([p, t, b]) => { setProjects(p); setTimesheets(t); setBudgets(b); setLoading(false); }).catch(() => setLoading(false));
+      user.role !== 'admin' ? apiFetch(`/reports/my-earnings?year=${year}`) : Promise.resolve(null),
+    ]).then(([p, t, b, e]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setLoading(false); }).catch(() => setLoading(false));
   }, [user]);
 
   if (loading) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading…</div>;
@@ -109,6 +112,7 @@ export default function Dashboard({ setPage }) {
   const myDraft = timesheets.filter(t => t.status === 'draft').length;
   const mySubmitted = timesheets.filter(t => t.status === 'submitted').length;
   const myApproved = timesheets.filter(t => t.status === 'approved').length;
+  const currentYear = new Date().getFullYear();
 
   return (
     <div>
@@ -122,9 +126,14 @@ export default function Dashboard({ setPage }) {
 
       <div className="stat-grid">
         <div className="stat-card accent">
-          <div className="stat-label">Total Hours Logged</div>
-          <div className="stat-value">{totalHours.toFixed(1)}</div>
-          <div className="stat-sub">all time</div>
+          <div className="stat-label">{currentYear} Earnings</div>
+          <div className="stat-value">${(earnings?.summary?.total_earnings || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div className="stat-sub">{(earnings?.summary?.total_hours || 0).toFixed(1)} hours approved</div>
+        </div>
+        <div className="stat-card" onClick={() => setPage('earnings')} style={{ cursor: 'pointer' }}>
+          <div className="stat-label">Pending</div>
+          <div className="stat-value" style={{ color: '#f59e0b' }}>${(earnings?.summary?.pending_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div className="stat-sub">{(earnings?.summary?.pending_hours || 0).toFixed(1)} hours awaiting approval</div>
         </div>
         <div className="stat-card" onClick={() => setPage('timesheets')} style={{ cursor: 'pointer' }}>
           <div className="stat-label">Draft</div>
@@ -132,14 +141,9 @@ export default function Dashboard({ setPage }) {
           <div className="stat-sub">timesheets in progress</div>
         </div>
         <div className="stat-card" onClick={() => setPage('timesheets')} style={{ cursor: 'pointer' }}>
-          <div className="stat-label">Submitted</div>
-          <div className="stat-value" style={{ color: mySubmitted > 0 ? '#f59e0b' : undefined }}>{mySubmitted}</div>
-          <div className="stat-sub">awaiting approval</div>
-        </div>
-        <div className="stat-card" onClick={() => setPage('timesheets')} style={{ cursor: 'pointer' }}>
           <div className="stat-label">Approved</div>
           <div className="stat-value" style={{ color: '#10b981' }}>{myApproved}</div>
-          <div className="stat-sub">timesheets approved</div>
+          <div className="stat-sub">timesheets this year</div>
         </div>
       </div>
 
@@ -169,7 +173,7 @@ export default function Dashboard({ setPage }) {
       <div className="card" style={{ marginTop: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div className="card-title" style={{ marginBottom: 0 }}>Recent Timesheets</div>
-          <button className="btn btn-secondary btn-sm" onClick={() => setPage('timesheets')}>View All</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setPage('earnings')}>View Earnings Report</button>
         </div>
         {timesheets.length === 0 ? (
           <div className="empty-state">
@@ -178,16 +182,20 @@ export default function Dashboard({ setPage }) {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Week Ending</th><th>Project</th><th>Hours</th><th>Status</th></tr></thead>
+              <thead><tr><th>Week Ending</th><th>Project</th><th>Hours</th><th>Amount</th><th>Status</th></tr></thead>
               <tbody>
-                {timesheets.slice(0, 5).map(t => (
-                  <tr key={t.id}>
-                    <td>{new Date(t.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                    <td>{t.project_name}<br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{t.customer_name}</span></td>
-                    <td style={{ fontFamily: 'DM Mono, monospace' }}>{(t.total_hours || 0).toFixed(2)}</td>
-                    <td><span className={`badge badge-${t.status}`}>{t.status}</span></td>
-                  </tr>
-                ))}
+                {timesheets.slice(0, 5).map(t => {
+                  const amount = (t.total_hours || 0) * (t.pay_rate || 0);
+                  return (
+                    <tr key={t.id}>
+                      <td>{new Date(t.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                      <td>{t.project_name}<br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{t.customer_name}</span></td>
+                      <td style={{ fontFamily: 'DM Mono, monospace' }}>{(t.total_hours || 0).toFixed(2)}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', color: t.status === 'approved' ? '#10b981' : '#64748b' }}>${amount.toFixed(2)}</td>
+                      <td><span className={`badge badge-${t.status}`}>{t.status}</span></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

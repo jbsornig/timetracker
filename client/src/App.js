@@ -11,8 +11,9 @@ import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Account from './pages/Account';
+import Earnings from './pages/Earnings';
 
-const ENGINEER_PAGES = ['dashboard', 'timesheets', 'account'];
+const ENGINEER_PAGES = ['dashboard', 'timesheets', 'account', 'earnings'];
 const ADMIN_PAGES = ['dashboard', 'timesheets', 'customers', 'projects', 'engineers', 'invoices', 'reports', 'settings'];
 
 function AppInner() {
@@ -52,6 +53,7 @@ function AppInner() {
       case 'reports': return <Reports />;
       case 'settings': return <Settings />;
       case 'account': return <Account />;
+      case 'earnings': return <Earnings />;
       default: return <Dashboard setPage={setPage} />;
     }
   };

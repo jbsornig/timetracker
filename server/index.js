@@ -282,14 +282,16 @@ app.get('/api/timesheets', auth, (req, res) => {
   const db = getDb();
   const { week_ending, project_id, user_id, status } = req.query;
   let query = `
-    SELECT ts.*, u.name as engineer_name, p.name as project_name, 
+    SELECT ts.*, u.name as engineer_name, p.name as project_name,
            c.name as customer_name, p.po_number,
-           COALESCE(SUM(te.hours), 0) as total_hours
+           COALESCE(SUM(te.hours), 0) as total_hours,
+           ep.pay_rate
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
     JOIN customers c ON c.id = p.customer_id
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE 1=1
   `;
   const params = [];
@@ -723,6 +725,50 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     ORDER BY u.name, p.name
   `).all(period_start, period_end);
   res.json(data);
+});
+
+// Engineer earnings report (accessible by engineers for their own data)
+app.get('/api/reports/my-earnings', auth, (req, res) => {
+  const db = getDb();
+  const { year } = req.query;
+  const targetYear = year || new Date().getFullYear();
+  const yearStart = `${targetYear}-01-01`;
+  const yearEnd = `${targetYear}-12-31`;
+
+  // Get all approved timesheets for this engineer in the year
+  const timesheets = db.prepare(`
+    SELECT ts.id, ts.week_ending, ts.status,
+           p.name as project_name, c.name as customer_name,
+           COALESCE(SUM(te.hours), 0) as total_hours,
+           ep.pay_rate,
+           COALESCE(SUM(te.hours), 0) * COALESCE(ep.pay_rate, 0) as amount
+    FROM timesheets ts
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.user_id = ? AND ts.week_ending BETWEEN ? AND ?
+    GROUP BY ts.id
+    ORDER BY ts.week_ending DESC
+  `).all(req.user.id, yearStart, yearEnd);
+
+  // Calculate totals
+  const approvedSheets = timesheets.filter(t => t.status === 'approved');
+  const totalHours = approvedSheets.reduce((s, t) => s + (t.total_hours || 0), 0);
+  const totalEarnings = approvedSheets.reduce((s, t) => s + (t.amount || 0), 0);
+  const pendingHours = timesheets.filter(t => t.status !== 'approved').reduce((s, t) => s + (t.total_hours || 0), 0);
+  const pendingAmount = timesheets.filter(t => t.status !== 'approved').reduce((s, t) => s + (t.amount || 0), 0);
+
+  res.json({
+    year: targetYear,
+    timesheets,
+    summary: {
+      total_hours: totalHours,
+      total_earnings: totalEarnings,
+      pending_hours: pendingHours,
+      pending_amount: pendingAmount
+    }
+  });
 });
 
 app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
