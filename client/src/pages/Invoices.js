@@ -481,7 +481,7 @@ export default function Invoices() {
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => viewInvoice(inv)} style={{ marginRight: 4 }}>View</button>
                         {getStatus(inv) !== 'voided' && getStatus(inv) !== 'paid' && (
-                          <button className="btn btn-primary btn-sm" onClick={() => openPayment(inv)} style={{ marginRight: 4 }}>Pay</button>
+                          <button className="btn btn-primary btn-sm" onClick={() => openPayment(inv)} style={{ marginRight: 4 }}>Paid</button>
                         )}
                         {getStatus(inv) === 'voided' ? (
                           <button className="btn btn-secondary btn-sm" onClick={() => handleUnvoid(inv)} style={{ marginRight: 4 }}>Restore</button>
