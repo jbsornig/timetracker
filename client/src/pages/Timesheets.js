@@ -975,6 +975,15 @@ export default function Timesheets() {
                   </div>
                   <div style={{ fontSize: 11, color: '#94a3b8' }}>hours</div>
                   <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
+                  {isAdmin && (
+                    <button
+                      className="btn btn-danger btn-sm"
+                      style={{ marginTop: 8, display: 'block' }}
+                      onClick={(e) => { e.stopPropagation(); handleDelete(ts.id); }}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
