@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Icons = {
@@ -16,7 +16,6 @@ const Icons = {
 
 export default function Layout({ page, setPage, children }) {
   const { user, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
@@ -39,22 +38,34 @@ export default function Layout({ page, setPage, children }) {
 
   const navItems = user?.role === 'admin' ? navAdmin : navEngineer;
 
-  const nav = (key) => { setPage(key); setSidebarOpen(false); };
+  const nav = (key) => { setPage(key); };
+
+  // Mobile nav items (simplified)
+  const mobileNavEngineer = [
+    { key: 'dashboard', label: 'Home', icon: Icons.dashboard },
+    { key: 'timesheets', label: 'Time', icon: Icons.clock },
+    { key: 'account', label: 'Account', icon: Icons.settings },
+  ];
+
+  const mobileNavAdmin = [
+    { key: 'dashboard', label: 'Home', icon: Icons.dashboard },
+    { key: 'timesheets', label: 'Time', icon: Icons.clock },
+    { key: 'projects', label: 'Projects', icon: Icons.folder },
+    { key: 'invoices', label: 'Invoices', icon: Icons.invoice },
+    { key: 'settings', label: 'More', icon: Icons.settings },
+  ];
+
+  const mobileNavItems = user?.role === 'admin' ? mobileNavAdmin : mobileNavEngineer;
 
   return (
     <div className="app-shell">
       {/* Mobile header */}
       <div className="mobile-header">
-        <button className="hamburger" onClick={() => setSidebarOpen(!sidebarOpen)}>{Icons.menu}</button>
         <h1>TimeTracker</h1>
-        <div style={{ width: 32 }} />
       </div>
 
-      {/* Overlay */}
-      {sidebarOpen && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 99 }} onClick={() => setSidebarOpen(false)} />}
-
-      {/* Sidebar */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+      {/* Sidebar - desktop only */}
+      <aside className="sidebar">
         <div className="sidebar-logo">
           <h1>Time<span>Tracker</span></h1>
           <p>Engineering Billing System</p>
@@ -82,6 +93,20 @@ export default function Layout({ page, setPage, children }) {
       </aside>
 
       <main className="main-content">{children}</main>
+
+      {/* Mobile bottom navigation */}
+      <nav className="mobile-nav">
+        {mobileNavItems.map(item => (
+          <button
+            key={item.key}
+            className={`mobile-nav-item ${page === item.key ? 'active' : ''}`}
+            onClick={() => nav(item.key)}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

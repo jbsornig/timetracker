@@ -176,10 +176,50 @@ tr:hover td { background: var(--surface2); }
 .modal-title { font-size: 18px; font-weight: 700; color: var(--text); }
 .modal-footer { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
 
-/* ── MOBILE HAMBURGER ── */
-.mobile-header { display: none; background: var(--navy); padding: 14px 20px; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 99; }
-.mobile-header h1 { color: white; font-size: 17px; font-weight: 700; }
-.hamburger { background: none; border: none; color: white; cursor: pointer; padding: 4px; }
+/* ── MOBILE HEADER ── */
+.mobile-header { display: none; background: white; padding: 12px 16px; align-items: center; justify-content: center; position: sticky; top: 0; z-index: 99; border-bottom: 1px solid var(--border); }
+.mobile-header h1 { color: var(--navy); font-size: 16px; font-weight: 600; }
+
+/* ── MOBILE BOTTOM NAV ── */
+.mobile-nav { display: none; }
+@media (max-width: 768px) {
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-top: 1px solid var(--border);
+    padding: 8px 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    z-index: 100;
+  }
+  .mobile-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 4px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .mobile-nav-item svg {
+    width: 22px;
+    height: 22px;
+  }
+  .mobile-nav-item.active {
+    color: var(--blue);
+  }
+  .main-content {
+    padding-bottom: 80px;
+  }
+}
 
 /* ── EMPTY STATE ── */
 .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
@@ -215,9 +255,9 @@ tr:hover td { background: var(--surface2); }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 768px) {
-  .sidebar { transform: translateX(-100%); }
-  .sidebar.open { transform: translateX(0); }
-  .main-content { margin-left: 0; padding: 20px 16px; }
+  /* Completely hide sidebar on mobile */
+  .sidebar { display: none !important; }
+  .main-content { margin-left: 0; padding: 16px; }
   .mobile-header { display: flex; }
   .form-row { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: 1fr 1fr; }
@@ -228,97 +268,91 @@ tr:hover td { background: var(--surface2); }
   .timesheet-desktop { display: none !important; }
   .timesheet-mobile { display: block !important; }
 
-  /* Mobile timesheet day cards */
+  /* Mobile timesheet day cards - clean, consistent styling */
   .timesheet-day-card {
-    background: var(--bg-card);
+    background: white;
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
   }
   .timesheet-day-card.has-hours {
-    border-left: 4px solid var(--primary);
+    border-left: 3px solid var(--blue);
   }
   .timesheet-day-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
   }
   .timesheet-day-name {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
   }
   .timesheet-day-date {
-    font-size: 14px;
-    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-muted);
   }
   .timesheet-day-hours {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
-    font-family: 'DM Mono', monospace;
-    color: var(--primary);
+    color: var(--blue);
   }
   .timesheet-time-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .timesheet-time-row label {
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
   }
   .timesheet-time-input {
     width: 100%;
-    padding: 12px;
-    font-size: 16px;
+    padding: 10px 12px;
+    font-size: 15px;
+    font-weight: 400;
     border: 1px solid var(--border);
     border-radius: 6px;
-    background: var(--bg-main);
+    background: white;
   }
   .timesheet-time-input:focus {
     outline: none;
-    border-color: var(--primary);
+    border-color: var(--blue);
   }
   .timesheet-desc-input {
     width: 100%;
-    padding: 12px;
-    font-size: 16px;
+    padding: 10px 12px;
+    font-size: 15px;
+    font-weight: 400;
     border: 1px solid var(--border);
     border-radius: 6px;
-    background: var(--bg-main);
+    background: white;
+  }
+  .timesheet-desc-input:focus {
+    outline: none;
+    border-color: var(--blue);
   }
   .timesheet-total-card {
-    background: var(--primary);
+    background: var(--navy);
     color: white;
     border-radius: 8px;
-    padding: 20px;
+    padding: 16px;
     text-align: center;
-    margin-top: 16px;
+    margin-top: 12px;
   }
   .timesheet-total-label {
-    font-size: 14px;
-    opacity: 0.9;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0.8;
   }
   .timesheet-total-hours {
-    font-size: 36px;
-    font-weight: 700;
-    font-family: 'DM Mono', monospace;
-  }
-
-  /* Mobile action buttons */
-  .mobile-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 16px;
-  }
-  .mobile-actions .btn {
-    width: 100%;
-    padding: 14px;
-    font-size: 16px;
+    font-size: 28px;
+    font-weight: 600;
   }
 
   /* Mobile table improvements */
