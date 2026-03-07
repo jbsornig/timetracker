@@ -155,19 +155,13 @@ function TimesheetPrintView({ ts, entries, settings }) {
             No Travel time or Expenses
           </div>
         </div>
-        {/* Right: Timesheet Info */}
-        <div style={{ flex: '0 0 auto', width: '300px' }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: '6pt' }}>
-            <tbody>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Week Ending:</td><td style={{ fontWeight: 'bold' }}>{weekEnding}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Engineer:</td><td>{ts.engineer_name}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Engineer ID:</td><td>{ts.eng_id || ''}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Work Order #:</td><td>{ts.po_number || ''}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Systems SO#:</td><td></td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Project Name:</td><td>{ts.project_name}</td></tr>
-              <tr><td style={{ textAlign: 'right', paddingRight: '2px', whiteSpace: 'nowrap' }}>Startup SO#:</td><td></td></tr>
-            </tbody>
-          </table>
+        {/* Right: Timesheet Info - compact to match columns 1 & 2 */}
+        <div style={{ flex: '0 0 auto', width: '220px', fontSize: '6pt', lineHeight: '1.2' }}>
+          <div><span style={{ display: 'inline-block', width: '70px', textAlign: 'right', paddingRight: '2px' }}>Week Ending:</span><strong>{weekEnding}</strong></div>
+          <div><span style={{ display: 'inline-block', width: '70px', textAlign: 'right', paddingRight: '2px' }}>Engineer:</span>{ts.engineer_name}</div>
+          <div><span style={{ display: 'inline-block', width: '70px', textAlign: 'right', paddingRight: '2px' }}>Engineer ID:</span>{ts.eng_id || ''}</div>
+          <div><span style={{ display: 'inline-block', width: '70px', textAlign: 'right', paddingRight: '2px' }}>Work Order #:</span>{ts.po_number || ''}</div>
+          <div><span style={{ display: 'inline-block', width: '70px', textAlign: 'right', paddingRight: '2px' }}>Project Name:</span>{ts.project_name}</div>
         </div>
       </div>
 
