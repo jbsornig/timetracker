@@ -264,16 +264,16 @@ app.get('/api/projects', auth, (req, res) => {
 });
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active');
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets } = req.body;
   const db = getDb();
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -734,6 +734,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   // Get invoice with all related info
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
+           p.include_timesheets,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.ap_email, c.email as customer_email,
            cc.name as contact_name, cc.email as contact_email
@@ -766,7 +767,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   if (invoice.contact_email) ccList.push(invoice.contact_email);
   if (settings.admin_notification_email) ccList.push(settings.admin_notification_email);
 
-  // Get line items
+  // Get line items and timesheet details
   const timesheets = db.prepare(`
     SELECT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate
     FROM timesheets ts
@@ -777,11 +778,20 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   `).all(invoice.project_id, invoice.period_start, invoice.period_end);
 
   const lineItems = [];
+  const timesheetDetails = [];
   for (const ts of timesheets) {
-    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ?').all(ts.id);
+    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? ORDER BY entry_date').all(ts.id);
     const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
     if (hrs > 0) {
       lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0) });
+      timesheetDetails.push({
+        engineer_name: ts.engineer_name,
+        engineer_id: ts.engineer_id,
+        week_ending: ts.week_ending,
+        bill_rate: ts.bill_rate,
+        total_hours: hrs,
+        entries
+      });
     }
   }
 
@@ -803,6 +813,22 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const dueDate = new Date(invoiceDate);
   dueDate.setDate(dueDate.getDate() + daysUntilDue);
 
+  // Format time helper
+  const formatTime = (time) => {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${m} ${ampm}`;
+  };
+
+  // Get day name
+  const getDayName = (dateStr) => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return days[new Date(dateStr + 'T00:00:00').getDay()];
+  };
+
   // Build email HTML
   const lineItemsHtml = lineItems.map(item => `
     <tr>
@@ -812,6 +838,65 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatCurrency(item.amount)}</td>
     </tr>
   `).join('');
+
+  // Build timesheet HTML for each timesheet
+  const timesheetsHtml = timesheetDetails.map(ts => {
+    const entriesHtml = ts.entries.map(e => `
+      <tr>
+        <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${getDayName(e.entry_date)} ${formatDate(e.entry_date)}</td>
+        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: center;">${formatTime(e.start_time) || '-'}</td>
+        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: center;">${formatTime(e.end_time) || '-'}</td>
+        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: center; font-weight: 600;">${e.hours ? e.hours.toFixed(2) : '-'}</td>
+        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-size: 12px;">${e.description || ''}</td>
+      </tr>
+    `).join('');
+
+    return `
+      <div style="margin-top: 40px; padding-top: 20px; border-top: 3px solid #1e293b;">
+        <div style="background: #1e293b; color: white; padding: 15px; text-align: center;">
+          <h2 style="margin: 0; font-size: 18px;">Daily Time Report</h2>
+        </div>
+        <div style="padding: 20px; background: #f8fafc;">
+          <table style="width: 100%; margin-bottom: 15px;">
+            <tr>
+              <td><strong>Engineer:</strong> ${ts.engineer_name}</td>
+              <td><strong>Engineer ID:</strong> ${ts.engineer_id || '-'}</td>
+            </tr>
+            <tr>
+              <td><strong>Week Ending:</strong> ${formatDate(ts.week_ending)}</td>
+              <td><strong>Project:</strong> ${invoice.project_name}</td>
+            </tr>
+            <tr>
+              <td><strong>Customer:</strong> ${invoice.customer_name}</td>
+              <td><strong>PO #:</strong> ${invoice.po_number || '-'}</td>
+            </tr>
+          </table>
+
+          <table style="width: 100%; border-collapse: collapse; background: white;">
+            <thead>
+              <tr style="background: #f1f5f9;">
+                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: left;">Date</th>
+                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">Start</th>
+                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">End</th>
+                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">Hours</th>
+                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: left;">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${entriesHtml}
+            </tbody>
+            <tfoot>
+              <tr style="background: #f1f5f9; font-weight: bold;">
+                <td style="padding: 8px; border: 1px solid #e2e8f0;" colspan="3">Total Hours</td>
+                <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">${ts.total_hours.toFixed(2)}</td>
+                <td style="padding: 8px; border: 1px solid #e2e8f0;"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   const emailHtml = `
     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
@@ -872,7 +957,9 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
         </div>
       </div>
 
-      <div style="background: #1e293b; color: #94a3b8; padding: 15px; text-align: center; font-size: 12px;">
+      ${invoice.include_timesheets ? timesheetsHtml : ''}
+
+      <div style="background: #1e293b; color: #94a3b8; padding: 15px; text-align: center; font-size: 12px; margin-top: 40px;">
         This invoice was generated by UTech TimeTracker
       </div>
     </div>

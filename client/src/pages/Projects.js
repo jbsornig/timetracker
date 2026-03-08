@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active' };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -65,6 +65,7 @@ export default function Projects() {
       contact_id: project.contact_id || '',
       description: project.description || '',
       po_amount: project.po_amount || '',
+      include_timesheets: project.include_timesheets !== 0,
     });
     setError('');
     if (project.customer_id) {
@@ -349,6 +350,18 @@ export default function Projects() {
                   <option value="inactive">Inactive</option>
                 </select>
               </div>
+            </div>
+            <div className="form-group" style={{ marginTop: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={form.include_timesheets}
+                  onChange={(e) => setForm({ ...form, include_timesheets: e.target.checked })}
+                  style={{ width: 18, height: 18 }}
+                />
+                <span>Include timesheets with invoice emails</span>
+              </label>
+              <div className="form-hint">When checked, emailed invoices will include detailed timesheet reports</div>
             </div>
           </form>
         </Modal>

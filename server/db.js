@@ -180,6 +180,13 @@ function initSchema() {
     console.log('✅ Migration: Added ap_email column to customers');
   }
 
+  // Add include_timesheets column to projects if missing
+  const projectCols2 = db.prepare("PRAGMA table_info(projects)").all();
+  if (!projectCols2.find(c => c.name === 'include_timesheets')) {
+    db.exec('ALTER TABLE projects ADD COLUMN include_timesheets INTEGER DEFAULT 1');
+    console.log('✅ Migration: Added include_timesheets column to projects');
+  }
+
   // Add payment tracking columns to invoices if missing
   const invoiceCols = db.prepare("PRAGMA table_info(invoices)").all();
   if (!invoiceCols.find(c => c.name === 'amount_paid')) {
