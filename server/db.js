@@ -174,6 +174,11 @@ function initSchema() {
     db.exec("ALTER TABLE customers ADD COLUMN payment_terms TEXT DEFAULT 'Net 30'");
     console.log('✅ Migration: Added payment_terms column to customers');
   }
+  // Add ap_email column to customers if missing
+  if (!customerCols.find(c => c.name === 'ap_email')) {
+    db.exec('ALTER TABLE customers ADD COLUMN ap_email TEXT');
+    console.log('✅ Migration: Added ap_email column to customers');
+  }
 
   // Add payment tracking columns to invoices if missing
   const invoiceCols = db.prepare("PRAGMA table_info(invoices)").all();

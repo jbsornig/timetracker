@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30' };
+const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '' };
 const PAYMENT_TERMS_OPTIONS = ['Immediate', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 75', 'Net 90'];
 const emptyContact = { name: '', title: '', email: '', phone: '' };
 
@@ -316,6 +316,17 @@ export default function Customers() {
                     placeholder="(555) 123-4567"
                   />
                 </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Accounts Payable Email</label>
+                <input
+                  className="form-input"
+                  type="email"
+                  value={form.ap_email}
+                  onChange={(e) => setForm({ ...form, ap_email: e.target.value })}
+                  placeholder="ap@company.com"
+                />
+                <div className="form-hint">Invoices will be emailed to this address</div>
               </div>
             </div>
             <div className="form-group">

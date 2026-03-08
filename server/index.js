@@ -177,9 +177,9 @@ app.get('/api/customers', auth, (req, res) => {
 });
 
 app.post('/api/customers', auth, adminOnly, (req, res) => {
-  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms } = req.body;
+  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30');
+  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null);
   const customerId = result.lastInsertRowid;
 
   // Auto-create a contact record if primary contact name is provided
@@ -191,9 +191,9 @@ app.post('/api/customers', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/customers/:id', auth, adminOnly, (req, res) => {
-  const { name, contact, email, phone, address, supplier_number, payment_terms } = req.body;
+  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email } = req.body;
   const db = getDb();
-  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', req.params.id);
+  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, req.params.id);
   res.json({ success: true });
 });
 
@@ -725,6 +725,181 @@ app.put('/api/invoices/:id/unvoid', auth, adminOnly, (req, res) => {
 
   db.prepare('UPDATE invoices SET status = ?, voided_date = NULL WHERE id = ?').run(newStatus, req.params.id);
   res.json({ success: true });
+});
+
+// Email an invoice
+app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
+  const db = getDb();
+
+  // Get invoice with all related info
+  const invoice = db.prepare(`
+    SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
+           c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
+           c.ap_email, c.email as customer_email,
+           cc.name as contact_name, cc.email as contact_email
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
+    WHERE i.id = ?
+  `).get(req.params.id);
+
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  // Get email settings
+  const settings = {};
+  const rows = db.prepare("SELECT key, value FROM settings").all();
+  for (const row of rows) {
+    settings[row.key] = row.value;
+  }
+
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings.' });
+  }
+
+  if (!invoice.ap_email) {
+    return res.status(400).json({ error: 'No AP email set for this customer. Add AP email in Customers.' });
+  }
+
+  // Build CC list
+  const ccList = [];
+  if (invoice.contact_email) ccList.push(invoice.contact_email);
+  if (settings.admin_notification_email) ccList.push(settings.admin_notification_email);
+
+  // Get line items
+  const timesheets = db.prepare(`
+    SELECT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.project_id = ? AND ts.status = 'approved'
+    AND ts.week_ending BETWEEN ? AND ?
+  `).all(invoice.project_id, invoice.period_start, invoice.period_end);
+
+  const lineItems = [];
+  for (const ts of timesheets) {
+    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ?').all(ts.id);
+    const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+    if (hrs > 0) {
+      lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0) });
+    }
+  }
+
+  // Format currency
+  const formatCurrency = (amt) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amt || 0);
+
+  // Format date
+  const formatDate = (dateStr) => new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+
+  // Calculate due date
+  let daysUntilDue = 30;
+  if (invoice.payment_terms === 'Immediate') {
+    daysUntilDue = 0;
+  } else {
+    const match = invoice.payment_terms?.match(/Net\s*(\d+)/i);
+    if (match) daysUntilDue = parseInt(match[1], 10);
+  }
+  const invoiceDate = new Date(invoice.created_at);
+  const dueDate = new Date(invoiceDate);
+  dueDate.setDate(dueDate.getDate() + daysUntilDue);
+
+  // Build email HTML
+  const lineItemsHtml = lineItems.map(item => `
+    <tr>
+      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${item.engineer}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${item.hours.toFixed(2)}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatCurrency(item.rate)}</td>
+      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatCurrency(item.amount)}</td>
+    </tr>
+  `).join('');
+
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+      <div style="background: #1e293b; color: white; padding: 20px; text-align: center;">
+        <h1 style="margin: 0; font-size: 24px;">${settings.company_name || 'Invoice'}</h1>
+      </div>
+
+      <div style="padding: 30px; background: #f8fafc;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+          <div>
+            <strong>Bill To:</strong><br/>
+            ${invoice.customer_name}<br/>
+            ${(invoice.customer_address || '').split('\n').join('<br/>')}
+          </div>
+          <div style="text-align: right;">
+            <h2 style="margin: 0; color: #1e293b;">Invoice #${invoice.invoice_number}</h2>
+            <p style="margin: 5px 0; color: #64748b;">
+              Date: ${formatDate(invoice.created_at.split('T')[0])}<br/>
+              Due: ${dueDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}<br/>
+              Terms: ${invoice.payment_terms || 'Net 30'}
+            </p>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <strong>Project:</strong> ${invoice.project_name}<br/>
+          ${invoice.po_number ? `<strong>PO #:</strong> ${invoice.po_number}<br/>` : ''}
+          ${invoice.supplier_number ? `<strong>Supplier #:</strong> ${invoice.supplier_number}<br/>` : ''}
+          <strong>Period:</strong> ${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; background: white; margin-bottom: 20px;">
+          <thead>
+            <tr style="background: #f1f5f9;">
+              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e2e8f0;">Engineer</th>
+              <th style="padding: 10px; text-align: right; border-bottom: 2px solid #e2e8f0;">Hours</th>
+              <th style="padding: 10px; text-align: right; border-bottom: 2px solid #e2e8f0;">Rate</th>
+              <th style="padding: 10px; text-align: right; border-bottom: 2px solid #e2e8f0;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lineItemsHtml}
+          </tbody>
+          <tfoot>
+            <tr style="background: #f1f5f9; font-weight: bold;">
+              <td style="padding: 10px;" colspan="3">Total</td>
+              <td style="padding: 10px; text-align: right;">${formatCurrency(invoice.total_amount)}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div style="background: #e0f2fe; padding: 15px; border-radius: 8px; margin-top: 20px;">
+          <strong>Payment Information:</strong><br/>
+          Please remit payment to ${settings.company_name || 'us'}.<br/>
+          ${settings.company_address ? settings.company_address + '<br/>' : ''}
+          ${settings.company_city_state_zip ? settings.company_city_state_zip + '<br/>' : ''}
+          ${settings.company_email ? 'Email: ' + settings.company_email : ''}
+        </div>
+      </div>
+
+      <div style="background: #1e293b; color: #94a3b8; padding: 15px; text-align: center; font-size: 12px;">
+        This invoice was generated by UTech TimeTracker
+      </div>
+    </div>
+  `;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: settings.smtp_email,
+        pass: settings.smtp_password,
+      },
+    });
+
+    await transporter.sendMail({
+      from: settings.smtp_email,
+      to: invoice.ap_email,
+      cc: ccList.length > 0 ? ccList.join(', ') : undefined,
+      subject: `Invoice #${invoice.invoice_number} from ${settings.company_name || 'UTech TimeTracker'} - ${invoice.project_name}`,
+      html: emailHtml,
+    });
+
+    res.json({ success: true, message: `Invoice emailed to ${invoice.ap_email}` + (ccList.length > 0 ? ` (CC: ${ccList.join(', ')})` : '') });
+  } catch (err) {
+    console.error('Failed to send invoice email:', err);
+    res.status(500).json({ error: 'Failed to send email: ' + err.message });
+  }
 });
 
 // Get outstanding balances summary
