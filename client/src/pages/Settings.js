@@ -310,6 +310,28 @@ export default function Settings() {
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </form>
+
+      <div className="card" style={{ marginTop: 20 }}>
+        <div className="card-title">Demo Data</div>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+          Generate sample customers, projects, engineers, timesheets, and invoices to test the system.
+        </p>
+        <button
+          className="btn btn-secondary"
+          onClick={async () => {
+            if (!window.confirm('This will create sample customers, projects, engineers, timesheets, and 50+ unpaid invoices. Continue?')) return;
+            try {
+              const result = await apiFetch('/seed-demo-data', { method: 'POST' });
+              alert(result.message || 'Demo data created successfully!');
+              window.location.reload();
+            } catch (e) {
+              alert('Error: ' + e.message);
+            }
+          }}
+        >
+          Generate Demo Data
+        </button>
+      </div>
     </div>
   );
 }

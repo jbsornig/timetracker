@@ -861,6 +861,185 @@ app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
   res.json(data);
 });
 
+// ─── SEED DATA (for testing) ──────────────────────────────────────────────────
+
+app.post('/api/seed-demo-data', auth, adminOnly, (req, res) => {
+  const db = getDb();
+
+  try {
+    const customerNames = [
+      'Acme Corporation', 'TechFlow Industries', 'Global Systems Inc', 'Metro Solutions',
+      'Summit Energy', 'Pacific Manufacturing', 'Delta Automation', 'Precision Controls',
+      'Atlas Engineering', 'Vertex Technologies'
+    ];
+
+    const projectTypes = ['System Upgrade', 'Maintenance Contract', 'New Installation', 'Retrofit Project', 'Consulting'];
+    const cities = ['Houston, TX 77001', 'Dallas, TX 75201', 'Austin, TX 78701', 'San Antonio, TX 78201', 'Fort Worth, TX 76101'];
+
+    const engineerData = [
+      { name: 'John Smith', email: 'john.smith@test.com', engineer_id: 'ENG001' },
+      { name: 'Sarah Johnson', email: 'sarah.j@test.com', engineer_id: 'ENG002' },
+      { name: 'Mike Williams', email: 'mike.w@test.com', engineer_id: 'ENG003' },
+      { name: 'Emily Davis', email: 'emily.d@test.com', engineer_id: 'ENG004' },
+      { name: 'Robert Brown', email: 'robert.b@test.com', engineer_id: 'ENG005' },
+    ];
+
+    const hash = bcrypt.hashSync('test123', 10);
+
+    // Create engineers
+    const engineerIds = [];
+    for (const eng of engineerData) {
+      const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(eng.email);
+      if (existing) {
+        engineerIds.push(existing.id);
+      } else {
+        const result = db.prepare('INSERT INTO users (name, email, password, role, engineer_id) VALUES (?, ?, ?, ?, ?)').run(eng.name, eng.email, hash, 'engineer', eng.engineer_id);
+        engineerIds.push(result.lastInsertRowid);
+      }
+    }
+
+    // Create customers and projects
+    const projectIds = [];
+    let poCounter = 10000;
+
+    for (const custName of customerNames) {
+      const existing = db.prepare('SELECT id FROM customers WHERE name = ?').get(custName);
+      let customerId;
+      if (existing) {
+        customerId = existing.id;
+      } else {
+        const addr = `${Math.floor(Math.random() * 9000) + 1000} Industrial Blvd\n${cities[Math.floor(Math.random() * cities.length)]}`;
+        const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+          custName, 'Primary Contact', `billing@${custName.toLowerCase().replace(/\s+/g, '')}.com`, '(555) 555-' + String(Math.floor(Math.random() * 9000) + 1000), addr, 'SUP' + String(poCounter), 'Net 30'
+        );
+        customerId = result.lastInsertRowid;
+      }
+
+      // Create 3 projects per customer
+      for (let p = 0; p < 3; p++) {
+        const projType = projectTypes[Math.floor(Math.random() * projectTypes.length)];
+        const projName = `${custName.split(' ')[0]} ${projType}`;
+        const existingProj = db.prepare('SELECT id FROM projects WHERE name = ? AND customer_id = ?').get(projName, customerId);
+
+        if (!existingProj) {
+          poCounter++;
+          const poAmount = Math.floor(Math.random() * 50000) + 10000;
+          const result = db.prepare('INSERT INTO projects (customer_id, name, po_number, po_amount, location, status) VALUES (?, ?, ?, ?, ?, ?)').run(
+            customerId, projName, 'PO-' + poCounter, poAmount, cities[Math.floor(Math.random() * cities.length)].split(',')[0], 'active'
+          );
+          projectIds.push(result.lastInsertRowid);
+
+          // Assign 2 random engineers to each project
+          const assignedEngineers = [...engineerIds].sort(() => Math.random() - 0.5).slice(0, 2);
+          for (const engId of assignedEngineers) {
+            const payRate = Math.floor(Math.random() * 30) + 40; // $40-70/hr
+            const billRate = payRate + Math.floor(Math.random() * 40) + 30; // pay + $30-70
+            db.prepare('INSERT OR IGNORE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate) VALUES (?, ?, ?, ?)').run(engId, result.lastInsertRowid, payRate, billRate);
+          }
+        } else {
+          projectIds.push(existingProj.id);
+        }
+      }
+    }
+
+    // Create timesheets and invoices for the past 6 months
+    const today = new Date();
+    let invoiceCount = 0;
+
+    for (let weeksAgo = 1; weeksAgo <= 26; weeksAgo++) {
+      const weekEnd = new Date(today);
+      weekEnd.setDate(today.getDate() - (today.getDay()) - (weeksAgo * 7)); // Get Sundays going back
+      const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+      // Create timesheets for random projects
+      const projectsThisWeek = [...projectIds].sort(() => Math.random() - 0.5).slice(0, Math.floor(Math.random() * 8) + 3);
+
+      for (const projId of projectsThisWeek) {
+        // Get an engineer assigned to this project
+        const assignment = db.prepare('SELECT user_id FROM engineer_projects WHERE project_id = ? LIMIT 1').get(projId);
+        if (!assignment) continue;
+
+        const existingTs = db.prepare('SELECT id FROM timesheets WHERE project_id = ? AND week_ending = ? AND user_id = ?').get(projId, weekEndStr, assignment.user_id);
+        if (existingTs) continue;
+
+        // Create timesheet
+        const tsResult = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, status, submitted_at, approved_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)').run(
+          assignment.user_id, projId, weekEndStr, 'approved'
+        );
+        const tsId = tsResult.lastInsertRowid;
+
+        // Create entries for Mon-Fri
+        for (let d = 6; d >= 0; d--) {
+          const entryDate = new Date(weekEnd);
+          entryDate.setDate(weekEnd.getDate() - d);
+          const entryDateStr = entryDate.toISOString().split('T')[0];
+          const dayOfWeek = entryDate.getDay();
+
+          let hours = 0;
+          let startTime = null, endTime = null;
+          if (dayOfWeek >= 1 && dayOfWeek <= 5 && Math.random() > 0.2) { // Mon-Fri, 80% chance of working
+            hours = Math.floor(Math.random() * 4) + 6; // 6-10 hours
+            startTime = '07:00';
+            const endHour = 7 + hours;
+            endTime = (endHour < 10 ? '0' : '') + endHour + ':00';
+          }
+
+          db.prepare('INSERT INTO timesheet_entries (timesheet_id, entry_date, start_time, end_time, hours, description, shift) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            tsId, entryDateStr, startTime, endTime, hours, hours > 0 ? 'System maintenance and support' : null, 1
+          );
+        }
+      }
+
+      // Create invoices every 2 weeks
+      if (weeksAgo % 2 === 0 && invoiceCount < 60) {
+        const projectsToInvoice = [...projectIds].sort(() => Math.random() - 0.5).slice(0, 3);
+
+        for (const projId of projectsToInvoice) {
+          if (invoiceCount >= 60) break;
+
+          const periodEnd = weekEndStr;
+          const periodStartDate = new Date(weekEnd);
+          periodStartDate.setDate(periodStartDate.getDate() - 13);
+          const periodStart = periodStartDate.toISOString().split('T')[0];
+
+          // Check for approved timesheets in period
+          const timesheets = db.prepare(`
+            SELECT ts.id, ep.bill_rate
+            FROM timesheets ts
+            LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+            WHERE ts.project_id = ? AND ts.status = 'approved' AND ts.week_ending BETWEEN ? AND ?
+          `).all(projId, periodStart, periodEnd);
+
+          if (timesheets.length === 0) continue;
+
+          let totalHours = 0, totalAmount = 0;
+          for (const ts of timesheets) {
+            const hours = db.prepare('SELECT COALESCE(SUM(hours), 0) as hrs FROM timesheet_entries WHERE timesheet_id = ?').get(ts.id);
+            totalHours += hours.hrs;
+            totalAmount += hours.hrs * (ts.bill_rate || 75);
+          }
+
+          if (totalHours === 0) continue;
+
+          const invNum = 1000 + invoiceCount;
+          const existingInv = db.prepare('SELECT id FROM invoices WHERE invoice_number = ?').get(String(invNum));
+          if (existingInv) continue;
+
+          db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, status, amount_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+            projId, String(invNum), periodStart, periodEnd, totalHours, totalAmount, 'unpaid', 0
+          );
+          invoiceCount++;
+        }
+      }
+    }
+
+    res.json({ success: true, message: `Created demo data: ${engineerIds.length} engineers, ${projectIds.length} projects, ${invoiceCount} invoices` });
+  } catch (err) {
+    console.error('Seed error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch-all: serve React app for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
