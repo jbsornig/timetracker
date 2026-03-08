@@ -942,46 +942,41 @@ app.post('/api/seed-demo-data', auth, adminOnly, (req, res) => {
       }
     }
 
-    // Create timesheets and invoices for the past 6 months
+    // Create timesheets for past 12 weeks
     const today = new Date();
-    let invoiceCount = 0;
+    let timesheetCount = 0;
 
-    for (let weeksAgo = 1; weeksAgo <= 26; weeksAgo++) {
+    for (let weeksAgo = 1; weeksAgo <= 12; weeksAgo++) {
       const weekEnd = new Date(today);
-      weekEnd.setDate(today.getDate() - (today.getDay()) - (weeksAgo * 7)); // Get Sundays going back
+      weekEnd.setDate(today.getDate() - (today.getDay()) - (weeksAgo * 7));
       const weekEndStr = weekEnd.toISOString().split('T')[0];
 
-      // Create timesheets for random projects
-      const projectsThisWeek = [...projectIds].sort(() => Math.random() - 0.5).slice(0, Math.floor(Math.random() * 8) + 3);
+      const projectsThisWeek = [...projectIds].sort(() => Math.random() - 0.5).slice(0, 5);
 
       for (const projId of projectsThisWeek) {
-        // Get an engineer assigned to this project
         const assignment = db.prepare('SELECT user_id FROM engineer_projects WHERE project_id = ? LIMIT 1').get(projId);
         if (!assignment) continue;
 
         const existingTs = db.prepare('SELECT id FROM timesheets WHERE project_id = ? AND week_ending = ? AND user_id = ?').get(projId, weekEndStr, assignment.user_id);
         if (existingTs) continue;
 
-        // Create timesheet
         const tsResult = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, status, submitted_at, approved_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)').run(
           assignment.user_id, projId, weekEndStr, 'approved'
         );
         const tsId = tsResult.lastInsertRowid;
+        timesheetCount++;
 
-        // Create entries for Mon-Fri
         for (let d = 6; d >= 0; d--) {
           const entryDate = new Date(weekEnd);
           entryDate.setDate(weekEnd.getDate() - d);
           const entryDateStr = entryDate.toISOString().split('T')[0];
           const dayOfWeek = entryDate.getDay();
 
-          let hours = 0;
-          let startTime = null, endTime = null;
-          if (dayOfWeek >= 1 && dayOfWeek <= 5 && Math.random() > 0.2) { // Mon-Fri, 80% chance of working
-            hours = Math.floor(Math.random() * 4) + 6; // 6-10 hours
+          let hours = 0, startTime = null, endTime = null;
+          if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+            hours = Math.floor(Math.random() * 4) + 6;
             startTime = '07:00';
-            const endHour = 7 + hours;
-            endTime = (endHour < 10 ? '0' : '') + endHour + ':00';
+            endTime = (7 + hours < 10 ? '0' : '') + (7 + hours) + ':00';
           }
 
           db.prepare('INSERT INTO timesheet_entries (timesheet_id, entry_date, start_time, end_time, hours, description, shift) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
@@ -989,51 +984,37 @@ app.post('/api/seed-demo-data', auth, adminOnly, (req, res) => {
           );
         }
       }
-
-      // Create invoices every 2 weeks
-      if (weeksAgo % 2 === 0 && invoiceCount < 60) {
-        const projectsToInvoice = [...projectIds].sort(() => Math.random() - 0.5).slice(0, 3);
-
-        for (const projId of projectsToInvoice) {
-          if (invoiceCount >= 60) break;
-
-          const periodEnd = weekEndStr;
-          const periodStartDate = new Date(weekEnd);
-          periodStartDate.setDate(periodStartDate.getDate() - 13);
-          const periodStart = periodStartDate.toISOString().split('T')[0];
-
-          // Check for approved timesheets in period
-          const timesheets = db.prepare(`
-            SELECT ts.id, ep.bill_rate
-            FROM timesheets ts
-            LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-            WHERE ts.project_id = ? AND ts.status = 'approved' AND ts.week_ending BETWEEN ? AND ?
-          `).all(projId, periodStart, periodEnd);
-
-          if (timesheets.length === 0) continue;
-
-          let totalHours = 0, totalAmount = 0;
-          for (const ts of timesheets) {
-            const hours = db.prepare('SELECT COALESCE(SUM(hours), 0) as hrs FROM timesheet_entries WHERE timesheet_id = ?').get(ts.id);
-            totalHours += hours.hrs;
-            totalAmount += hours.hrs * (ts.bill_rate || 75);
-          }
-
-          if (totalHours === 0) continue;
-
-          const invNum = 1000 + invoiceCount;
-          const existingInv = db.prepare('SELECT id FROM invoices WHERE invoice_number = ?').get(String(invNum));
-          if (existingInv) continue;
-
-          db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, status, amount_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-            projId, String(invNum), periodStart, periodEnd, totalHours, totalAmount, 'unpaid', 0
-          );
-          invoiceCount++;
-        }
-      }
     }
 
-    res.json({ success: true, message: `Created demo data: ${engineerIds.length} engineers, ${projectIds.length} projects, ${invoiceCount} invoices` });
+    // Create 60 invoices directly
+    let invoiceCount = 0;
+    const maxInvNum = db.prepare('SELECT MAX(CAST(invoice_number AS INTEGER)) as m FROM invoices').get();
+    let nextInvNum = (maxInvNum?.m || 999) + 1;
+
+    for (let i = 0; i < 60; i++) {
+      const projId = projectIds[i % projectIds.length];
+      const weeksAgo = Math.floor(i / 2) + 1;
+
+      const periodEnd = new Date(today);
+      periodEnd.setDate(today.getDate() - (weeksAgo * 14));
+      const periodEndStr = periodEnd.toISOString().split('T')[0];
+
+      const periodStart = new Date(periodEnd);
+      periodStart.setDate(periodEnd.getDate() - 13);
+      const periodStartStr = periodStart.toISOString().split('T')[0];
+
+      const totalHours = Math.floor(Math.random() * 60) + 20;
+      const billRate = Math.floor(Math.random() * 50) + 75;
+      const totalAmount = totalHours * billRate;
+
+      db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, status, amount_paid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        projId, String(nextInvNum), periodStartStr, periodEndStr, totalHours, totalAmount, 'unpaid', 0
+      );
+      nextInvNum++;
+      invoiceCount++;
+    }
+
+    res.json({ success: true, message: `Created demo data: ${engineerIds.length} engineers, ${projectIds.length} projects, ${timesheetCount} timesheets, ${invoiceCount} invoices` });
   } catch (err) {
     console.error('Seed error:', err);
     res.status(500).json({ error: err.message });
