@@ -861,6 +861,204 @@ app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
   res.json(data);
 });
 
+// ─── BACKUP & RESTORE ─────────────────────────────────────────────────────────
+
+// Backup all company data
+app.get('/api/backup', (req, res) => {
+  // Allow token in query string for direct download
+  const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'No token provided' });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+  const db = getDb();
+  try {
+    const backup = {
+      version: '1.0',
+      created_at: new Date().toISOString(),
+      data: {
+        customers: db.prepare('SELECT * FROM customers').all(),
+        customer_contacts: db.prepare('SELECT * FROM customer_contacts').all(),
+        projects: db.prepare('SELECT * FROM projects').all(),
+        users: db.prepare('SELECT id, name, email, role, engineer_id, created_at FROM users').all(), // exclude passwords
+        engineer_projects: db.prepare('SELECT * FROM engineer_projects').all(),
+        timesheets: db.prepare('SELECT * FROM timesheets').all(),
+        timesheet_entries: db.prepare('SELECT * FROM timesheet_entries').all(),
+        invoices: db.prepare('SELECT * FROM invoices').all(),
+        payments: db.prepare('SELECT * FROM payments').all(),
+        settings: db.prepare('SELECT * FROM settings').all(),
+      }
+    };
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="utech-timetracker-backup-${new Date().toISOString().split('T')[0]}.json"`);
+    res.json(backup);
+  } catch (err) {
+    console.error('Backup error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restore from backup
+app.post('/api/restore', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { backup } = req.body;
+
+  if (!backup || !backup.data) {
+    return res.status(400).json({ error: 'Invalid backup file' });
+  }
+
+  try {
+    const txn = db.transaction(() => {
+      // Clear existing data (except current admin user)
+      const currentUserId = req.user.id;
+      db.prepare('DELETE FROM payments').run();
+      db.prepare('DELETE FROM invoices').run();
+      db.prepare('DELETE FROM timesheet_entries').run();
+      db.prepare('DELETE FROM timesheets').run();
+      db.prepare('DELETE FROM engineer_projects').run();
+      db.prepare('DELETE FROM projects').run();
+      db.prepare('DELETE FROM customer_contacts').run();
+      db.prepare('DELETE FROM customers').run();
+      db.prepare('DELETE FROM users WHERE id != ?').run(currentUserId);
+      db.prepare('DELETE FROM settings').run();
+
+      // Restore customers
+      if (backup.data.customers) {
+        for (const c of backup.data.customers) {
+          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.created_at
+          );
+        }
+      }
+
+      // Restore customer_contacts
+      if (backup.data.customer_contacts) {
+        for (const c of backup.data.customer_contacts) {
+          db.prepare('INSERT INTO customer_contacts (id, customer_id, name, title, email, phone) VALUES (?, ?, ?, ?, ?, ?)').run(
+            c.id, c.customer_id, c.name, c.title, c.email, c.phone
+          );
+        }
+      }
+
+      // Restore projects
+      if (backup.data.projects) {
+        for (const p of backup.data.projects) {
+          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.created_at
+          );
+        }
+      }
+
+      // Restore users (except current admin)
+      if (backup.data.users) {
+        const defaultHash = bcrypt.hashSync('changeme123', 10);
+        for (const u of backup.data.users) {
+          if (u.id === currentUserId) continue;
+          db.prepare('INSERT INTO users (id, name, email, password, role, engineer_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            u.id, u.name, u.email, defaultHash, u.role, u.engineer_id, u.created_at
+          );
+        }
+      }
+
+      // Restore engineer_projects
+      if (backup.data.engineer_projects) {
+        for (const ep of backup.data.engineer_projects) {
+          db.prepare('INSERT OR IGNORE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate) VALUES (?, ?, ?, ?)').run(
+            ep.user_id, ep.project_id, ep.pay_rate, ep.bill_rate
+          );
+        }
+      }
+
+      // Restore timesheets
+      if (backup.data.timesheets) {
+        for (const t of backup.data.timesheets) {
+          db.prepare('INSERT INTO timesheets (id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            t.id, t.user_id, t.project_id, t.week_ending, t.status, t.submitted_at, t.approved_at, t.approved_by, t.created_at
+          );
+        }
+      }
+
+      // Restore timesheet_entries
+      if (backup.data.timesheet_entries) {
+        for (const e of backup.data.timesheet_entries) {
+          db.prepare('INSERT INTO timesheet_entries (id, timesheet_id, entry_date, start_time, end_time, hours, description, shift) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+            e.id, e.timesheet_id, e.entry_date, e.start_time, e.end_time, e.hours, e.description, e.shift
+          );
+        }
+      }
+
+      // Restore invoices
+      if (backup.data.invoices) {
+        for (const i of backup.data.invoices) {
+          db.prepare('INSERT INTO invoices (id, project_id, invoice_number, period_start, period_end, total_hours, total_amount, amount_paid, status, paid_date, voided_date, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            i.id, i.project_id, i.invoice_number, i.period_start, i.period_end, i.total_hours, i.total_amount, i.amount_paid, i.status, i.paid_date, i.voided_date, i.notes, i.created_at
+          );
+        }
+      }
+
+      // Restore payments
+      if (backup.data.payments) {
+        for (const p of backup.data.payments) {
+          db.prepare('INSERT INTO payments (id, invoice_id, amount, payment_date, payment_method, reference_number, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+            p.id, p.invoice_id, p.amount, p.payment_date, p.payment_method, p.reference_number, p.notes, p.created_at
+          );
+        }
+      }
+
+      // Restore settings
+      if (backup.data.settings) {
+        for (const s of backup.data.settings) {
+          db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(s.key, s.value);
+        }
+      }
+    });
+
+    txn();
+    res.json({ success: true, message: 'Backup restored successfully. Note: User passwords have been reset to "changeme123"' });
+  } catch (err) {
+    console.error('Restore error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reset company - start fresh
+app.post('/api/reset-company', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { confirm } = req.body;
+
+  if (confirm !== 'RESET') {
+    return res.status(400).json({ error: 'Please confirm by sending confirm: "RESET"' });
+  }
+
+  try {
+    const currentUserId = req.user.id;
+
+    const txn = db.transaction(() => {
+      db.prepare('DELETE FROM payments').run();
+      db.prepare('DELETE FROM invoices').run();
+      db.prepare('DELETE FROM timesheet_entries').run();
+      db.prepare('DELETE FROM timesheets').run();
+      db.prepare('DELETE FROM engineer_projects').run();
+      db.prepare('DELETE FROM projects').run();
+      db.prepare('DELETE FROM customer_contacts').run();
+      db.prepare('DELETE FROM customers').run();
+      db.prepare('DELETE FROM users WHERE id != ?').run(currentUserId);
+      // Keep settings (company info, etc.)
+    });
+
+    txn();
+    res.json({ success: true, message: 'Company data cleared. You can now start fresh.' });
+  } catch (err) {
+    console.error('Reset error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── SEED DATA (for testing) ──────────────────────────────────────────────────
 
 app.post('/api/seed-demo-data', auth, adminOnly, (req, res) => {

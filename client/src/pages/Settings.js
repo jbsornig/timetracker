@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../api';
 
+const API_BASE = process.env.REACT_APP_API_URL || '';
+
 export default function Settings() {
   const [settings, setSettings] = useState({
     company_name: '',
@@ -310,6 +312,86 @@ export default function Settings() {
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </form>
+
+      <div className="card" style={{ marginTop: 20 }}>
+        <div className="card-title">Company Data Management</div>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+          Backup your data, restore from a backup, or start a new company.
+        </p>
+
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+          {/* Backup Button */}
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              const token = localStorage.getItem('tt_token');
+              window.location.href = `${API_BASE}/api/backup?token=${token}`;
+            }}
+          >
+            Download Backup
+          </button>
+
+          {/* Restore Button */}
+          <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+            Restore from Backup
+            <input
+              type="file"
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                if (!window.confirm('This will replace ALL current data with the backup. Your current data will be lost. Continue?')) {
+                  e.target.value = '';
+                  return;
+                }
+
+                try {
+                  const text = await file.text();
+                  const backup = JSON.parse(text);
+                  const result = await apiFetch('/restore', { method: 'POST', body: { backup } });
+                  alert(result.message || 'Restore completed!');
+                  window.location.reload();
+                } catch (err) {
+                  alert('Error: ' + err.message);
+                }
+                e.target.value = '';
+              }}
+            />
+          </label>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div style={{ color: '#dc2626', fontWeight: 600, marginBottom: 8 }}>Danger Zone</div>
+          <p style={{ color: '#64748b', fontSize: 14, marginBottom: 12 }}>
+            Start a new company by clearing all data. This cannot be undone - download a backup first!
+          </p>
+          <button
+            className="btn btn-danger"
+            onClick={async () => {
+              const confirm1 = window.confirm('Are you sure you want to delete ALL company data? This cannot be undone!');
+              if (!confirm1) return;
+
+              const confirm2 = window.prompt('Type "RESET" to confirm you want to delete all data:');
+              if (confirm2 !== 'RESET') {
+                alert('Reset cancelled.');
+                return;
+              }
+
+              try {
+                const result = await apiFetch('/reset-company', { method: 'POST', body: { confirm: 'RESET' } });
+                alert(result.message || 'Company reset successfully!');
+                window.location.reload();
+              } catch (e) {
+                alert('Error: ' + e.message);
+              }
+            }}
+          >
+            Reset Company (Delete All Data)
+          </button>
+        </div>
+      </div>
 
       <div className="card" style={{ marginTop: 20 }}>
         <div className="card-title">Demo Data</div>
