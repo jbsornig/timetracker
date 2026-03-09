@@ -348,6 +348,7 @@ export default function Customers() {
           title={`Contacts - ${selectedCustomer.name}`}
           onClose={() => setModal(null)}
           footer={<button className="btn btn-secondary" onClick={() => setModal(null)}>Close</button>}
+          wide
         >
           {error && <div className="alert alert-error">{error}</div>}
 

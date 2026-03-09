@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-export default function Modal({ title, children, onClose, footer }) {
+export default function Modal({ title, children, onClose, footer, wide }) {
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === 'Escape') onClose();
@@ -19,7 +19,7 @@ export default function Modal({ title, children, onClose, footer }) {
 
   return (
     <div className="modal-overlay" onClick={handleOverlayClick}>
-      <div className="modal">
+      <div className="modal" style={wide ? { maxWidth: 800 } : undefined}>
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button className="btn btn-ghost" onClick={onClose} style={{ fontSize: 20, padding: '4px 8px' }}>
