@@ -133,13 +133,6 @@ app.put('/api/settings', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
-// TEMPORARY: Retrieve SMTP password (remove after use)
-app.get('/api/settings/smtp-password', auth, adminOnly, (req, res) => {
-  const db = getDb();
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'smtp_password'").get();
-  res.json({ smtp_password: row?.value || '' });
-});
-
 // ─── USERS ───────────────────────────────────────────────────────────────────
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
