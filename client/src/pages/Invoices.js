@@ -186,6 +186,7 @@ export default function Invoices() {
     try {
       const result = await apiFetch(`/invoices/${invoice.id}/email`, { method: 'POST' });
       alert(result.message || 'Invoice emailed successfully!');
+      await loadData(); // Refresh to show emailed indicator
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
@@ -491,7 +492,14 @@ export default function Invoices() {
                       <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: balance > 0 ? '#dc2626' : '#16a34a' }}>
                         {formatCurrency(balance)}
                       </td>
-                      <td>{getStatusBadge(getStatus(inv))}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {getStatusBadge(getStatus(inv))}
+                          {inv.emailed_at && (
+                            <span title={`Emailed ${new Date(inv.emailed_at).toLocaleDateString()}`} style={{ color: '#16a34a', fontSize: 14 }}>✓</span>
+                          )}
+                        </div>
+                      </td>
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => viewInvoice(inv)} style={{ marginRight: 4 }}>View</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => handleEmail(inv)} disabled={emailing} style={{ marginRight: 4 }}>{emailing ? 'Sending...' : 'Email'}</button>

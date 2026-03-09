@@ -1135,6 +1135,9 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       }]
     });
 
+    // Record that the invoice was emailed
+    db.prepare('UPDATE invoices SET emailed_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+
     res.json({ success: true, message: `Invoice emailed to ${invoice.ap_email}` + (ccList.length > 0 ? ` (CC: ${ccList.join(', ')})` : '') });
   } catch (err) {
     console.error('Failed to send invoice email:', err);
