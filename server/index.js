@@ -1422,17 +1422,7 @@ app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
 // ─── BACKUP & RESTORE ─────────────────────────────────────────────────────────
 
 // Backup all company data
-app.get('/api/backup', (req, res) => {
-  // Allow token in query string for direct download
-  const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
+app.get('/api/backup', auth, adminOnly, (req, res) => {
   const db = getDb();
   try {
     const backup = {
@@ -1442,18 +1432,17 @@ app.get('/api/backup', (req, res) => {
         customers: db.prepare('SELECT * FROM customers').all(),
         customer_contacts: db.prepare('SELECT * FROM customer_contacts').all(),
         projects: db.prepare('SELECT * FROM projects').all(),
-        users: db.prepare('SELECT id, name, email, role, engineer_id, created_at FROM users').all(), // exclude passwords
+        users: db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, created_at FROM users').all(),
         engineer_projects: db.prepare('SELECT * FROM engineer_projects').all(),
         timesheets: db.prepare('SELECT * FROM timesheets').all(),
         timesheet_entries: db.prepare('SELECT * FROM timesheet_entries').all(),
         invoices: db.prepare('SELECT * FROM invoices').all(),
         payments: db.prepare('SELECT * FROM payments').all(),
         settings: db.prepare('SELECT * FROM settings').all(),
+        holidays: db.prepare('SELECT * FROM holidays').all(),
       }
     };
 
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename="utech-timetracker-backup-${new Date().toISOString().split('T')[0]}.json"`);
     res.json(backup);
   } catch (err) {
     console.error('Backup error:', err);

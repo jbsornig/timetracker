@@ -513,9 +513,21 @@ export default function Settings() {
           {/* Backup Button */}
           <button
             className="btn btn-secondary"
-            onClick={() => {
-              const token = localStorage.getItem('tt_token');
-              window.location.href = `${API_BASE}/api/backup?token=${token}`;
+            onClick={async () => {
+              try {
+                const response = await apiFetch('/backup');
+                const blob = new Blob([JSON.stringify(response, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `timetracker-backup-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                alert('Backup failed: ' + e.message);
+              }
             }}
           >
             Download Backup
