@@ -496,7 +496,7 @@ export default function Invoices() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {getStatusBadge(getStatus(inv))}
                           {inv.emailed_at && (
-                            <span title={`Emailed ${new Date(inv.emailed_at).toLocaleDateString()}`} style={{ color: '#16a34a', fontSize: 14 }}>✓</span>
+                            <span title={`Emailed ${new Date(inv.emailed_at).toLocaleDateString()}`} style={{ color: '#16a34a', fontSize: 13 }}>✉</span>
                           )}
                         </div>
                       </td>
