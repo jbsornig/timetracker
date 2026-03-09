@@ -1056,7 +1056,7 @@ export default function Timesheets() {
                       <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
                         {ts.status === 'draft' ? 'Edit' : 'View'}
                       </button>
-                      {isAdmin && (
+                      {(isAdmin || ts.status === 'draft') && (
                         <button
                           className="btn btn-danger btn-sm"
                           onClick={(e) => { e.stopPropagation(); handleDelete(ts.id); }}
@@ -1110,7 +1110,7 @@ export default function Timesheets() {
                   </div>
                   <div style={{ fontSize: 11, color: '#94a3b8' }}>hours</div>
                   <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
-                  {isAdmin && (
+                  {(isAdmin || ts.status === 'draft') && (
                     <button
                       className="btn btn-danger btn-sm"
                       style={{ marginTop: 8, display: 'block' }}
