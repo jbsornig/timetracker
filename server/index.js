@@ -1096,12 +1096,38 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
 
   try {
     // Generate PDF with puppeteer
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-    });
+    // Use different browser options for local vs cloud environments
+    let browserOptions;
+    const isLocal = process.platform === 'win32' || !process.env.RENDER;
+
+    if (isLocal) {
+      // Local development - try common Chrome paths
+      const fs = require('fs');
+      const possiblePaths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+      ];
+      const chromePath = possiblePaths.find(p => fs.existsSync(p));
+      if (!chromePath) {
+        throw new Error('Chrome not found. Please install Google Chrome for local PDF generation.');
+      }
+      browserOptions = {
+        executablePath: chromePath,
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      };
+    } else {
+      // Cloud/Render environment - use @sparticuz/chromium
+      browserOptions = {
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+      };
+    }
+
+    const browser = await puppeteer.launch(browserOptions);
     const page = await browser.newPage();
     await page.setContent(pdfHtml, { waitUntil: 'networkidle0' });
     const pdfBuffer = await page.pdf({ format: 'Letter', printBackground: true, margin: { top: '0.25in', right: '0.25in', bottom: '0.25in', left: '0.25in' } });
