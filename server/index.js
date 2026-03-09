@@ -1129,7 +1129,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       subject: `Invoice #${invoice.invoice_number} from ${settings.company_name || 'UTech TimeTracker'} - ${invoice.project_name}`,
       html: emailBody,
       attachments: [{
-        filename: `Invoice_${invoice.invoice_number}.pdf`,
+        filename: `PO ${invoice.po_number || 'N-A'} ${invoice.project_name} ${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}.pdf`,
         content: pdfBuffer,
         contentType: 'application/pdf'
       }]
