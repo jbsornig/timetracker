@@ -769,12 +769,6 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   if (invoice.contact_email) ccList.push(invoice.contact_email);
   if (settings.admin_notification_email) ccList.push(settings.admin_notification_email);
 
-  console.log('📧 Email Debug:');
-  console.log('  TO:', invoice.ap_email);
-  console.log('  CC List:', ccList);
-  console.log('  Contact Email:', invoice.contact_email || '(not set)');
-  console.log('  Admin Email:', settings.admin_notification_email || '(not set)');
-
   // Get line items and timesheet details
   const timesheets = db.prepare(`
     SELECT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate
@@ -1128,7 +1122,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       </div>
     `;
 
-    const mailOptions = {
+    await transporter.sendMail({
       from: settings.smtp_email,
       to: invoice.ap_email,
       cc: ccList.length > 0 ? ccList.join(', ') : undefined,
@@ -1139,16 +1133,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
         content: pdfBuffer,
         contentType: 'application/pdf'
       }]
-    };
-
-    console.log('📧 Sending email with options:');
-    console.log('  From:', mailOptions.from);
-    console.log('  To:', mailOptions.to);
-    console.log('  CC:', mailOptions.cc);
-    console.log('  Subject:', mailOptions.subject);
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log('📧 Email sent successfully:', info.messageId);
+    });
 
     // Record that the invoice was emailed
     db.prepare('UPDATE invoices SET emailed_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
