@@ -24,6 +24,7 @@ function parseXML(xmlContent) {
     addresses: [],
     phones: [],
     emails: [],
+    contacts: [],
     jobs: []
   };
 
@@ -79,6 +80,24 @@ function parseXML(xmlContent) {
     });
   }
 
+  // Extract contacts
+  const contactRegex = /<ContactEntityView>([\s\S]*?)<\/ContactEntityView>/g;
+  while ((match = contactRegex.exec(xmlContent)) !== null) {
+    const block = match[1];
+    const name = extractValue(block, 'Name');
+    if (name) { // Only add contacts that have a name
+      data.contacts.push({
+        contactId: extractValue(block, 'ContactID'),
+        customerVendorAccountId: extractValue(block, 'CustomerVendorAccountID'),
+        isPrimary: extractValue(block, 'IsPrimary') === 'true',
+        name: name,
+        title: extractValue(block, 'Title'),
+        phone: extractValue(block, 'Phone'),
+        email: extractValue(block, 'Email')
+      });
+    }
+  }
+
   // Extract jobs (AccountType 12) - only Status=2 (Open/In Progress)
   const jobRegex = /<JobAccountEntityView>([\s\S]*?)<\/JobAccountEntityView>/g;
   while ((match = jobRegex.exec(xmlContent)) !== null) {
@@ -124,6 +143,7 @@ function importData() {
   console.log(`Found ${data.addresses.length} addresses`);
   console.log(`Found ${data.phones.length} phones`);
   console.log(`Found ${data.emails.length} emails`);
+  console.log(`Found ${data.contacts.length} contacts`);
   console.log(`Found ${data.jobs.length} jobs`);
 
   // Open database
@@ -176,6 +196,43 @@ function importData() {
       console.log(`  Imported customer: ${customer.name} (ID: ${result.lastInsertRowid})`);
     } catch (err) {
       console.error(`  Error importing customer ${customer.name}:`, err.message);
+    }
+  }
+
+  // Import contacts
+  const insertContact = db.prepare(`
+    INSERT INTO customer_contacts (customer_id, name, title, email, phone)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const checkContact = db.prepare('SELECT id FROM customer_contacts WHERE customer_id = ? AND name = ?');
+
+  console.log('\n--- Importing Contacts ---');
+  for (const contact of data.contacts) {
+    const newCustomerId = customerIdMap.get(contact.customerVendorAccountId);
+    if (!newCustomerId) {
+      console.log(`  Skipping contact "${contact.name}" - customer not found (CustomerVendorAccountID: ${contact.customerVendorAccountId})`);
+      continue;
+    }
+
+    // Skip if contact already exists for this customer
+    const existing = checkContact.get(newCustomerId, contact.name);
+    if (existing) {
+      console.log(`  Skipping existing contact: ${contact.name}`);
+      continue;
+    }
+
+    try {
+      const result = insertContact.run(
+        newCustomerId,
+        contact.name,
+        contact.title || '',
+        contact.email || '',
+        contact.phone || ''
+      );
+      console.log(`  Imported contact: ${contact.name}${contact.title ? ` (${contact.title})` : ''} (ID: ${result.lastInsertRowid})`);
+    } catch (err) {
+      console.error(`  Error importing contact ${contact.name}:`, err.message);
     }
   }
 
