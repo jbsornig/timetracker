@@ -141,7 +141,7 @@ app.get('/api/holidays', auth, adminOnly, (req, res) => {
   let query = 'SELECT * FROM holidays';
   const params = [];
   if (year) {
-    query += ' WHERE strftime("%Y", date) = ?';
+    query += " WHERE strftime('%Y', date) = ?";
     params.push(year);
   }
   query += ' ORDER BY date DESC';
