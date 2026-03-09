@@ -352,13 +352,13 @@ export default function Customers() {
           {error && <div className="alert alert-error">{error}</div>}
 
           <div style={{ marginBottom: 20 }}>
-            <div className="card-title" style={{ fontSize: 14 }}>Contact List</div>
+            <div className="card-title" style={{ fontSize: 14 }}>Contact List ({contacts.length})</div>
             {contacts.length === 0 ? (
               <p style={{ color: '#94a3b8', fontSize: 14 }}>No contacts added yet.</p>
             ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
+              <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <table style={{ margin: 0 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
                     <tr>
                       <th>Name</th>
                       <th>Title</th>
