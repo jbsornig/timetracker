@@ -502,8 +502,25 @@ app.put('/api/timesheets/:id/reject', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/timesheets/:id', auth, adminOnly, (req, res) => {
+app.delete('/api/timesheets/:id', auth, (req, res) => {
   const db = getDb();
+  const timesheet = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
+
+  if (!timesheet) {
+    return res.status(404).json({ error: 'Timesheet not found' });
+  }
+
+  // Admins can delete any timesheet
+  // Engineers can only delete their own draft timesheets
+  if (req.user.role !== 'admin') {
+    if (timesheet.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own timesheets' });
+    }
+    if (timesheet.status !== 'draft') {
+      return res.status(403).json({ error: 'You can only delete timesheets that have not been submitted' });
+    }
+  }
+
   // Delete entries first, then the timesheet
   db.prepare('DELETE FROM timesheet_entries WHERE timesheet_id = ?').run(req.params.id);
   db.prepare('DELETE FROM timesheets WHERE id = ?').run(req.params.id);
