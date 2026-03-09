@@ -17,6 +17,7 @@ export default function Projects() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectEngineers, setProjectEngineers] = useState([]);
   const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '' });
+  const [customerFilter, setCustomerFilter] = useState('');
 
   useEffect(() => {
     loadData();
@@ -179,6 +180,28 @@ export default function Projects() {
         <button className="btn btn-primary" onClick={openAdd}>+ Add Project</button>
       </div>
 
+      <div className="card" style={{ marginBottom: 16, padding: '12px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Customer:</span>
+            <select
+              className="form-select"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 200 }}
+            >
+              <option value="">All Customers</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <span style={{ fontSize: 13, color: '#94a3b8' }}>
+            Showing {customerFilter ? projects.filter(p => String(p.customer_id) === customerFilter).length : projects.length} of {projects.length} projects
+          </span>
+        </div>
+      </div>
+
       <div className="card">
         {projects.length === 0 ? (
           <div className="empty-state">
@@ -203,7 +226,7 @@ export default function Projects() {
                 </tr>
               </thead>
               <tbody>
-                {projects.map((p) => {
+                {projects.filter(p => !customerFilter || String(p.customer_id) === customerFilter).map((p) => {
                   const billed = p.amount_billed || 0;
                   const remaining = (p.po_amount || 0) - billed;
                   const pct = p.po_amount > 0 ? (billed / p.po_amount) * 100 : 0;

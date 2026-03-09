@@ -61,6 +61,7 @@ export default function Invoices() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState('active');
+  const [customerFilter, setCustomerFilter] = useState('');
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
   const [emailingId, setEmailingId] = useState(null);
@@ -279,6 +280,9 @@ export default function Invoices() {
     return status === 'draft' ? 'unpaid' : status;
   };
 
+  // Get unique customers for filter dropdown
+  const uniqueCustomers = [...new Map(invoices.map(inv => [inv.customer_name, { name: inv.customer_name }])).values()].sort((a, b) => a.name.localeCompare(b.name));
+
   let filteredInvoices = invoices;
   if (statusFilter === 'active') {
     filteredInvoices = invoices.filter(inv => {
@@ -287,6 +291,10 @@ export default function Invoices() {
     });
   } else if (statusFilter) {
     filteredInvoices = invoices.filter(inv => getStatus(inv) === statusFilter);
+  }
+  // Apply customer filter
+  if (customerFilter) {
+    filteredInvoices = filteredInvoices.filter(inv => inv.customer_name === customerFilter);
   }
 
   // Sort invoices
@@ -404,7 +412,21 @@ export default function Invoices() {
       <div className="card no-print" style={{ marginBottom: 16, padding: '12px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, color: '#64748b' }}>Show:</span>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Customer:</span>
+            <select
+              className="form-select"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 180 }}
+            >
+              <option value="">All Customers</option>
+              {uniqueCustomers.map((c) => (
+                <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Status:</span>
             <select
               className="form-select"
               value={statusFilter}
