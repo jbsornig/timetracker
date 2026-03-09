@@ -63,7 +63,7 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
-  const [emailing, setEmailing] = useState(false);
+  const [emailingId, setEmailingId] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -182,7 +182,7 @@ export default function Invoices() {
 
   const handleEmail = async (invoice) => {
     if (!window.confirm(`Email Invoice #${invoice.invoice_number} to the customer's AP email?`)) return;
-    setEmailing(true);
+    setEmailingId(invoice.id);
     try {
       const result = await apiFetch(`/invoices/${invoice.id}/email`, { method: 'POST' });
       alert(result.message || 'Invoice emailed successfully!');
@@ -190,7 +190,7 @@ export default function Invoices() {
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
-      setEmailing(false);
+      setEmailingId(null);
     }
   };
 
@@ -502,7 +502,7 @@ export default function Invoices() {
                       </td>
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => viewInvoice(inv)} style={{ marginRight: 4 }}>View</button>
-                        <button className="btn btn-secondary btn-sm" onClick={() => handleEmail(inv)} disabled={emailing} style={{ marginRight: 4 }}>{emailing ? 'Sending...' : 'Email'}</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleEmail(inv)} disabled={emailingId === inv.id} style={{ marginRight: 4 }}>{emailingId === inv.id ? 'Sending...' : 'Email'}</button>
                         {getStatus(inv) !== 'voided' && getStatus(inv) !== 'paid' && (
                           <button className="btn btn-primary btn-sm" onClick={() => openPayment(inv)} style={{ marginRight: 4 }}>Paid</button>
                         )}
