@@ -4,7 +4,8 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 const { getDb } = require('./db');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 
@@ -1088,7 +1089,12 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
 
   try {
     // Generate PDF with puppeteer
-    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+    });
     const page = await browser.newPage();
     await page.setContent(pdfHtml, { waitUntil: 'networkidle0' });
     const pdfBuffer = await page.pdf({ format: 'Letter', printBackground: true, margin: { top: '0.25in', right: '0.25in', bottom: '0.25in', left: '0.25in' } });
