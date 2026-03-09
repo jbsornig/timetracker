@@ -4,6 +4,7 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const puppeteer = require('puppeteer');
 const { getDb } = require('./db');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 
@@ -727,7 +728,7 @@ app.put('/api/invoices/:id/unvoid', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
-// Email an invoice
+// Email an invoice with PDF attachment
 app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const db = getDb();
 
@@ -795,11 +796,21 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     }
   }
 
-  // Format currency
+  // Helper functions
   const formatCurrency = (amt) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amt || 0);
-
-  // Format date
-  const formatDate = (dateStr) => new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr.split('T')[0] + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  };
+  const formatTime = (time) => {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${hour12}:${m} ${ampm}`;
+  };
 
   // Calculate due date
   let daysUntilDue = 30;
@@ -812,174 +823,310 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const invoiceDate = new Date(invoice.created_at);
   const dueDate = new Date(invoiceDate);
   dueDate.setDate(dueDate.getDate() + daysUntilDue);
+  const dueDateStr = dueDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  const invoiceDateStr = formatDate(invoice.created_at);
+  const periodRange = `${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}`;
 
-  // Format time helper
-  const formatTime = (time) => {
-    if (!time) return '';
-    const [h, m] = time.split(':');
-    const hour = parseInt(h);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const hour12 = hour % 12 || 12;
-    return `${hour12}:${m} ${ampm}`;
-  };
-
-  // Get day name
-  const getDayName = (dateStr) => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return days[new Date(dateStr + 'T00:00:00').getDay()];
-  };
-
-  // Build email HTML
-  const lineItemsHtml = lineItems.map(item => `
+  // Build invoice page HTML (matches print view)
+  const lineItemsHtml = lineItems.length > 0 ? lineItems.map(item => `
     <tr>
-      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${item.engineer}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${item.hours.toFixed(2)}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatCurrency(item.rate)}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatCurrency(item.amount)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${item.hours.toFixed(0)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${periodRange}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.rate.toFixed(2)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
-  `).join('');
+  `).join('') : `
+    <tr>
+      <td style="border: 1px solid #ccc; padding: 8px;">${(invoice.total_hours || 0).toFixed(0)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${periodRange}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">—</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+    </tr>
+  `;
 
-  // Build timesheet HTML for each timesheet
-  const timesheetsHtml = timesheetDetails.map(ts => {
-    const entriesHtml = ts.entries.map(e => `
-      <tr>
-        <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${getDayName(e.entry_date)} ${formatDate(e.entry_date)}</td>
-        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: center;">${formatTime(e.start_time) || '-'}</td>
-        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: center;">${formatTime(e.end_time) || '-'}</td>
-        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: center; font-weight: 600;">${e.hours ? e.hours.toFixed(2) : '-'}</td>
-        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-size: 12px;">${e.description || ''}</td>
-      </tr>
-    `).join('');
-
-    return `
-      <div style="margin-top: 40px; padding-top: 20px; border-top: 3px solid #1e293b;">
-        <div style="background: #1e293b; color: white; padding: 15px; text-align: center;">
-          <h2 style="margin: 0; font-size: 18px;">Daily Time Report</h2>
+  const invoicePageHtml = `
+    <div style="font-family: Arial, sans-serif; color: #000; padding: 20px;">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
+        <div style="line-height: 1.4;">
+          <div style="font-weight: bold; font-size: 16px;">${settings.company_name || 'Your Company Name'}</div>
+          ${settings.company_address ? `<div>${settings.company_address}</div>` : ''}
+          ${settings.company_city_state_zip ? `<div>${settings.company_city_state_zip}</div>` : ''}
+          ${settings.company_phone ? `<div>Phone: ${settings.company_phone}</div>` : ''}
+          ${settings.company_fax ? `<div>Fax: ${settings.company_fax}</div>` : ''}
+          ${settings.company_email ? `<div>E-mail: ${settings.company_email}</div>` : ''}
         </div>
-        <div style="padding: 20px; background: #f8fafc;">
-          <table style="width: 100%; margin-bottom: 15px;">
-            <tr>
-              <td><strong>Engineer:</strong> ${ts.engineer_name}</td>
-              <td><strong>Engineer ID:</strong> ${ts.engineer_id || '-'}</td>
-            </tr>
-            <tr>
-              <td><strong>Week Ending:</strong> ${formatDate(ts.week_ending)}</td>
-              <td><strong>Project:</strong> ${invoice.project_name}</td>
-            </tr>
-            <tr>
-              <td><strong>Customer:</strong> ${invoice.customer_name}</td>
-              <td><strong>PO #:</strong> ${invoice.po_number || '-'}</td>
-            </tr>
-          </table>
-
-          <table style="width: 100%; border-collapse: collapse; background: white;">
-            <thead>
-              <tr style="background: #f1f5f9;">
-                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: left;">Date</th>
-                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">Start</th>
-                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">End</th>
-                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">Hours</th>
-                <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: left;">Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${entriesHtml}
-            </tbody>
-            <tfoot>
-              <tr style="background: #f1f5f9; font-weight: bold;">
-                <td style="padding: 8px; border: 1px solid #e2e8f0;" colspan="3">Total Hours</td>
-                <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">${ts.total_hours.toFixed(2)}</td>
-                <td style="padding: 8px; border: 1px solid #e2e8f0;"></td>
-              </tr>
-            </tfoot>
+        <div style="text-align: right;">
+          <div style="font-weight: bold; font-size: 18px; margin-bottom: 8px;">Invoice</div>
+          <table style="margin-left: auto; border-collapse: collapse; font-size: 12px;">
+            <tr><td style="padding: 2px 8px; text-align: left;">Invoice no:</td><td style="padding: 2px 8px; text-align: right; font-weight: bold;">${invoice.invoice_number}</td></tr>
+            <tr><td style="padding: 2px 8px; text-align: left;">Invoice date:</td><td style="padding: 2px 8px; text-align: right;">${invoiceDateStr}</td></tr>
+            <tr><td style="padding: 2px 8px; text-align: left;">Due date:</td><td style="padding: 2px 8px; text-align: right;">${dueDateStr}</td></tr>
+            <tr><td style="padding: 2px 8px; text-align: left;">Supplier ID:</td><td style="padding: 2px 8px; text-align: right;">${invoice.supplier_number || '—'}</td></tr>
+            <tr><td style="padding: 2px 8px; text-align: left;">PO Number:</td><td style="padding: 2px 8px; text-align: right; font-weight: bold;">${invoice.po_number || '—'}</td></tr>
           </table>
         </div>
       </div>
-    `;
-  }).join('');
 
-  const emailHtml = `
-    <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-      <div style="background: #1e293b; color: white; padding: 20px; text-align: center;">
-        <h1 style="margin: 0; font-size: 24px;">${settings.company_name || 'Invoice'}</h1>
+      <!-- Bill To and Logo -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+        <div>
+          <div style="font-weight: bold; margin-bottom: 4px;">To:</div>
+          <div style="line-height: 1.5; margin-left: 20px;">
+            <div style="font-weight: bold;">${invoice.customer_name}</div>
+            ${(invoice.customer_address || '').split('\n').map(line => `<div>${line}</div>`).join('')}
+          </div>
+        </div>
+        ${settings.company_logo ? `<div style="text-align: right;"><img src="${settings.company_logo}" style="max-width: 200px; max-height: 80px;" /></div>` : ''}
       </div>
 
-      <div style="padding: 30px; background: #f8fafc;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
-          <div>
-            <strong>Bill To:</strong><br/>
-            ${invoice.customer_name}<br/>
-            ${(invoice.customer_address || '').split('\n').join('<br/>')}
-          </div>
-          <div style="text-align: right;">
-            <h2 style="margin: 0; color: #1e293b;">Invoice #${invoice.invoice_number}</h2>
-            <p style="margin: 5px 0; color: #64748b;">
-              Date: ${formatDate(invoice.created_at.split('T')[0])}<br/>
-              Due: ${dueDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}<br/>
-              Terms: ${invoice.payment_terms || 'Net 30'}
-            </p>
-          </div>
-        </div>
+      <!-- Project Info -->
+      <div style="margin-bottom: 16px; padding: 8px 12px; background: #f5f5f5; border-radius: 4px;">
+        <strong>Project:</strong> ${invoice.project_name}
+      </div>
 
-        <div style="margin-bottom: 20px;">
-          <strong>Project:</strong> ${invoice.project_name}<br/>
-          ${invoice.po_number ? `<strong>PO #:</strong> ${invoice.po_number}<br/>` : ''}
-          ${invoice.supplier_number ? `<strong>Supplier #:</strong> ${invoice.supplier_number}<br/>` : ''}
-          <strong>Period:</strong> ${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}
-        </div>
+      <!-- Sales Info -->
+      <div style="display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 12px; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc; padding: 8px 0;">
+        <div><strong>Sales Person:</strong> ${settings.company_name || '—'}</div>
+        <div><strong>Contact name:</strong> ${invoice.contact_name || '—'}</div>
+        <div><strong>Payment terms:</strong> ${invoice.payment_terms || 'Net 30'}</div>
+      </div>
 
-        <table style="width: 100%; border-collapse: collapse; background: white; margin-bottom: 20px;">
-          <thead>
-            <tr style="background: #f1f5f9;">
-              <th style="padding: 10px; text-align: left; border-bottom: 2px solid #e2e8f0;">Engineer</th>
-              <th style="padding: 10px; text-align: right; border-bottom: 2px solid #e2e8f0;">Hours</th>
-              <th style="padding: 10px; text-align: right; border-bottom: 2px solid #e2e8f0;">Rate</th>
-              <th style="padding: 10px; text-align: right; border-bottom: 2px solid #e2e8f0;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${lineItemsHtml}
-          </tbody>
-          <tfoot>
-            <tr style="background: #f1f5f9; font-weight: bold;">
-              <td style="padding: 10px;" colspan="3">Total</td>
-              <td style="padding: 10px; text-align: right;">${formatCurrency(invoice.total_amount)}</td>
-            </tr>
-          </tfoot>
+      <!-- Line Items Table -->
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
+        <thead>
+          <tr style="background: #f0f0f0;">
+            <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Qty.</th>
+            <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Item</th>
+            <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Description</th>
+            <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Unit Price</th>
+            <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Discount</th>
+            <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Line Total</th>
+          </tr>
+        </thead>
+        <tbody>${lineItemsHtml}</tbody>
+      </table>
+
+      <!-- Totals -->
+      <div style="display: flex; justify-content: flex-end;">
+        <table style="border-collapse: collapse; min-width: 200px;">
+          <tr><td style="padding: 4px 12px; text-align: right;">Subtotal</td><td style="padding: 4px 12px; text-align: right; font-weight: bold;">$${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
+          <tr><td style="padding: 4px 12px; text-align: right;">Sales tax</td><td style="padding: 4px 12px; text-align: right;">$0.00</td></tr>
+          <tr style="border-top: 2px solid #000;"><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">Total</td><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">$${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
         </table>
-
-        <div style="background: #e0f2fe; padding: 15px; border-radius: 8px; margin-top: 20px;">
-          <strong>Payment Information:</strong><br/>
-          Please remit payment to ${settings.company_name || 'us'}.<br/>
-          ${settings.company_address ? settings.company_address + '<br/>' : ''}
-          ${settings.company_city_state_zip ? settings.company_city_state_zip + '<br/>' : ''}
-          ${settings.company_email ? 'Email: ' + settings.company_email : ''}
-        </div>
-      </div>
-
-      ${invoice.include_timesheets ? timesheetsHtml : ''}
-
-      <div style="background: #1e293b; color: #94a3b8; padding: 15px; text-align: center; font-size: 12px; margin-top: 40px;">
-        This invoice was generated by UTech TimeTracker
       </div>
     </div>
   `;
 
+  // Build timesheet pages HTML (only if include_timesheets is set)
+  let timesheetPagesHtml = '';
+  if (invoice.include_timesheets && timesheetDetails.length > 0) {
+    timesheetPagesHtml = timesheetDetails.map(ts => {
+      const weekEnding = formatDate(ts.week_ending);
+      const rate = ts.bill_rate || 0;
+      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+      // Build entries by date map
+      const entriesByDate = {};
+      ts.entries.forEach(e => {
+        const dateKey = e.entry_date ? e.entry_date.split('T')[0] : '';
+        if (dateKey) entriesByDate[dateKey] = e;
+      });
+
+      // Calculate week dates
+      const weekEnd = new Date(ts.week_ending + 'T00:00:00');
+      const weekDates = [];
+      for (let i = -6; i <= 0; i++) {
+        const d = new Date(weekEnd);
+        d.setDate(weekEnd.getDate() + i);
+        weekDates.push(d.toISOString().split('T')[0]);
+      }
+
+      // Calculate totals
+      let totalST = 0;
+      weekDates.forEach(date => {
+        const entry = entriesByDate[date];
+        if (entry && entry.hours) totalST += entry.hours;
+      });
+      const laborSubtotal = totalST * rate;
+
+      // Build rows
+      const rowsHtml = weekDates.map((date, idx) => {
+        const entry = entriesByDate[date] || {};
+        const dateObj = new Date(date + 'T00:00:00');
+        const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
+        const hours = entry.hours || 0;
+        const st = hours > 0 ? hours.toFixed(1) : '0.0';
+
+        return `
+          <tr>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formattedDate} ${dayNames[idx]}</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${invoice.location || ''}</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;"></td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${entry.shift || '1'}</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;"></td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formatTime(entry.start_time)}</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formatTime(entry.end_time)}</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${st}</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${st}</td>
+          </tr>
+          <tr>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; height: 45px; vertical-align: top;"><strong>Description:</strong></td>
+            <td colspan="12" style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; height: 45px; vertical-align: top;">${entry.description || ''}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div style="page-break-before: always; font-family: Arial, sans-serif; font-size: 6pt; padding: 10px;">
+          <!-- Header -->
+          <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+            <div style="width: 160px;">
+              ${settings.company_logo ? `<img src="${settings.company_logo}" style="max-width: 80px; max-height: 30px; margin-bottom: 1px;" />` : ''}
+              <div style="font-weight: bold; font-style: italic; font-size: 7pt;">${settings.company_name || 'Company Name'}</div>
+              <div style="font-size: 5pt;">Service at: <strong>${invoice.customer_name}</strong></div>
+              <div style="font-size: 5pt;">Location: ${invoice.location || ''}</div>
+            </div>
+            <div style="width: 160px; text-align: center;">
+              <div style="font-weight: bold; font-size: 9pt; margin-bottom: 1px;">Daily Time Report</div>
+              <div style="font-size: 5pt;">Mon shift 1 - Sun shift 3<br/>$${rate.toFixed(2)}/hr | ST = All | OT/PT = N/A</div>
+            </div>
+            <div style="width: 180px; font-size: 5pt; line-height: 1.1;">
+              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Week Ending:</span><strong>${weekEnding}</strong></div>
+              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Engineer:</span>${ts.engineer_name}</div>
+              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Engineer ID:</span>${ts.engineer_id || ''}</div>
+              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Work Order #:</span>${invoice.po_number || ''}</div>
+              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Project:</span>${invoice.project_name}</div>
+            </div>
+          </div>
+
+          <!-- Time Table -->
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px;">
+            <thead>
+              <tr>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 55px;">Date</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 50px;">Travel To</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 55px;">Travel From</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 30px;">Shift</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 40px;">On Call</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 50px;">Start Time</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 50px;">End Time</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">ST</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">OT</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">PT</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">STT</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">OTT</th>
+                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 35px;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+              <tr style="background: #f5f5f5;">
+                <td colspan="7" style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; font-weight: bold;">Weekly Totals:</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(1)}</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(1)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Signatures and Expenses -->
+          <div style="display: flex; justify-content: space-between; font-size: 5pt; margin-top: 2px;">
+            <div style="width: 48%;">
+              <div style="margin-bottom: 2px;">
+                <div style="border-bottom: 1px solid #000; height: 10px; margin-bottom: 1px;"></div>
+                <div>Certified by: <span style="margin-left: 20px;">Date: _______</span></div>
+                <div style="font-size: 4pt;">${settings.company_name || 'Company'} Site Lead</div>
+              </div>
+              <div>
+                <div style="border-bottom: 1px solid #000; height: 10px; margin-bottom: 1px;"></div>
+                <div>Approved by: <span style="margin-left: 20px;">Date: _______</span></div>
+                <div style="font-size: 4pt;">Customer Representative</div>
+              </div>
+            </div>
+            <div style="width: 50%; border: 1px solid #000;">
+              <div style="background: #f5f5f5; text-align: center; font-weight: bold; border-bottom: 1px solid #000; padding: 0 1px; font-size: 5pt;">Expenses</div>
+              <div style="padding: 0 2px; font-size: 5pt;">Air: $0 | Car: $0 | Meals: $0 | Parking: $0 | Misc: $0</div>
+              <div style="text-align: right; padding: 0 2px; font-size: 5pt;"><strong>Exp Subtotal:</strong> $0.00</div>
+              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">Rate: $${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(1)}</div>
+              <div style="text-align: right; padding: 1px 2px; font-weight: bold; font-size: 6pt;">Total: $${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Full PDF HTML
+  const pdfHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        @page { margin: 0.25in; size: letter; }
+        body { margin: 0; padding: 0; }
+      </style>
+    </head>
+    <body>
+      ${invoicePageHtml}
+      ${timesheetPagesHtml}
+    </body>
+    </html>
+  `;
+
   try {
+    // Generate PDF with puppeteer
+    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const page = await browser.newPage();
+    await page.setContent(pdfHtml, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({ format: 'Letter', printBackground: true, margin: { top: '0.25in', right: '0.25in', bottom: '0.25in', left: '0.25in' } });
+    await browser.close();
+
+    // Send email with PDF attachment
     const transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: {
-        user: settings.smtp_email,
-        pass: settings.smtp_password,
-      },
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
     });
+
+    const emailBody = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <p>Please find attached Invoice #${invoice.invoice_number} for ${invoice.project_name}.</p>
+        <p><strong>Invoice Summary:</strong></p>
+        <ul>
+          <li>Invoice #: ${invoice.invoice_number}</li>
+          <li>Amount: ${formatCurrency(invoice.total_amount)}</li>
+          <li>Due Date: ${dueDateStr}</li>
+          <li>Payment Terms: ${invoice.payment_terms || 'Net 30'}</li>
+        </ul>
+        <p>If you have any questions, please contact us at ${settings.company_email || settings.smtp_email}.</p>
+        <p>Thank you for your business!</p>
+        <p style="color: #666; font-size: 12px;">${settings.company_name || 'UTech TimeTracker'}</p>
+      </div>
+    `;
 
     await transporter.sendMail({
       from: settings.smtp_email,
       to: invoice.ap_email,
       cc: ccList.length > 0 ? ccList.join(', ') : undefined,
       subject: `Invoice #${invoice.invoice_number} from ${settings.company_name || 'UTech TimeTracker'} - ${invoice.project_name}`,
-      html: emailHtml,
+      html: emailBody,
+      attachments: [{
+        filename: `Invoice_${invoice.invoice_number}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }]
     });
 
     res.json({ success: true, message: `Invoice emailed to ${invoice.ap_email}` + (ccList.length > 0 ? ` (CC: ${ccList.join(', ')})` : '') });
