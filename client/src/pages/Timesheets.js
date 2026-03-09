@@ -276,6 +276,14 @@ export default function Timesheets() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ status: '', project_id: '', user_id: '' });
 
+  // Quick Fill state
+  const [quickFill, setQuickFill] = useState({
+    start_time: '',
+    end_time: '',
+    description: '',
+    days: { Sun: false, Mon: false, Tue: false, Wed: false, Thu: false, Fri: false, Sat: false }
+  });
+
   // Check if entries have been modified
   const hasUnsavedChanges = useCallback(() => {
     if (viewMode !== 'edit' || !selectedTimesheet || selectedTimesheet.status === 'approved') {
@@ -445,6 +453,59 @@ export default function Timesheets() {
       };
       return updated;
     });
+  };
+
+  const handleQuickFillApply = () => {
+    const { start_time, end_time, description, days } = quickFill;
+    const parsedStart = parseTimeInput(start_time);
+    const parsedEnd = parseTimeInput(end_time);
+
+    // Calculate hours
+    let hours = 0;
+    if (parsedStart && parsedEnd && parsedStart.includes(':') && parsedEnd.includes(':')) {
+      const [sh, sm] = parsedStart.split(':').map(Number);
+      const [eh, em] = parsedEnd.split(':').map(Number);
+      hours = (eh * 60 + em - sh * 60 - sm) / 60;
+      if (hours < 0) hours += 24;
+    }
+
+    setEntries((prev) => {
+      const updated = [...prev];
+      updated.forEach((entry, idx) => {
+        const dayName = getDayName(entry.entry_date);
+        if (days[dayName]) {
+          updated[idx] = {
+            ...entry,
+            start_time: parsedStart,
+            end_time: parsedEnd,
+            hours: hours,
+            description: description
+          };
+        }
+      });
+      return updated;
+    });
+  };
+
+  const handleQuickFillSelectMF = () => {
+    setQuickFill(prev => ({
+      ...prev,
+      days: { Sun: false, Mon: true, Tue: true, Wed: true, Thu: true, Fri: true, Sat: false }
+    }));
+  };
+
+  const handleQuickFillSelectAll = () => {
+    setQuickFill(prev => ({
+      ...prev,
+      days: { Sun: true, Mon: true, Tue: true, Wed: true, Thu: true, Fri: true, Sat: true }
+    }));
+  };
+
+  const handleQuickFillSelectNone = () => {
+    setQuickFill(prev => ({
+      ...prev,
+      days: { Sun: false, Mon: false, Tue: false, Wed: false, Thu: false, Fri: false, Sat: false }
+    }));
   };
 
   const handleSaveEntries = async () => {
@@ -632,6 +693,80 @@ export default function Timesheets() {
             </div>
           </div>
         </div>
+
+        {/* Quick Fill Section */}
+        {canEdit && (
+          <div className="card no-print" style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 12, color: '#374151' }}>Quick Fill</div>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Start Time</label>
+                <input
+                  className="time-input"
+                  type="text"
+                  value={quickFill.start_time}
+                  onChange={(e) => setQuickFill(prev => ({ ...prev, start_time: e.target.value }))}
+                  onBlur={() => setQuickFill(prev => ({ ...prev, start_time: parseTimeInput(prev.start_time) }))}
+                  placeholder="7:00"
+                  style={{ width: 80 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>End Time</label>
+                <input
+                  className="time-input"
+                  type="text"
+                  value={quickFill.end_time}
+                  onChange={(e) => setQuickFill(prev => ({ ...prev, end_time: e.target.value }))}
+                  onBlur={() => setQuickFill(prev => ({ ...prev, end_time: parseTimeInput(prev.end_time) }))}
+                  placeholder="15:30"
+                  style={{ width: 80 }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Description</label>
+                <input
+                  className="form-input"
+                  value={quickFill.description}
+                  onChange={(e) => setQuickFill(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Work description..."
+                  style={{ fontSize: 13 }}
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: '#64748b', marginRight: 4 }}>Days:</span>
+                {DAYS.map(day => (
+                  <label key={day} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={quickFill.days[day]}
+                      onChange={(e) => setQuickFill(prev => ({
+                        ...prev,
+                        days: { ...prev.days, [day]: e.target.checked }
+                      }))}
+                      style={{ width: 16, height: 16 }}
+                    />
+                    <span style={{ fontSize: 13 }}>{day}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={handleQuickFillSelectMF}>M-F</button>
+                <button className="btn btn-secondary btn-sm" onClick={handleQuickFillSelectAll}>All</button>
+                <button className="btn btn-secondary btn-sm" onClick={handleQuickFillSelectNone}>None</button>
+              </div>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleQuickFillApply}
+                disabled={!quickFill.start_time || !quickFill.end_time || !Object.values(quickFill.days).some(v => v)}
+              >
+                Apply to Selected Days
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Desktop Table View */}
         <div className="card timesheet-desktop">
