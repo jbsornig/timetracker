@@ -133,20 +133,55 @@ app.put('/api/settings', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// ─── HOLIDAYS ─────────────────────────────────────────────────────────────────
+
+app.get('/api/holidays', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { year } = req.query;
+  let query = 'SELECT * FROM holidays';
+  const params = [];
+  if (year) {
+    query += ' WHERE strftime("%Y", date) = ?';
+    params.push(year);
+  }
+  query += ' ORDER BY date DESC';
+  res.json(db.prepare(query).all(...params));
+});
+
+app.post('/api/holidays', auth, adminOnly, (req, res) => {
+  const { name, date, hours } = req.body;
+  const db = getDb();
+  const result = db.prepare('INSERT INTO holidays (name, date, hours) VALUES (?, ?, ?)').run(name, date, hours || 8);
+  res.json({ id: result.lastInsertRowid, name, date, hours: hours || 8 });
+});
+
+app.put('/api/holidays/:id', auth, adminOnly, (req, res) => {
+  const { name, date, hours } = req.body;
+  const db = getDb();
+  db.prepare('UPDATE holidays SET name=?, date=?, hours=? WHERE id=?').run(name, date, hours, req.params.id);
+  res.json({ success: true });
+});
+
+app.delete('/api/holidays/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM holidays WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // ─── USERS ───────────────────────────────────────────────────────────────────
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, engineer_id, created_at FROM users ORDER BY name').all();
+  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, created_at FROM users ORDER BY name').all();
   res.json(users);
 });
 
 app.post('/api/users', auth, adminOnly, (req, res) => {
-  const { name, email, password, role, engineer_id } = req.body;
+  const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate } = req.body;
   const db = getDb();
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (name, email, password, role, engineer_id) VALUES (?, ?, ?, ?, ?)').run(name, email, hash, role || 'engineer', engineer_id || null);
+    const result = db.prepare('INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, email, hash, role || 'engineer', engineer_id || null, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0);
     res.json({ id: result.lastInsertRowid, name, email, role: role || 'engineer' });
   } catch (e) {
     res.status(400).json({ error: 'Email already exists' });
@@ -154,13 +189,13 @@ app.post('/api/users', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/users/:id', auth, adminOnly, (req, res) => {
-  const { name, email, role, engineer_id, password } = req.body;
+  const { name, email, role, engineer_id, password, holiday_pay_eligible, holiday_pay_rate } = req.body;
   const db = getDb();
   if (password) {
     const hash = bcrypt.hashSync(password, 10);
-    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=?, password=? WHERE id=?').run(name, email, role, engineer_id, hash, req.params.id);
+    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=?, password=?, holiday_pay_eligible=?, holiday_pay_rate=? WHERE id=?').run(name, email, role, engineer_id, hash, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, req.params.id);
   } else {
-    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=? WHERE id=?').run(name, email, role, engineer_id, req.params.id);
+    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=?, holiday_pay_eligible=?, holiday_pay_rate=? WHERE id=?').run(name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, req.params.id);
   }
   res.json({ success: true });
 });
@@ -1234,8 +1269,11 @@ app.get('/api/balances', auth, adminOnly, (req, res) => {
 app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   const { period_start, period_end } = req.query;
   const db = getDb();
-  const data = db.prepare(`
-    SELECT u.name as engineer_name, u.engineer_id,
+
+  // Get regular timesheet payroll data
+  const timesheetData = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+           u.holiday_pay_eligible, u.holiday_pay_rate,
            SUM(te.hours) as total_hours,
            ep.pay_rate,
            SUM(te.hours) * ep.pay_rate as total_pay,
@@ -1251,7 +1289,54 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     GROUP BY u.id, p.id
     ORDER BY u.name, p.name
   `).all(period_start, period_end);
-  res.json(data);
+
+  // Get holidays in the date range
+  const holidays = db.prepare(`
+    SELECT * FROM holidays WHERE date BETWEEN ? AND ? ORDER BY date
+  `).all(period_start, period_end);
+
+  // Get all holiday-eligible engineers (even if they have no timesheets)
+  const eligibleEngineers = db.prepare(`
+    SELECT id, name, engineer_id, holiday_pay_rate
+    FROM users
+    WHERE holiday_pay_eligible = 1 AND holiday_pay_rate > 0
+  `).all();
+
+  // Calculate total holiday hours for the period
+  const totalHolidayHours = holidays.reduce((sum, h) => sum + (h.hours || 8), 0);
+
+  // Build the response: include regular timesheet data plus holiday pay entries
+  const data = [...timesheetData];
+
+  // Add holiday pay entry for each eligible engineer
+  for (const eng of eligibleEngineers) {
+    if (totalHolidayHours > 0) {
+      const holidayPay = totalHolidayHours * eng.holiday_pay_rate;
+      data.push({
+        user_id: eng.id,
+        engineer_name: eng.name,
+        engineer_id: eng.engineer_id,
+        total_hours: totalHolidayHours,
+        pay_rate: eng.holiday_pay_rate,
+        total_pay: holidayPay,
+        bill_rate: 0,
+        total_billed: 0,
+        project_name: 'Holiday Pay',
+        po_number: holidays.map(h => h.name).join(', '),
+        is_holiday_pay: true
+      });
+    }
+  }
+
+  // Sort by engineer name, then project name
+  data.sort((a, b) => {
+    if (a.engineer_name !== b.engineer_name) {
+      return a.engineer_name.localeCompare(b.engineer_name);
+    }
+    return a.project_name.localeCompare(b.project_name);
+  });
+
+  res.json({ data, holidays });
 });
 
 // Invoiced report by date range

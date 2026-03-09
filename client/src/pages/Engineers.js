@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyUser = { name: '', email: '', password: '', engineer_id: '', role: 'engineer' };
+const emptyUser = { name: '', email: '', password: '', engineer_id: '', role: 'engineer', holiday_pay_eligible: false, holiday_pay_rate: '' };
 
 export default function Engineers() {
   const [engineers, setEngineers] = useState([]);
@@ -52,6 +52,8 @@ export default function Engineers() {
     setForm({
       ...user,
       password: '',
+      holiday_pay_eligible: user.holiday_pay_eligible === 1,
+      holiday_pay_rate: user.holiday_pay_rate || '',
     });
     setError('');
     setModal('edit');
@@ -98,6 +100,8 @@ export default function Engineers() {
         email: form.email,
         role: form.role,
         engineer_id: form.role === 'engineer' ? (form.engineer_id || null) : null,
+        holiday_pay_eligible: form.role === 'engineer' ? (form.holiday_pay_eligible ? 1 : 0) : 0,
+        holiday_pay_rate: form.role === 'engineer' ? (parseFloat(form.holiday_pay_rate) || 0) : 0,
       };
       if (form.password) {
         body.password = form.password;
@@ -193,6 +197,7 @@ export default function Engineers() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Engineer ID</th>
+                  <th>Holiday Pay</th>
                   <th>Projects</th>
                   <th style={{ width: 180 }}>Actions</th>
                 </tr>
@@ -203,6 +208,15 @@ export default function Engineers() {
                     <td><strong>{eng.name}</strong></td>
                     <td>{eng.email}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{eng.engineer_id || '—'}</td>
+                    <td>
+                      {eng.holiday_pay_eligible ? (
+                        <span style={{ color: 'var(--success)', fontWeight: 500 }}>
+                          ${(eng.holiday_pay_rate || 0).toFixed(2)}/hr
+                        </span>
+                      ) : (
+                        <span style={{ color: '#94a3b8' }}>—</span>
+                      )}
+                    </td>
                     <td>
                       <button
                         className="btn btn-ghost btn-sm"
@@ -280,16 +294,47 @@ export default function Engineers() {
               />
             </div>
             {form.role === 'engineer' && (
-              <div className="form-group">
-                <label className="form-label">Engineer ID</label>
-                <input
-                  className="form-input"
-                  value={form.engineer_id}
-                  onChange={(e) => setForm({ ...form, engineer_id: e.target.value })}
-                  placeholder="ENG-001"
-                />
-                <div className="form-hint">Optional identifier for timesheets</div>
-              </div>
+              <>
+                <div className="form-group">
+                  <label className="form-label">Engineer ID</label>
+                  <input
+                    className="form-input"
+                    value={form.engineer_id}
+                    onChange={(e) => setForm({ ...form, engineer_id: e.target.value })}
+                    placeholder="ENG-001"
+                  />
+                  <div className="form-hint">Optional identifier for timesheets</div>
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Holiday Pay Settings</div>
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={form.holiday_pay_eligible}
+                        onChange={(e) => setForm({ ...form, holiday_pay_eligible: e.target.checked })}
+                        style={{ width: 18, height: 18 }}
+                      />
+                      <span>Eligible for Holiday Pay</span>
+                    </label>
+                  </div>
+                  {form.holiday_pay_eligible && (
+                    <div className="form-group">
+                      <label className="form-label">Holiday Pay Rate ($/hr)</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.holiday_pay_rate}
+                        onChange={(e) => setForm({ ...form, holiday_pay_rate: e.target.value })}
+                        placeholder="0.00"
+                      />
+                      <div className="form-hint">Rate paid per holiday hour</div>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </form>
         </Modal>

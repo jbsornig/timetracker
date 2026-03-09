@@ -226,6 +226,28 @@ function initSchema() {
     )
   `);
 
+  // Create holidays table for holiday pay tracking
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS holidays (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      date DATE NOT NULL,
+      hours REAL DEFAULT 8,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Add holiday pay columns to users if missing
+  const userCols = db.prepare("PRAGMA table_info(users)").all();
+  if (!userCols.find(c => c.name === 'holiday_pay_eligible')) {
+    db.exec('ALTER TABLE users ADD COLUMN holiday_pay_eligible INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added holiday_pay_eligible column to users');
+  }
+  if (!userCols.find(c => c.name === 'holiday_pay_rate')) {
+    db.exec('ALTER TABLE users ADD COLUMN holiday_pay_rate REAL DEFAULT 0');
+    console.log('✅ Migration: Added holiday_pay_rate column to users');
+  }
+
   // Seed admin user if none exists
   const adminExists = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {

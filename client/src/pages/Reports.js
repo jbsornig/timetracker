@@ -60,6 +60,7 @@ function getDefaultDates() {
 export default function Reports() {
   const [activeTab, setActiveTab] = useState('payroll');
   const [payrollData, setPayrollData] = useState([]);
+  const [payrollHolidays, setPayrollHolidays] = useState([]);
   const [budgetData, setBudgetData] = useState([]);
   const [invoicedData, setInvoicedData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -80,10 +81,11 @@ export default function Reports() {
     setLoading(true);
     setError('');
     try {
-      const data = await apiFetch(
+      const response = await apiFetch(
         `/reports/payroll?period_start=${dateRange.period_start}&period_end=${dateRange.period_end}`
       );
-      setPayrollData(data);
+      setPayrollData(response.data || []);
+      setPayrollHolidays(response.holidays || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -141,9 +143,14 @@ export default function Reports() {
   const payrollByEngineer = payrollData.reduce((acc, row) => {
     const key = row.engineer_name;
     if (!acc[key]) {
-      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, total_hours: 0, total_pay: 0 };
+      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, total_hours: 0, total_pay: 0, holiday_hours: 0, holiday_pay: 0 };
     }
-    acc[key].total_hours += row.total_hours || 0;
+    if (row.is_holiday_pay) {
+      acc[key].holiday_hours += row.total_hours || 0;
+      acc[key].holiday_pay += row.total_pay || 0;
+    } else {
+      acc[key].total_hours += row.total_hours || 0;
+    }
     acc[key].total_pay += row.total_pay || 0;
     return acc;
   }, {});
@@ -151,11 +158,12 @@ export default function Reports() {
 
   const payrollTotals = payrollData.reduce(
     (acc, row) => ({
-      hours: acc.hours + (row.total_hours || 0),
+      hours: acc.hours + (row.is_holiday_pay ? 0 : (row.total_hours || 0)),
+      holidayHours: acc.holidayHours + (row.is_holiday_pay ? (row.total_hours || 0) : 0),
       pay: acc.pay + (row.total_pay || 0),
       billed: acc.billed + (row.total_billed || 0),
     }),
-    { hours: 0, pay: 0, billed: 0 }
+    { hours: 0, holidayHours: 0, pay: 0, billed: 0 }
   );
 
   const budgetTotals = budgetData.reduce(
@@ -276,6 +284,20 @@ export default function Reports() {
                 </p>
               </div>
 
+              {/* Holidays included in this period */}
+              {payrollHolidays.length > 0 && (
+                <div style={{ marginBottom: 16, padding: '12px 16px', background: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4, color: '#1e40af' }}>Holidays in Period</div>
+                  <div style={{ fontSize: 14, color: '#3b82f6' }}>
+                    {payrollHolidays.map((h, i) => (
+                      <span key={h.id}>
+                        {h.name} ({formatDate(h.date)}, {h.hours}hrs){i < payrollHolidays.length - 1 ? ' • ' : ''}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Summary by Engineer (for printing) */}
               <div style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: 16, marginBottom: 12 }}>Payment Summary by Engineer</h3>
@@ -285,7 +307,8 @@ export default function Reports() {
                       <tr>
                         <th>Engineer</th>
                         <th>Engineer ID</th>
-                        <th>Total Hours</th>
+                        <th>Work Hours</th>
+                        {payrollHolidays.length > 0 && <th>Holiday Hours</th>}
                         <th>Amount to Pay</th>
                       </tr>
                     </thead>
@@ -295,6 +318,11 @@ export default function Reports() {
                           <td><strong>{row.engineer_name}</strong></td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.engineer_id || '-'}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>{(row.total_hours || 0).toFixed(2)}</td>
+                          {payrollHolidays.length > 0 && (
+                            <td style={{ fontFamily: 'DM Mono, monospace', color: row.holiday_hours > 0 ? '#1e40af' : '#94a3b8' }}>
+                              {row.holiday_hours > 0 ? `${row.holiday_hours.toFixed(2)}` : '—'}
+                            </td>
+                          )}
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#16a34a' }}>{formatCurrency(row.total_pay)}</td>
                         </tr>
                       ))}
@@ -303,6 +331,7 @@ export default function Reports() {
                       <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
                         <td colSpan={2}>Totals</td>
                         <td style={{ fontFamily: 'DM Mono, monospace' }}>{payrollTotals.hours.toFixed(2)}</td>
+                        {payrollHolidays.length > 0 && <td style={{ fontFamily: 'DM Mono, monospace' }}>{payrollTotals.holidayHours.toFixed(2)}</td>}
                         <td style={{ fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(payrollTotals.pay)}</td>
                       </tr>
                     </tfoot>
@@ -329,16 +358,24 @@ export default function Reports() {
                   </thead>
                   <tbody>
                     {payrollData.map((row, idx) => (
-                      <tr key={idx}>
+                      <tr key={idx} style={row.is_holiday_pay ? { background: '#eff6ff' } : undefined}>
                         <td><strong>{row.engineer_name}</strong></td>
                         <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.engineer_id || '-'}</td>
-                        <td>{row.project_name}</td>
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.po_number || '-'}</td>
+                        <td>
+                          {row.is_holiday_pay ? (
+                            <span style={{ color: '#1e40af', fontWeight: 500 }}>Holiday Pay</span>
+                          ) : (
+                            row.project_name
+                          )}
+                        </td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: row.is_holiday_pay ? '#3b82f6' : undefined }}>
+                          {row.po_number || '-'}
+                        </td>
                         <td style={{ fontFamily: 'DM Mono, monospace' }}>{(row.total_hours || 0).toFixed(2)}</td>
                         <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(row.pay_rate)}/hr</td>
                         <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(row.total_pay)}</td>
-                        <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(row.bill_rate)}/hr</td>
-                        <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(row.total_billed)}</td>
+                        <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{row.is_holiday_pay ? '—' : `${formatCurrency(row.bill_rate)}/hr`}</td>
+                        <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{row.is_holiday_pay ? '—' : formatCurrency(row.total_billed)}</td>
                       </tr>
                     ))}
                   </tbody>
