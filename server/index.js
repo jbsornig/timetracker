@@ -315,6 +315,17 @@ app.delete('/api/projects/:id/engineers/:userId', auth, adminOnly, (req, res) =>
   res.json({ success: true });
 });
 
+// Get all engineer-project assignments (for filtering)
+app.get('/api/engineer-projects', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const assignments = db.prepare(`
+    SELECT ep.*, u.name as engineer_name
+    FROM engineer_projects ep
+    JOIN users u ON u.id = ep.user_id
+  `).all();
+  res.json(assignments);
+});
+
 // ─── TIMESHEETS ───────────────────────────────────────────────────────────────
 
 app.get('/api/timesheets', auth, (req, res) => {

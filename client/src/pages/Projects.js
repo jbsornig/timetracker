@@ -18,6 +18,8 @@ export default function Projects() {
   const [projectEngineers, setProjectEngineers] = useState([]);
   const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '' });
   const [customerFilter, setCustomerFilter] = useState('');
+  const [engineerFilter, setEngineerFilter] = useState('');
+  const [engineerAssignments, setEngineerAssignments] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -25,14 +27,16 @@ export default function Projects() {
 
   const loadData = async () => {
     try {
-      const [p, c, u] = await Promise.all([
+      const [p, c, u, ep] = await Promise.all([
         apiFetch('/projects'),
         apiFetch('/customers'),
         apiFetch('/users'),
+        apiFetch('/engineer-projects'),
       ]);
       setProjects(p);
       setCustomers(c);
       setEngineers(u.filter((user) => user.role === 'engineer'));
+      setEngineerAssignments(ep);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -196,8 +200,22 @@ export default function Projects() {
               ))}
             </select>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Engineer:</span>
+            <select
+              className="form-select"
+              value={engineerFilter}
+              onChange={(e) => setEngineerFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 180 }}
+            >
+              <option value="">All Engineers</option>
+              {engineers.map((e) => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
+          </div>
           <span style={{ fontSize: 13, color: '#94a3b8' }}>
-            Showing {customerFilter ? projects.filter(p => String(p.customer_id) === customerFilter).length : projects.length} of {projects.length} projects
+            Showing {projects.filter(p => (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).length} of {projects.length} projects
           </span>
         </div>
       </div>
@@ -226,7 +244,7 @@ export default function Projects() {
                 </tr>
               </thead>
               <tbody>
-                {projects.filter(p => !customerFilter || String(p.customer_id) === customerFilter).map((p) => {
+                {projects.filter(p => (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).map((p) => {
                   const billed = p.amount_billed || 0;
                   const remaining = (p.po_amount || 0) - billed;
                   const pct = p.po_amount > 0 ? (billed / p.po_amount) * 100 : 0;

@@ -62,6 +62,9 @@ export default function Invoices() {
   const [saving, setSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState('active');
   const [customerFilter, setCustomerFilter] = useState('');
+  const [engineerFilter, setEngineerFilter] = useState('');
+  const [engineers, setEngineers] = useState([]);
+  const [engineerAssignments, setEngineerAssignments] = useState([]);
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
   const [emailingId, setEmailingId] = useState(null);
@@ -72,14 +75,18 @@ export default function Invoices() {
 
   const loadData = async () => {
     try {
-      const [inv, proj, bal] = await Promise.all([
+      const [inv, proj, bal, users, ep] = await Promise.all([
         apiFetch('/invoices'),
         apiFetch('/projects'),
         apiFetch('/balances'),
+        apiFetch('/users'),
+        apiFetch('/engineer-projects'),
       ]);
       setInvoices(inv);
       setProjects(proj);
       setBalances(bal);
+      setEngineers(users.filter(u => u.role === 'engineer'));
+      setEngineerAssignments(ep);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -296,6 +303,13 @@ export default function Invoices() {
   if (customerFilter) {
     filteredInvoices = filteredInvoices.filter(inv => inv.customer_name === customerFilter);
   }
+  // Apply engineer filter (filter by projects that have the engineer assigned)
+  if (engineerFilter) {
+    const projectIdsWithEngineer = engineerAssignments
+      .filter(ea => String(ea.user_id) === engineerFilter)
+      .map(ea => ea.project_id);
+    filteredInvoices = filteredInvoices.filter(inv => projectIdsWithEngineer.includes(inv.project_id));
+  }
 
   // Sort invoices
   const sortedInvoices = [...filteredInvoices].sort((a, b) => {
@@ -422,6 +436,20 @@ export default function Invoices() {
               <option value="">All Customers</option>
               {uniqueCustomers.map((c) => (
                 <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Engineer:</span>
+            <select
+              className="form-select"
+              value={engineerFilter}
+              onChange={(e) => setEngineerFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 150 }}
+            >
+              <option value="">All Engineers</option>
+              {engineers.map((e) => (
+                <option key={e.id} value={e.id}>{e.name}</option>
               ))}
             </select>
           </div>
