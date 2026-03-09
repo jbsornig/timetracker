@@ -1217,6 +1217,24 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   res.json(data);
 });
 
+// Invoiced report by date range
+app.get('/api/reports/invoiced', auth, adminOnly, (req, res) => {
+  const { period_start, period_end } = req.query;
+  const db = getDb();
+  const data = db.prepare(`
+    SELECT i.id, i.invoice_number, i.created_at, i.period_start, i.period_end,
+           i.total_hours, i.total_amount, i.amount_paid, i.status,
+           p.name as project_name, p.po_number,
+           c.name as customer_name
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE DATE(i.created_at) BETWEEN ? AND ?
+    ORDER BY i.created_at DESC
+  `).all(period_start, period_end);
+  res.json(data);
+});
+
 // Engineer earnings report (accessible by engineers for their own data)
 app.get('/api/reports/my-earnings', auth, (req, res) => {
   const db = getDb();
