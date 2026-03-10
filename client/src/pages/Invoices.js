@@ -688,8 +688,8 @@ export default function Invoices() {
             <div className="print-invoice">
               <InvoiceContent inv={inv} settings={settings} />
             </div>
-            {/* Print timesheets after invoice */}
-            {inv.timesheetDetails && inv.timesheetDetails.map((ts, idx) => (
+            {/* Print timesheets after invoice (only if include_timesheets is enabled) */}
+            {inv.include_timesheets && inv.timesheetDetails && inv.timesheetDetails.map((ts, idx) => (
               <div key={ts.id} className="timesheet-page">
                 <DailyTimeReport
                   timesheet={ts}
@@ -1144,12 +1144,19 @@ function InvoiceContent({ inv, settings }) {
           {inv.lineItems && inv.lineItems.length > 0 ? (
             inv.lineItems.map((item, idx) => (
               <tr key={idx}>
-                <td style={{ border: '1px solid #ccc', padding: '8px' }}>{item.hours?.toFixed(0)}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px' }}>
+                  {item.is_fixed_price ? `${item.percentage}%` : item.hours?.toFixed(0)}
+                </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {projectDescription || 'Engineering Labor Hours'} - {item.engineer} - {periodRange}
+                  {item.is_fixed_price
+                    ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}`
+                    : `${projectDescription || 'Engineering Labor Hours'} - ${item.engineer} - ${periodRange}`
+                  }
                 </td>
-                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>${item.rate?.toFixed(2) || '0.00'}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
+                  {item.is_fixed_price ? 'Fixed' : `$${item.rate?.toFixed(2) || '0.00'}`}
+                </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
               </tr>

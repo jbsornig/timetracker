@@ -148,6 +148,8 @@ tr:hover td { background: var(--surface2); }
 .badge-inactive { background: #fef2f2; color: #dc2626; }
 .badge-danger { background: #fef2f2; color: #dc2626; }
 .badge-warning { background: #fffbeb; color: #d97706; }
+.badge-hourly { background: #f0f9ff; color: #0369a1; }
+.badge-fixed { background: #fdf4ff; color: #a855f7; }
 
 /* ── LOGIN ── */
 .login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--navy) 0%, #0d2137 100%); padding: 20px; }

@@ -13,6 +13,16 @@ function getNextSunday() {
   return d.toISOString().split('T')[0];
 }
 
+function snapToSunday(dateStr) {
+  if (!dateStr) return getNextSunday();
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay();
+  if (day === 0) return dateStr; // Already Sunday
+  // Move forward to next Sunday
+  d.setDate(d.getDate() + (7 - day));
+  return d.toISOString().split('T')[0];
+}
+
 function formatDate(dateStr) {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
     month: 'short',
@@ -271,7 +281,7 @@ export default function Timesheets() {
   const [entries, setEntries] = useState([]);
   const [originalEntries, setOriginalEntries] = useState([]);
   const [modal, setModal] = useState(null);
-  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday() });
+  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ status: '', project_id: '', user_id: '' });
@@ -353,25 +363,63 @@ export default function Timesheets() {
     }
   }, [filter, loading, loadTimesheets]);
 
+  // Check if we should open the new timesheet modal (from Dashboard button)
+  useEffect(() => {
+    if (!loading && localStorage.getItem('openNewTimesheet') === 'true') {
+      localStorage.removeItem('openNewTimesheet');
+      const today = new Date().toISOString().split('T')[0];
+      setNewForm({ project_id: '', week_ending: getNextSunday(), period_start: today, period_end: today, percentage: '' });
+      setError('');
+      setModal('new');
+    }
+  }, [loading]);
+
   const openNew = () => {
-    setNewForm({ project_id: '', week_ending: getNextSunday() });
+    const today = new Date().toISOString().split('T')[0];
+    setNewForm({ project_id: '', week_ending: getNextSunday(), period_start: today, period_end: today, percentage: '' });
     setError('');
     setModal('new');
   };
 
   const handleCreateTimesheet = async (e) => {
     e.preventDefault();
-    if (!newForm.project_id || !newForm.week_ending) {
-      setError('Project and week ending are required');
+    const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
+    const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+
+    if (!newForm.project_id) {
+      setError('Project is required');
       return;
     }
+
+    if (isFixedPrice) {
+      if (!newForm.period_start || !newForm.period_end || !newForm.percentage) {
+        setError('Period start, end, and percentage are required for fixed price projects');
+        return;
+      }
+      const pct = parseInt(newForm.percentage);
+      if (isNaN(pct) || pct < 1 || pct > 100) {
+        setError('Percentage must be a whole number between 1 and 100');
+        return;
+      }
+    } else {
+      if (!newForm.week_ending) {
+        setError('Week ending is required');
+        return;
+      }
+    }
+
     setSaving(true);
     setError('');
     try {
-      const result = await apiFetch('/timesheets', { method: 'POST', body: newForm });
+      const body = isFixedPrice
+        ? { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end, percentage: parseInt(newForm.percentage) }
+        : { project_id: newForm.project_id, week_ending: newForm.week_ending };
+      const result = await apiFetch('/timesheets', { method: 'POST', body });
       await loadTimesheets();
       setModal(null);
-      openTimesheet(result.id);
+      if (!isFixedPrice) {
+        openTimesheet(result.id);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -592,6 +640,73 @@ export default function Timesheets() {
     }
   };
 
+  // Fixed price timesheet handlers
+  const handleSubmitFixedPrice = async (id) => {
+    if (!window.confirm('Submit this invoice for approval?')) return;
+    try {
+      await apiFetch(`/timesheets/${id}/submit`, { method: 'PUT' });
+      await loadTimesheets();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const handleApproveFixedPrice = async (id) => {
+    if (!window.confirm('Approve this invoice?')) return;
+    try {
+      await apiFetch(`/timesheets/${id}/approve`, { method: 'PUT' });
+      await loadTimesheets();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const handleRejectFixedPrice = async (id) => {
+    if (!window.confirm('Reject this invoice and return to draft?')) return;
+    try {
+      await apiFetch(`/timesheets/${id}/reject`, { method: 'PUT' });
+      await loadTimesheets();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const [editFixedPriceModal, setEditFixedPriceModal] = useState(null);
+  const [editFixedPriceForm, setEditFixedPriceForm] = useState({ period_start: '', period_end: '', percentage: '' });
+
+  const openEditFixedPrice = (ts) => {
+    setEditFixedPriceForm({
+      id: ts.id,
+      period_start: ts.period_start || '',
+      period_end: ts.period_end || '',
+      percentage: ts.percentage || '',
+      total_payment: ts.total_payment || 0
+    });
+    setEditFixedPriceModal(true);
+  };
+
+  const handleSaveFixedPrice = async () => {
+    const pct = parseInt(editFixedPriceForm.percentage);
+    if (isNaN(pct) || pct < 1 || pct > 100) {
+      alert('Percentage must be a whole number between 1 and 100');
+      return;
+    }
+    try {
+      await apiFetch(`/timesheets/${editFixedPriceForm.id}/fixed-price`, {
+        method: 'PUT',
+        body: {
+          period_start: editFixedPriceForm.period_start,
+          period_end: editFixedPriceForm.period_end,
+          percentage: pct
+        }
+      });
+      await loadTimesheets();
+      setEditFixedPriceModal(null);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -694,8 +809,8 @@ export default function Timesheets() {
           </div>
         </div>
 
-        {/* Quick Fill Section */}
-        {canEdit && (
+        {/* Quick Fill Section - only show for draft timesheets being edited */}
+        {ts.status === 'draft' && (
           <div className="card no-print" style={{ marginBottom: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 12, color: '#374151' }}>Quick Fill</div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -1026,47 +1141,98 @@ export default function Timesheets() {
             <table>
               <thead>
                 <tr>
-                  <th>Week Ending</th>
+                  <th>Period</th>
                   {isAdmin && <th>Engineer</th>}
                   <th>Project</th>
-                  <th>Hours</th>
+                  <th>Type</th>
+                  <th>Hours/Amount</th>
                   <th>Status</th>
                   <th style={{ width: 150 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {timesheets.map((ts) => (
-                  <tr key={ts.id}>
-                    <td>{formatDate(ts.week_ending)}</td>
-                    {isAdmin && (
+                {timesheets.map((ts) => {
+                  const isFixedPrice = ts.project_type === 'fixed_price';
+                  return (
+                    <tr key={ts.id}>
                       <td>
-                        <strong>{ts.engineer_name}</strong>
+                        {isFixedPrice && ts.period_start ? (
+                          <>
+                            {formatDate(ts.period_start)}
+                            <br />
+                            <span style={{ fontSize: 12, color: '#94a3b8' }}>to {formatDate(ts.period_end)}</span>
+                          </>
+                        ) : (
+                          formatDate(ts.week_ending)
+                        )}
                       </td>
-                    )}
-                    <td>
-                      <strong>{ts.project_name}</strong>
-                      <br />
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>{ts.customer_name}</span>
-                    </td>
-                    <td style={{ fontFamily: 'DM Mono, monospace' }}>{(ts.total_hours || 0).toFixed(2)}</td>
-                    <td>
-                      <span className={`badge badge-${ts.status}`}>{ts.status}</span>
-                    </td>
-                    <td>
-                      <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
-                        {ts.status === 'draft' ? 'Edit' : 'View'}
-                      </button>
-                      {(isAdmin || ts.status === 'draft') && (
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={(e) => { e.stopPropagation(); handleDelete(ts.id); }}
-                        >
-                          Delete
-                        </button>
+                      {isAdmin && (
+                        <td>
+                          <strong>{ts.engineer_name}</strong>
+                        </td>
                       )}
-                    </td>
-                  </tr>
-                ))}
+                      <td>
+                        <strong>{ts.project_name}</strong>
+                        <br />
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>{ts.customer_name}</span>
+                      </td>
+                      <td>
+                        <span className={`badge ${isFixedPrice ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
+                          {isFixedPrice ? 'Fixed' : 'Hourly'}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                        {isFixedPrice ? (
+                          <>
+                            ${(ts.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            <br />
+                            <span style={{ fontSize: 11, color: '#64748b' }}>{ts.percentage}%</span>
+                          </>
+                        ) : (
+                          <>{(ts.total_hours || 0).toFixed(2)} hrs</>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge badge-${ts.status}`}>{ts.status}</span>
+                      </td>
+                      <td>
+                        {!isFixedPrice && (
+                          <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
+                            {ts.status === 'draft' ? 'Edit' : 'View'}
+                          </button>
+                        )}
+                        {isFixedPrice && ts.status === 'draft' && (
+                          <>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openEditFixedPrice(ts)} style={{ marginRight: 4 }}>
+                              Edit
+                            </button>
+                            <button className="btn btn-success btn-sm" onClick={() => handleSubmitFixedPrice(ts.id)} style={{ marginRight: 4 }}>
+                              Submit
+                            </button>
+                          </>
+                        )}
+                        {isFixedPrice && ts.status === 'submitted' && isAdmin && (
+                          <>
+                            <button className="btn btn-danger btn-sm" onClick={() => handleRejectFixedPrice(ts.id)} style={{ marginRight: 4 }}>
+                              Reject
+                            </button>
+                            <button className="btn btn-success btn-sm" onClick={() => handleApproveFixedPrice(ts.id)} style={{ marginRight: 4 }}>
+                              Approve
+                            </button>
+                          </>
+                        )}
+                        {(isAdmin || ts.status === 'draft') && (
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={(e) => { e.stopPropagation(); handleDelete(ts.id); }}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1083,92 +1249,299 @@ export default function Timesheets() {
             </div>
           </div>
         ) : (
-          timesheets.map((ts) => (
-            <div
-              key={ts.id}
-              className="timesheet-day-card"
-              onClick={() => openTimesheet(ts.id)}
-              style={{ cursor: 'pointer' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                    Week of {formatDate(ts.week_ending)}
-                  </div>
-                  <div style={{ color: '#64748b', fontSize: 14 }}>
-                    {ts.project_name}
-                  </div>
-                  {isAdmin && (
-                    <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>
-                      {ts.engineer_name}
+          timesheets.map((ts) => {
+            const isFixedPrice = ts.project_type === 'fixed_price';
+            return (
+              <div
+                key={ts.id}
+                className="timesheet-day-card"
+                onClick={() => !isFixedPrice && openTimesheet(ts.id)}
+                style={{ cursor: isFixedPrice ? 'default' : 'pointer' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+                      {isFixedPrice && ts.period_start ? (
+                        <>{formatDate(ts.period_start)} - {formatDate(ts.period_end)}</>
+                      ) : (
+                        <>Week of {formatDate(ts.week_ending)}</>
+                      )}
                     </div>
-                  )}
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 20, fontWeight: 700, color: 'var(--primary)' }}>
-                    {(ts.total_hours || 0).toFixed(1)}
+                    <div style={{ color: '#64748b', fontSize: 14 }}>
+                      {ts.project_name}
+                      <span className={`badge ${isFixedPrice ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 10, marginLeft: 8 }}>
+                        {isFixedPrice ? 'Fixed' : 'Hourly'}
+                      </span>
+                    </div>
+                    {isAdmin && (
+                      <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>
+                        {ts.engineer_name}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>hours</div>
-                  <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
-                  {(isAdmin || ts.status === 'draft') && (
-                    <button
-                      className="btn btn-danger btn-sm"
-                      style={{ marginTop: 8, display: 'block' }}
-                      onClick={(e) => { e.stopPropagation(); handleDelete(ts.id); }}
-                    >
-                      Delete
-                    </button>
-                  )}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 20, fontWeight: 700, color: 'var(--primary)' }}>
+                      {isFixedPrice ? (
+                        <>${(ts.amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</>
+                      ) : (
+                        <>{(ts.total_hours || 0).toFixed(1)}</>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                      {isFixedPrice ? `${ts.percentage}%` : 'hours'}
+                    </div>
+                    <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                      {isFixedPrice && ts.status === 'draft' && (
+                        <>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={(e) => { e.stopPropagation(); openEditFixedPrice(ts); }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-success btn-sm"
+                            onClick={(e) => { e.stopPropagation(); handleSubmitFixedPrice(ts.id); }}
+                          >
+                            Submit
+                          </button>
+                        </>
+                      )}
+                      {isFixedPrice && ts.status === 'submitted' && isAdmin && (
+                        <>
+                          <button
+                            className="btn btn-success btn-sm"
+                            onClick={(e) => { e.stopPropagation(); handleApproveFixedPrice(ts.id); }}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={(e) => { e.stopPropagation(); handleRejectFixedPrice(ts.id); }}
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      {(isAdmin || ts.status === 'draft') && (
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={(e) => { e.stopPropagation(); handleDelete(ts.id); }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
-      {modal === 'new' && (
+      {editFixedPriceModal && (
         <Modal
-          title="New Timesheet"
-          onClose={() => setModal(null)}
+          title="Edit Fixed Price Invoice"
+          onClose={() => setEditFixedPriceModal(null)}
           footer={
             <>
-              <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleCreateTimesheet} disabled={saving}>
-                {saving ? 'Creating...' : 'Create Timesheet'}
-              </button>
+              <button className="btn btn-secondary" onClick={() => setEditFixedPriceModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSaveFixedPrice}>Save Changes</button>
             </>
           }
         >
-          <form onSubmit={handleCreateTimesheet}>
-            {error && <div className="alert alert-error">{error}</div>}
-            <div className="form-group">
-              <label className="form-label">Project *</label>
-              <select
-                className="form-select"
-                value={newForm.project_id}
-                onChange={(e) => setNewForm({ ...newForm, project_id: e.target.value })}
-              >
-                <option value="">Select a project...</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.customer_name})
-                  </option>
-                ))}
-              </select>
+          <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>Fixed Price Project</div>
+            <div style={{ fontSize: 13, color: '#64748b' }}>
+              Your total payment: <strong>${(editFixedPriceForm.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
             </div>
+          </div>
+          <div className="form-row">
             <div className="form-group">
-              <label className="form-label">Week Ending (Sunday) *</label>
+              <label className="form-label">Period Start *</label>
               <input
                 className="form-input"
                 type="date"
-                value={newForm.week_ending}
-                onChange={(e) => setNewForm({ ...newForm, week_ending: e.target.value })}
+                value={editFixedPriceForm.period_start}
+                onChange={(e) => setEditFixedPriceForm({ ...editFixedPriceForm, period_start: e.target.value })}
               />
-              <div className="form-hint">Select the Sunday that ends your work week</div>
             </div>
-          </form>
+            <div className="form-group">
+              <label className="form-label">Period End *</label>
+              <input
+                className="form-input"
+                type="date"
+                value={editFixedPriceForm.period_end}
+                onChange={(e) => setEditFixedPriceForm({ ...editFixedPriceForm, period_end: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Percentage to Invoice *</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <input
+                className="form-input"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                value={editFixedPriceForm.percentage}
+                onChange={(e) => setEditFixedPriceForm({ ...editFixedPriceForm, percentage: e.target.value })}
+                placeholder="Enter percentage (1-100)"
+                style={{ width: 150 }}
+              />
+              <span style={{ color: '#64748b' }}>%</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {[10, 25, 50, 75, 100].map(pct => (
+                <button
+                  key={pct}
+                  type="button"
+                  className={`btn btn-sm ${String(editFixedPriceForm.percentage) === String(pct) ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setEditFixedPriceForm({ ...editFixedPriceForm, percentage: String(pct) })}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+          </div>
+          {editFixedPriceForm.percentage && (
+            <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, marginTop: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>
+                Invoice Amount: ${((parseInt(editFixedPriceForm.percentage) / 100) * (editFixedPriceForm.total_payment || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                {editFixedPriceForm.percentage}% of ${(editFixedPriceForm.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+          )}
         </Modal>
       )}
+
+      {modal === 'new' && (() => {
+        const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
+        const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+        const totalPayment = selectedProject?.total_payment || 0;
+        const calculatedAmount = isFixedPrice && newForm.percentage ? (parseInt(newForm.percentage) / 100) * totalPayment : 0;
+
+        return (
+          <Modal
+            title={isFixedPrice ? 'New Fixed Price Invoice' : 'New Timesheet'}
+            onClose={() => setModal(null)}
+            footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleCreateTimesheet} disabled={saving}>
+                  {saving ? 'Creating...' : isFixedPrice ? 'Create Invoice' : 'Create Timesheet'}
+                </button>
+              </>
+            }
+          >
+            <form onSubmit={handleCreateTimesheet}>
+              {error && <div className="alert alert-error">{error}</div>}
+              <div className="form-group">
+                <label className="form-label">Project *</label>
+                <select
+                  className="form-select"
+                  value={newForm.project_id}
+                  onChange={(e) => setNewForm({ ...newForm, project_id: e.target.value })}
+                >
+                  <option value="">Select a project...</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.customer_name}) {p.project_type === 'fixed_price' ? '[Fixed]' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {isFixedPrice ? (
+                <>
+                  <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>Fixed Price Project</div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>
+                      Your total payment for this project: <strong>${totalPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Period Start *</label>
+                      <input
+                        className="form-input"
+                        type="date"
+                        value={newForm.period_start}
+                        onChange={(e) => setNewForm({ ...newForm, period_start: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Period End *</label>
+                      <input
+                        className="form-input"
+                        type="date"
+                        value={newForm.period_end}
+                        onChange={(e) => setNewForm({ ...newForm, period_end: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Percentage to Invoice *</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        value={newForm.percentage}
+                        onChange={(e) => setNewForm({ ...newForm, percentage: e.target.value })}
+                        placeholder="Enter percentage (1-100)"
+                        style={{ width: 150 }}
+                      />
+                      <span style={{ color: '#64748b' }}>%</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      {[10, 25, 50, 75, 100].map(pct => (
+                        <button
+                          key={pct}
+                          type="button"
+                          className={`btn btn-sm ${String(newForm.percentage) === String(pct) ? 'btn-primary' : 'btn-secondary'}`}
+                          onClick={() => setNewForm({ ...newForm, percentage: String(pct) })}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                    <div className="form-hint">Select what percentage of your total payment to invoice</div>
+                  </div>
+                  {newForm.percentage && (
+                    <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, marginTop: 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>
+                        Invoice Amount: ${calculatedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>
+                        {newForm.percentage}% of ${totalPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="form-group">
+                  <label className="form-label">Week Ending (Sunday) *</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={newForm.week_ending}
+                    onChange={(e) => setNewForm({ ...newForm, week_ending: snapToSunday(e.target.value) })}
+                  />
+                  <div className="form-hint">Date will automatically adjust to the nearest Sunday</div>
+                </div>
+              )}
+            </form>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }

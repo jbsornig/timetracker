@@ -121,7 +121,7 @@ export default function Dashboard({ setPage }) {
           <div className="page-title">My Dashboard</div>
           <div className="page-subtitle">Welcome back, {user.name}</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setPage('timesheets')}>+ New Timesheet</button>
+        <button className="btn btn-primary" onClick={() => { localStorage.setItem('openNewTimesheet', 'true'); setPage('timesheets'); }}>+ New Timesheet</button>
       </div>
 
       <div className="stat-grid">

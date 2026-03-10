@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '' };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -16,7 +16,7 @@ export default function Projects() {
   const [saving, setSaving] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectEngineers, setProjectEngineers] = useState([]);
-  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '' });
+  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '' });
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
   const [engineerAssignments, setEngineerAssignments] = useState([]);
@@ -71,6 +71,8 @@ export default function Projects() {
       description: project.description || '',
       po_amount: project.po_amount || '',
       include_timesheets: project.include_timesheets !== 0,
+      project_type: project.project_type || 'hourly',
+      total_cost: project.total_cost || '',
     });
     setError('');
     if (project.customer_id) {
@@ -81,7 +83,7 @@ export default function Projects() {
 
   const openAssign = async (project) => {
     setSelectedProject(project);
-    setAssignForm({ user_id: '', pay_rate: '', bill_rate: '' });
+    setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '' });
     try {
       const engs = await apiFetch(`/projects/${project.id}/engineers`);
       setProjectEngineers(engs);
@@ -109,6 +111,7 @@ export default function Projects() {
         ...form,
         contact_id: form.contact_id || null,
         po_amount: form.po_amount ? parseFloat(form.po_amount) : 0,
+        total_cost: form.total_cost ? parseFloat(form.total_cost) : 0,
       };
       if (modal === 'add') {
         await apiFetch('/projects', { method: 'POST', body });
@@ -136,9 +139,17 @@ export default function Projects() {
 
   const handleAssignEngineer = async (e) => {
     e.preventDefault();
-    if (!assignForm.user_id || !assignForm.pay_rate || !assignForm.bill_rate) {
-      setError('All fields are required');
-      return;
+    const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+    if (isFixedPrice) {
+      if (!assignForm.user_id || !assignForm.total_payment) {
+        setError('Engineer and total payment are required');
+        return;
+      }
+    } else {
+      if (!assignForm.user_id || !assignForm.pay_rate || !assignForm.bill_rate) {
+        setError('All fields are required');
+        return;
+      }
     }
     setSaving(true);
     setError('');
@@ -147,13 +158,14 @@ export default function Projects() {
         method: 'POST',
         body: {
           user_id: parseInt(assignForm.user_id),
-          pay_rate: parseFloat(assignForm.pay_rate),
-          bill_rate: parseFloat(assignForm.bill_rate),
+          pay_rate: isFixedPrice ? 0 : parseFloat(assignForm.pay_rate),
+          bill_rate: isFixedPrice ? 0 : parseFloat(assignForm.bill_rate),
+          total_payment: isFixedPrice ? parseFloat(assignForm.total_payment) : 0,
         },
       });
       const engs = await apiFetch(`/projects/${selectedProject.id}/engineers`);
       setProjectEngineers(engs);
-      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '' });
+      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '' });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -232,30 +244,39 @@ export default function Projects() {
               <thead>
                 <tr>
                   <th>Project</th>
+                  <th>Type</th>
                   <th>Customer</th>
                   <th>Contact</th>
                   <th>PO #</th>
-                  <th>PO Amount</th>
+                  <th>Budget</th>
                   <th>Billed</th>
                   <th>Remaining</th>
                   <th>Progress</th>
                   <th>Status</th>
+                  <th>Created</th>
                   <th style={{ width: 180 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {projects.filter(p => (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).map((p) => {
+                  const isFixedPrice = p.project_type === 'fixed_price';
+                  const budget = isFixedPrice ? (p.total_cost || 0) : (p.po_amount || 0);
                   const billed = p.amount_billed || 0;
-                  const remaining = (p.po_amount || 0) - billed;
-                  const pct = p.po_amount > 0 ? (billed / p.po_amount) * 100 : 0;
+                  const remaining = budget - billed;
+                  const pct = budget > 0 ? (billed / budget) * 100 : 0;
                   const cls = pct >= 90 ? 'progress-danger' : pct >= 70 ? 'progress-warn' : 'progress-good';
                   return (
                     <tr key={p.id}>
                       <td><strong>{p.name}</strong><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{p.location || ''}</span></td>
+                      <td>
+                        <span className={`badge ${isFixedPrice ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
+                          {isFixedPrice ? 'Fixed' : 'Hourly'}
+                        </span>
+                      </td>
                       <td>{p.customer_name}</td>
                       <td>{p.contact_name || '—'}</td>
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{p.po_number || '—'}</td>
-                      <td>${(p.po_amount || 0).toLocaleString()}</td>
+                      <td>${budget.toLocaleString()}</td>
                       <td>${billed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ color: remaining < 0 ? '#ef4444' : undefined }}>
                         ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -270,6 +291,9 @@ export default function Projects() {
                       </td>
                       <td>
                         <span className={`badge badge-${p.status === 'active' ? 'active' : 'inactive'}`}>{p.status}</span>
+                      </td>
+                      <td style={{ fontSize: 12, color: '#64748b' }}>
+                        {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}
                       </td>
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => openAssign(p)} style={{ marginRight: 4 }}>Engineers</button>
@@ -348,6 +372,36 @@ export default function Projects() {
               />
               <div className="form-hint">This description will appear on invoice line items</div>
             </div>
+            <div className="form-group">
+              <label className="form-label">Project Type</label>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="project_type"
+                    value="hourly"
+                    checked={form.project_type === 'hourly'}
+                    onChange={(e) => setForm({ ...form, project_type: e.target.value })}
+                  />
+                  <span>Hourly</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="project_type"
+                    value="fixed_price"
+                    checked={form.project_type === 'fixed_price'}
+                    onChange={(e) => setForm({ ...form, project_type: e.target.value })}
+                  />
+                  <span>Fixed Price</span>
+                </label>
+              </div>
+              <div className="form-hint">
+                {form.project_type === 'hourly'
+                  ? 'Engineers bill by the hour with time entries'
+                  : 'Engineers bill a percentage of their total payment'}
+              </div>
+            </div>
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">PO Number</label>
@@ -359,15 +413,31 @@ export default function Projects() {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">PO Amount ($)</label>
-                <input
-                  className="form-input"
-                  type="number"
-                  step="0.01"
-                  value={form.po_amount}
-                  onChange={(e) => setForm({ ...form, po_amount: e.target.value })}
-                  placeholder="0.00"
-                />
+                <label className="form-label">{form.project_type === 'fixed_price' ? 'Total Cost ($)' : 'PO Amount ($)'}</label>
+                {form.project_type === 'fixed_price' ? (
+                  <input
+                    className="form-input"
+                    type="number"
+                    step="0.01"
+                    value={form.total_cost}
+                    onChange={(e) => setForm({ ...form, total_cost: e.target.value })}
+                    placeholder="0.00"
+                  />
+                ) : (
+                  <input
+                    className="form-input"
+                    type="number"
+                    step="0.01"
+                    value={form.po_amount}
+                    onChange={(e) => setForm({ ...form, po_amount: e.target.value })}
+                    placeholder="0.00"
+                  />
+                )}
+                <div className="form-hint">
+                  {form.project_type === 'fixed_price'
+                    ? 'Total amount to bill the customer for this project'
+                    : 'Budget limit for hourly billing'}
+                </div>
               </div>
             </div>
             <div className="form-row">
@@ -417,7 +487,12 @@ export default function Projects() {
           {error && <div className="alert alert-error">{error}</div>}
 
           <div style={{ marginBottom: 20 }}>
-            <div className="card-title" style={{ fontSize: 14 }}>Assigned Engineers</div>
+            <div className="card-title" style={{ fontSize: 14 }}>
+              Assigned Engineers
+              {selectedProject.project_type === 'fixed_price' && (
+                <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8 }}>(Fixed Price Project)</span>
+              )}
+            </div>
             {projectEngineers.length === 0 ? (
               <p style={{ color: '#94a3b8', fontSize: 14 }}>No engineers assigned yet.</p>
             ) : (
@@ -426,8 +501,14 @@ export default function Projects() {
                   <thead>
                     <tr>
                       <th>Engineer</th>
-                      <th>Pay Rate</th>
-                      <th>Bill Rate</th>
+                      {selectedProject.project_type === 'fixed_price' ? (
+                        <th>Total Payment</th>
+                      ) : (
+                        <>
+                          <th>Pay Rate</th>
+                          <th>Bill Rate</th>
+                        </>
+                      )}
                       <th style={{ width: 80 }}>Actions</th>
                     </tr>
                   </thead>
@@ -435,8 +516,14 @@ export default function Projects() {
                     {projectEngineers.map((eng) => (
                       <tr key={eng.user_id}>
                         <td><strong>{eng.name}</strong><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{eng.engineer_id || eng.email}</span></td>
-                        <td>${eng.pay_rate?.toFixed(2) || '0.00'}/hr</td>
-                        <td>${eng.bill_rate?.toFixed(2) || '0.00'}/hr</td>
+                        {selectedProject.project_type === 'fixed_price' ? (
+                          <td>${(eng.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        ) : (
+                          <>
+                            <td>${eng.pay_rate?.toFixed(2) || '0.00'}/hr</td>
+                            <td>${eng.bill_rate?.toFixed(2) || '0.00'}/hr</td>
+                          </>
+                        )}
                         <td>
                           <button className="btn btn-danger btn-sm" onClick={() => handleUnassignEngineer(eng.user_id)}>Remove</button>
                         </td>
@@ -466,30 +553,45 @@ export default function Projects() {
                     ))}
                 </select>
               </div>
-              <div className="form-row">
+              {selectedProject.project_type === 'fixed_price' ? (
                 <div className="form-group">
-                  <label className="form-label">Pay Rate ($/hr)</label>
+                  <label className="form-label">Total Payment ($)</label>
                   <input
                     className="form-input"
                     type="number"
                     step="0.01"
-                    value={assignForm.pay_rate}
-                    onChange={(e) => setAssignForm({ ...assignForm, pay_rate: e.target.value })}
+                    value={assignForm.total_payment}
+                    onChange={(e) => setAssignForm({ ...assignForm, total_payment: e.target.value })}
                     placeholder="0.00"
                   />
+                  <div className="form-hint">Total amount the engineer will be paid for this project</div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Bill Rate ($/hr)</label>
-                  <input
-                    className="form-input"
-                    type="number"
-                    step="0.01"
-                    value={assignForm.bill_rate}
-                    onChange={(e) => setAssignForm({ ...assignForm, bill_rate: e.target.value })}
-                    placeholder="0.00"
-                  />
+              ) : (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Pay Rate ($/hr)</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.01"
+                      value={assignForm.pay_rate}
+                      onChange={(e) => setAssignForm({ ...assignForm, pay_rate: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Bill Rate ($/hr)</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.01"
+                      value={assignForm.bill_rate}
+                      onChange={(e) => setAssignForm({ ...assignForm, bill_rate: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
               <button className="btn btn-primary" type="submit" disabled={saving}>
                 {saving ? 'Adding...' : 'Add to Project'}
               </button>

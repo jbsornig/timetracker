@@ -248,6 +248,43 @@ function initSchema() {
     console.log('✅ Migration: Added holiday_pay_rate column to users');
   }
 
+  // Add fixed price project columns
+  const projectCols3 = db.prepare("PRAGMA table_info(projects)").all();
+  if (!projectCols3.find(c => c.name === 'project_type')) {
+    db.exec("ALTER TABLE projects ADD COLUMN project_type TEXT DEFAULT 'hourly'");
+    console.log('✅ Migration: Added project_type column to projects');
+  }
+  if (!projectCols3.find(c => c.name === 'total_cost')) {
+    db.exec('ALTER TABLE projects ADD COLUMN total_cost REAL DEFAULT 0');
+    console.log('✅ Migration: Added total_cost column to projects');
+  }
+
+  // Add total_payment column to engineer_projects for fixed price projects
+  const epCols = db.prepare("PRAGMA table_info(engineer_projects)").all();
+  if (!epCols.find(c => c.name === 'total_payment')) {
+    db.exec('ALTER TABLE engineer_projects ADD COLUMN total_payment REAL DEFAULT 0');
+    console.log('✅ Migration: Added total_payment column to engineer_projects');
+  }
+
+  // Add fixed price timesheet columns
+  const tsCols = db.prepare("PRAGMA table_info(timesheets)").all();
+  if (!tsCols.find(c => c.name === 'period_start')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN period_start DATE');
+    console.log('✅ Migration: Added period_start column to timesheets');
+  }
+  if (!tsCols.find(c => c.name === 'period_end')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN period_end DATE');
+    console.log('✅ Migration: Added period_end column to timesheets');
+  }
+  if (!tsCols.find(c => c.name === 'percentage')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN percentage INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added percentage column to timesheets');
+  }
+  if (!tsCols.find(c => c.name === 'amount')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN amount REAL DEFAULT 0');
+    console.log('✅ Migration: Added amount column to timesheets');
+  }
+
   // Seed admin user if none exists
   const adminExists = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {
