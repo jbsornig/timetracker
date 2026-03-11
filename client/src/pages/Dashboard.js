@@ -154,55 +154,57 @@ export default function Dashboard({ setPage }) {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Project</th><th>Customer</th><th>Location</th><th>My Hours</th><th>Project Hours</th></tr></thead>
+              <thead><tr><th>Project</th><th>Customer</th><th>Hours Remaining</th><th>Projected Remaining</th></tr></thead>
               <tbody>
                 {projects.map(p => {
-                  // My personal hours
-                  const myTotal = (p.my_hours_approved || 0) + (p.my_hours_pending || 0);
-                  const myHasPending = (p.my_hours_pending || 0) > 0;
+                  const approved = p.my_hours_approved || 0;
+                  const pending = p.my_hours_pending || 0;
+                  const hasPending = pending > 0;
 
-                  // Project-wide hours (all engineers)
-                  const projectTotal = (p.project_hours_approved || 0) + (p.project_hours_pending || 0);
-                  const projectHasPending = (p.project_hours_pending || 0) > 0;
+                  // Hours Remaining = budgeted - approved (actual remaining)
+                  const hoursRemaining = p.budgeted_hours ? p.budgeted_hours - approved : null;
+                  // Projected Remaining = budgeted - approved - pending (after pending is approved)
+                  const projectedRemaining = p.budgeted_hours ? p.budgeted_hours - approved - pending : null;
 
-                  // My remaining (based on budgeted hours for me)
-                  const myRemaining = p.budgeted_hours ? p.budgeted_hours - myTotal : null;
-                  const myPct = p.budgeted_hours ? (myTotal / p.budgeted_hours) * 100 : 0;
+                  const pctUsed = p.budgeted_hours ? ((approved + pending) / p.budgeted_hours) * 100 : 0;
 
                   return (
                     <tr key={p.id}>
-                      <td><strong>{p.name}</strong></td>
+                      <td>
+                        <strong>{p.name}</strong>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>{p.po_number || ''}</div>
+                      </td>
                       <td>{p.customer_name}</td>
-                      <td>{p.location || '—'}</td>
-                      <td style={{ minWidth: 150 }}>
+                      <td style={{ minWidth: 140 }}>
                         {p.project_type === 'fixed_price' ? (
                           <span style={{ color: '#64748b', fontSize: 13 }}>Fixed Price</span>
                         ) : p.budgeted_hours ? (
                           <div>
-                            <div style={{ fontSize: 13, color: myRemaining < 0 ? '#ef4444' : myPct >= 80 ? '#f59e0b' : '#10b981', fontWeight: 500 }}>
-                              {myRemaining >= 0 ? `${myRemaining.toFixed(1)} hrs remaining` : `${Math.abs(myRemaining).toFixed(1)} hrs over`}
+                            <div style={{ fontSize: 15, fontWeight: 600, color: hoursRemaining < 0 ? '#ef4444' : '#10b981' }}>
+                              {hoursRemaining >= 0 ? `${hoursRemaining.toFixed(1)} hrs` : `(${Math.abs(hoursRemaining).toFixed(1)}) hrs`}
                             </div>
                             <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                              {(p.my_hours_approved || 0).toFixed(1)} approved{myHasPending ? ` + ${(p.my_hours_pending).toFixed(1)} pending` : ''}
+                              {approved.toFixed(1)} of {p.budgeted_hours.toFixed(1)} used
                             </div>
                           </div>
                         ) : (
-                          <div>
-                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{myTotal.toFixed(1)} hrs</div>
-                            {myHasPending && <div style={{ fontSize: 11, color: '#94a3b8' }}>{(p.my_hours_pending).toFixed(1)} pending</div>}
-                          </div>
+                          <span style={{ color: '#94a3b8', fontSize: 13 }}>—</span>
                         )}
                       </td>
-                      <td style={{ minWidth: 130 }}>
+                      <td style={{ minWidth: 140 }}>
                         {p.project_type === 'fixed_price' ? (
                           <span style={{ color: '#64748b', fontSize: 13 }}>—</span>
-                        ) : (
+                        ) : p.budgeted_hours && hasPending ? (
                           <div>
-                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{projectTotal.toFixed(1)} hrs total</div>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: projectedRemaining < 0 ? '#ef4444' : pctUsed >= 80 ? '#f59e0b' : '#3b82f6' }}>
+                              {projectedRemaining >= 0 ? `${projectedRemaining.toFixed(1)} hrs` : `(${Math.abs(projectedRemaining).toFixed(1)}) hrs`}
+                            </div>
                             <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                              {(p.project_hours_approved || 0).toFixed(1)} approved{projectHasPending ? ` + ${(p.project_hours_pending).toFixed(1)} pending` : ''}
+                              {pending.toFixed(1)} hrs pending
                             </div>
                           </div>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: 13 }}>No pending</span>
                         )}
                       </td>
                     </tr>
