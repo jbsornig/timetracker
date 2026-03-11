@@ -496,6 +496,26 @@ export default function Settings() {
               {' '}(requires 2-factor auth enabled)
             </div>
           </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={async () => {
+                try {
+                  const result = await apiFetch('/test-email', { method: 'POST' });
+                  alert(result.message || 'Test email sent!');
+                } catch (e) {
+                  alert('Error: ' + e.message);
+                }
+              }}
+            >
+              Send Test Email
+            </button>
+            <div className="form-hint" style={{ marginTop: 8 }}>
+              Save your settings first, then click to send a test email to verify your configuration.
+            </div>
+          </div>
         </div>
 
         <button className="btn btn-primary" type="submit" disabled={saving}>

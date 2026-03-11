@@ -137,6 +137,53 @@ app.put('/api/settings', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// Test email endpoint
+app.post('/api/test-email', auth, adminOnly, async (req, res) => {
+  const db = getDb();
+  const settings = {};
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('smtp_email', 'smtp_password', 'admin_notification_email')").all();
+  for (const row of rows) {
+    settings[row.key] = row.value;
+  }
+
+  if (!settings.smtp_email || !settings.smtp_password || !settings.admin_notification_email) {
+    return res.status(400).json({ error: 'Email settings not fully configured. Please fill in all email fields and save settings first.' });
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: settings.smtp_email,
+        pass: settings.smtp_password,
+      },
+    });
+
+    await transporter.sendMail({
+      from: settings.smtp_email,
+      to: settings.admin_notification_email,
+      subject: 'TimeTracker Test Email',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #1e3a5f;">TimeTracker Email Test</h2>
+          <p>This is a test email from your TimeTracker system.</p>
+          <p>If you received this email, your email configuration is working correctly!</p>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+          <p style="color: #64748b; font-size: 12px;">
+            Sent from: ${settings.smtp_email}<br>
+            Sent to: ${settings.admin_notification_email}<br>
+            Time: ${new Date().toLocaleString()}
+          </p>
+        </div>
+      `,
+    });
+    res.json({ success: true, message: 'Test email sent successfully!' });
+  } catch (err) {
+    console.error('Test email failed:', err);
+    res.status(500).json({ error: `Failed to send email: ${err.message}` });
+  }
+});
+
 // ─── HOLIDAYS ─────────────────────────────────────────────────────────────────
 
 app.get('/api/holidays', auth, adminOnly, (req, res) => {
