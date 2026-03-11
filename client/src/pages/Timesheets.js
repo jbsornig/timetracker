@@ -23,6 +23,33 @@ function snapToSunday(dateStr) {
   return d.toISOString().split('T')[0];
 }
 
+// Generate list of Sundays for dropdown (past 6 months + future 3 months)
+function getSundayOptions() {
+  const sundays = [];
+  const today = new Date();
+
+  // Start 6 months ago, find the first Sunday
+  const start = new Date(today);
+  start.setMonth(start.getMonth() - 6);
+  const startDay = start.getDay();
+  if (startDay !== 0) {
+    start.setDate(start.getDate() + (7 - startDay));
+  }
+
+  // End 3 months from now
+  const end = new Date(today);
+  end.setMonth(end.getMonth() + 3);
+
+  // Generate all Sundays in range
+  const current = new Date(start);
+  while (current <= end) {
+    sundays.push(current.toISOString().split('T')[0]);
+    current.setDate(current.getDate() + 7);
+  }
+
+  return sundays;
+}
+
 function formatDate(dateStr) {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
     month: 'short',
@@ -1529,13 +1556,17 @@ export default function Timesheets() {
               ) : (
                 <div className="form-group">
                   <label className="form-label">Week Ending (Sunday) *</label>
-                  <input
-                    className="form-input"
-                    type="date"
+                  <select
+                    className="form-select"
                     value={newForm.week_ending}
-                    onChange={(e) => setNewForm({ ...newForm, week_ending: snapToSunday(e.target.value) })}
-                  />
-                  <div className="form-hint">Date will automatically adjust to the nearest Sunday</div>
+                    onChange={(e) => setNewForm({ ...newForm, week_ending: e.target.value })}
+                  >
+                    {getSundayOptions().map(sunday => (
+                      <option key={sunday} value={sunday}>
+                        {formatDate(sunday)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
             </form>
