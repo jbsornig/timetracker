@@ -159,6 +159,7 @@ export default function Engineers() {
                 <tr>
                   <th>Name</th>
                   <th>Email</th>
+                  <th>Last Login</th>
                   <th style={{ width: 180 }}>Actions</th>
                 </tr>
               </thead>
@@ -167,6 +168,15 @@ export default function Engineers() {
                   <tr key={admin.id}>
                     <td><strong>{admin.name}</strong></td>
                     <td>{admin.email}</td>
+                    <td style={{ fontSize: 13, color: admin.last_login ? 'inherit' : '#94a3b8' }}>
+                      {admin.last_login ? new Date(admin.last_login).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit'
+                      }) : 'Never'}
+                    </td>
                     <td>
                       <button className="btn btn-secondary btn-sm" onClick={() => openEdit(admin)} style={{ marginRight: 8 }}>Edit</button>
                       {admins.length > 1 && (
@@ -198,6 +208,7 @@ export default function Engineers() {
                   <th>Email</th>
                   <th>Engineer ID</th>
                   <th>Holiday Pay</th>
+                  <th>Last Login</th>
                   <th>Projects</th>
                   <th style={{ width: 180 }}>Actions</th>
                 </tr>
@@ -216,6 +227,15 @@ export default function Engineers() {
                       ) : (
                         <span style={{ color: '#94a3b8' }}>—</span>
                       )}
+                    </td>
+                    <td style={{ fontSize: 13, color: eng.last_login ? 'inherit' : '#94a3b8' }}>
+                      {eng.last_login ? new Date(eng.last_login).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit'
+                      }) : 'Never'}
                     </td>
                     <td>
                       <button

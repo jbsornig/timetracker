@@ -254,6 +254,10 @@ function initSchema() {
     db.exec('ALTER TABLE users ADD COLUMN holiday_pay_rate REAL DEFAULT 0');
     console.log('✅ Migration: Added holiday_pay_rate column to users');
   }
+  if (!userCols.find(c => c.name === 'last_login')) {
+    db.exec('ALTER TABLE users ADD COLUMN last_login DATETIME');
+    console.log('✅ Migration: Added last_login column to users');
+  }
 
   // Add fixed price project columns
   const projectCols3 = db.prepare("PRAGMA table_info(projects)").all();
