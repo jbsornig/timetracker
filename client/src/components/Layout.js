@@ -55,7 +55,7 @@ export default function Layout({ page, setPage, children }) {
     { key: 'timesheets', label: 'Time', icon: Icons.clock },
     { key: 'projects', label: 'Projects', icon: Icons.folder },
     { key: 'invoices', label: 'Invoices', icon: Icons.invoice },
-    { key: 'settings', label: 'More', icon: Icons.settings },
+    { key: 'more', label: 'More', icon: Icons.menu },
   ];
 
   const mobileNavItems = user?.role === 'admin' ? mobileNavAdmin : mobileNavEngineer;

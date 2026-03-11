@@ -12,9 +12,10 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Account from './pages/Account';
 import Earnings from './pages/Earnings';
+import More from './pages/More';
 
 const ENGINEER_PAGES = ['dashboard', 'timesheets', 'account', 'earnings'];
-const ADMIN_PAGES = ['dashboard', 'timesheets', 'customers', 'projects', 'engineers', 'invoices', 'reports', 'settings'];
+const ADMIN_PAGES = ['dashboard', 'timesheets', 'customers', 'projects', 'engineers', 'invoices', 'reports', 'settings', 'more'];
 
 function AppInner() {
   const { user, loading } = useAuth();
@@ -54,6 +55,7 @@ function AppInner() {
       case 'settings': return <Settings />;
       case 'account': return <Account />;
       case 'earnings': return <Earnings />;
+      case 'more': return <More setPage={setPage} />;
       default: return <Dashboard setPage={setPage} />;
     }
   };
