@@ -367,16 +367,26 @@ app.get('/api/projects', auth, (req, res) => {
       GROUP BY p.id ORDER BY c.name, p.name
     `).all();
   } else {
-    // For engineers: include remaining hours calculation (without exposing bill rate)
-    // hours_used = approved only, hours_pending = draft + submitted (for real-time tracking)
+    // For engineers: show personal hours and project-wide hours separately
+    // my_hours_approved/pending = this engineer only
+    // project_hours_approved/pending = all engineers on this project
     projects = db.prepare(`
       SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.total_payment,
+        -- My personal hours (this engineer only)
         COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
                   JOIN timesheets ts ON ts.id = te.timesheet_id
-                  WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as hours_used,
+                  WHERE ts.project_id = p.id AND ts.user_id = ? AND ts.status = 'approved'), 0) as my_hours_approved,
         COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
                   JOIN timesheets ts ON ts.id = te.timesheet_id
-                  WHERE ts.project_id = p.id AND ts.status IN ('draft', 'submitted')), 0) as hours_pending,
+                  WHERE ts.project_id = p.id AND ts.user_id = ? AND ts.status IN ('draft', 'submitted')), 0) as my_hours_pending,
+        -- Project-wide hours (all engineers)
+        COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
+                  JOIN timesheets ts ON ts.id = te.timesheet_id
+                  WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as project_hours_approved,
+        COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
+                  JOIN timesheets ts ON ts.id = te.timesheet_id
+                  WHERE ts.project_id = p.id AND ts.status IN ('draft', 'submitted')), 0) as project_hours_pending,
+        -- Budgeted hours for this engineer (PO / bill rate)
         CASE
           WHEN p.project_type = 'fixed_price' THEN NULL
           WHEN ep.bill_rate > 0 THEN ROUND(p.po_amount / ep.bill_rate, 1)
@@ -388,7 +398,7 @@ app.get('/api/projects', auth, (req, res) => {
       JOIN engineer_projects ep ON ep.project_id = p.id AND ep.user_id = ?
       WHERE p.status = 'active'
       ORDER BY c.name, p.name
-    `).all(req.user.id);
+    `).all(req.user.id, req.user.id, req.user.id);
   }
   res.json(projects);
 });
