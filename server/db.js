@@ -194,6 +194,13 @@ function initSchema() {
     console.log('✅ Migration: Added emailed_at column to invoices');
   }
 
+  // Add received_at column to invoices if missing (customer acknowledged receipt)
+  const invoiceCols3 = db.prepare("PRAGMA table_info(invoices)").all();
+  if (!invoiceCols3.find(c => c.name === 'received_at')) {
+    db.exec('ALTER TABLE invoices ADD COLUMN received_at DATETIME');
+    console.log('✅ Migration: Added received_at column to invoices');
+  }
+
   // Add payment tracking columns to invoices if missing
   const invoiceCols = db.prepare("PRAGMA table_info(invoices)").all();
   if (!invoiceCols.find(c => c.name === 'amount_paid')) {

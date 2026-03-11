@@ -77,6 +77,7 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
+  const [receivedFilter, setReceivedFilter] = useState('');
   const [engineers, setEngineers] = useState([]);
   const [engineerAssignments, setEngineerAssignments] = useState([]);
   const [sortField, setSortField] = useState('created_at');
@@ -383,6 +384,19 @@ export default function Invoices() {
     }
   };
 
+  const handleReceived = async (invoice) => {
+    try {
+      if (invoice.received_at) {
+        await apiFetch(`/invoices/${invoice.id}/unreceived`, { method: 'PUT' });
+      } else {
+        await apiFetch(`/invoices/${invoice.id}/received`, { method: 'PUT' });
+      }
+      await loadData();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
   // Filter invoices
   // Normalize status: treat null/undefined/empty/'draft' as 'unpaid'
   const getStatus = (inv) => {
@@ -412,6 +426,12 @@ export default function Invoices() {
       .filter(ea => String(ea.user_id) === engineerFilter)
       .map(ea => ea.project_id);
     filteredInvoices = filteredInvoices.filter(inv => projectIdsWithEngineer.includes(inv.project_id));
+  }
+  // Apply received filter
+  if (receivedFilter === 'received') {
+    filteredInvoices = filteredInvoices.filter(inv => inv.received_at);
+  } else if (receivedFilter === 'not_received') {
+    filteredInvoices = filteredInvoices.filter(inv => !inv.received_at);
   }
 
   // Sort invoices
@@ -714,6 +734,19 @@ export default function Invoices() {
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Received:</span>
+            <select
+              className="form-select"
+              value={receivedFilter}
+              onChange={(e) => setReceivedFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 130 }}
+            >
+              <option value="">All</option>
+              <option value="received">Received</option>
+              <option value="not_received">Not Received</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: '#64748b' }}>Sort by:</span>
             <select
               className="form-select"
@@ -759,7 +792,7 @@ export default function Invoices() {
                   <th>Paid</th>
                   <SortHeader field="balance">Balance</SortHeader>
                   <th>Status</th>
-                  <th style={{ width: 260 }}>Actions</th>
+                  <th style={{ width: 320 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -792,11 +825,22 @@ export default function Invoices() {
                           {inv.emailed_at && (
                             <span title={`Emailed ${new Date(inv.emailed_at).toLocaleDateString()}`} style={{ color: '#16a34a', fontSize: 13 }}>✉</span>
                           )}
+                          {inv.received_at && (
+                            <span title={`Received ${new Date(inv.received_at).toLocaleDateString()}`} style={{ color: '#8b5cf6', fontSize: 13 }}>✓</span>
+                          )}
                         </div>
                       </td>
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => viewInvoice(inv)} style={{ marginRight: 4 }}>View</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => handleEmail(inv)} disabled={emailingId === inv.id} style={{ marginRight: 4 }}>{emailingId === inv.id ? 'Sending...' : 'Email'}</button>
+                        <button
+                          className={`btn btn-sm ${inv.received_at ? 'btn-success' : 'btn-secondary'}`}
+                          onClick={() => handleReceived(inv)}
+                          style={{ marginRight: 4 }}
+                          title={inv.received_at ? `Received ${new Date(inv.received_at).toLocaleDateString()}` : 'Mark as received'}
+                        >
+                          {inv.received_at ? 'Rcvd ✓' : 'Rcvd'}
+                        </button>
                         {getStatus(inv) !== 'voided' && getStatus(inv) !== 'paid' && (
                           <button className="btn btn-primary btn-sm" onClick={() => openPayment(inv)} style={{ marginRight: 4 }}>Paid</button>
                         )}

@@ -1100,6 +1100,26 @@ app.put('/api/invoices/:id/unvoid', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// Mark invoice as received (customer acknowledged receipt)
+app.put('/api/invoices/:id/received', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  db.prepare('UPDATE invoices SET received_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Clear received status from invoice
+app.put('/api/invoices/:id/unreceived', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  db.prepare('UPDATE invoices SET received_at = NULL WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // Email an invoice with PDF attachment
 app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const db = getDb();
