@@ -169,7 +169,7 @@ export default function Engineers() {
                     <td><strong>{admin.name}</strong></td>
                     <td>{admin.email}</td>
                     <td style={{ fontSize: 13, color: admin.last_login ? 'inherit' : '#94a3b8' }}>
-                      {admin.last_login ? new Date(admin.last_login).toLocaleDateString('en-US', {
+                      {admin.last_login ? new Date(admin.last_login + 'Z').toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric',
@@ -229,7 +229,7 @@ export default function Engineers() {
                       )}
                     </td>
                     <td style={{ fontSize: 13, color: eng.last_login ? 'inherit' : '#94a3b8' }}>
-                      {eng.last_login ? new Date(eng.last_login).toLocaleDateString('en-US', {
+                      {eng.last_login ? new Date(eng.last_login + 'Z').toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric',
