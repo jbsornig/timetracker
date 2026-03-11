@@ -704,12 +704,6 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
 
   const isFixedPrice = invoice.project_type === 'fixed_price';
 
-  console.log('=== INVOICE VIEW DEBUG ===');
-  console.log('Invoice ID:', req.params.id);
-  console.log('Project type:', invoice.project_type);
-  console.log('Is fixed price:', isFixedPrice);
-  console.log('Invoice total_cost from project:', invoice.total_cost);
-
   // Get company settings
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
   const settings = {};
@@ -799,30 +793,17 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   }
 
   // For fixed price projects, calculate customer invoice based on project total cost
-  console.log('Total engineer payments:', totalEngineerPayments);
-  console.log('Total engineer amount claimed:', totalEngineerAmountClaimed);
-  console.log('Line items count:', lineItems.length);
-
   if (isFixedPrice && totalEngineerPayments > 0) {
-    // What percentage of total engineer budget is being claimed?
     const percentageClaimed = totalEngineerAmountClaimed / totalEngineerPayments;
-    // Apply that percentage to the project's total cost for customer invoice
     const customerInvoiceTotal = percentageClaimed * (invoice.total_cost || 0);
 
-    console.log('Percentage claimed:', percentageClaimed);
-    console.log('Customer invoice total:', customerInvoiceTotal);
-
-    // Update line items to show customer amount (proportional)
     lineItems.forEach(item => {
       if (item.is_fixed_price) {
-        // Calculate this engineer's portion of the customer invoice
         const engineerPortion = item.engineer_amount / totalEngineerAmountClaimed;
         item.amount = engineerPortion * customerInvoiceTotal;
-        console.log('Line item:', item.engineer, 'portion:', engineerPortion, 'amount:', item.amount);
       }
     });
   }
-  console.log('=== END INVOICE VIEW DEBUG ===');
 
   res.json({ ...invoice, settings, lineItems, timesheetDetails, is_fixed_price: isFixedPrice });
   } catch (err) {
