@@ -17,14 +17,28 @@ function formatCurrency(amount) {
   }).format(amount || 0);
 }
 
-function getDefaultDates() {
-  const end = new Date();
-  const start = new Date();
-  start.setMonth(start.getMonth() - 1);
+function getPreviousMonthDates() {
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
   return {
-    period_start: start.toISOString().split('T')[0],
-    period_end: end.toISOString().split('T')[0],
+    period_start: firstDay.toISOString().split('T')[0],
+    period_end: lastDay.toISOString().split('T')[0],
   };
+}
+
+function getCurrentMonthDates() {
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    period_start: firstDay.toISOString().split('T')[0],
+    period_end: lastDay.toISOString().split('T')[0],
+  };
+}
+
+function getDefaultDates() {
+  return getPreviousMonthDates();
 }
 
 function getDueDate(invoiceDate, paymentTerms = 'Net 30') {
@@ -854,6 +868,22 @@ export default function Invoices() {
                   onChange={(e) => setGenerateForm({ ...generateForm, period_end: e.target.value })}
                 />
               </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setGenerateForm({ ...generateForm, ...getPreviousMonthDates() })}
+              >
+                Previous Month
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setGenerateForm({ ...generateForm, ...getCurrentMonthDates() })}
+              >
+                Current Month
+              </button>
             </div>
             <div className="form-group">
               <label className="form-label">Notes (optional)</label>
