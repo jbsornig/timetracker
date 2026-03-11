@@ -687,6 +687,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
 });
 
 app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
+  try {
   const db = getDb();
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
@@ -824,6 +825,10 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   console.log('=== END INVOICE VIEW DEBUG ===');
 
   res.json({ ...invoice, settings, lineItems, timesheetDetails, is_fixed_price: isFixedPrice });
+  } catch (err) {
+    console.error('Error viewing invoice:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.delete('/api/invoices/:id', auth, adminOnly, (req, res) => {
