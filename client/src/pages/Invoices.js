@@ -69,6 +69,22 @@ export default function Invoices() {
   const [sortDir, setSortDir] = useState('desc');
   const [emailingId, setEmailingId] = useState(null);
 
+  // Batch invoice generator state
+  const [batchPeriod, setBatchPeriod] = useState(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return {
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0]
+    };
+  });
+  const [readyProjects, setReadyProjects] = useState([]);
+  const [selectedProjects, setSelectedProjects] = useState({});
+  const [findingProjects, setFindingProjects] = useState(false);
+  const [generatingBatch, setGeneratingBatch] = useState(false);
+  const [showBatchGenerator, setShowBatchGenerator] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -120,6 +136,79 @@ export default function Invoices() {
       setError(e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const findReadyProjects = async () => {
+    setFindingProjects(true);
+    setError('');
+    try {
+      const data = await apiFetch(`/invoices/find-ready?period_start=${batchPeriod.start}&period_end=${batchPeriod.end}`);
+      setReadyProjects(data);
+      setSelectedProjects({});
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setFindingProjects(false);
+    }
+  };
+
+  const toggleProjectSelection = (projectId) => {
+    setSelectedProjects(prev => ({
+      ...prev,
+      [projectId]: !prev[projectId]
+    }));
+  };
+
+  const selectAllProjects = () => {
+    const all = {};
+    readyProjects.forEach(p => { all[p.id] = true; });
+    setSelectedProjects(all);
+  };
+
+  const selectNoneProjects = () => {
+    setSelectedProjects({});
+  };
+
+  const generateBatchInvoices = async () => {
+    const projectIds = Object.keys(selectedProjects).filter(id => selectedProjects[id]);
+    if (projectIds.length === 0) {
+      setError('Please select at least one project');
+      return;
+    }
+
+    setGeneratingBatch(true);
+    setError('');
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const projectId of projectIds) {
+      try {
+        await apiFetch('/invoices/generate', {
+          method: 'POST',
+          body: {
+            project_id: projectId,
+            period_start: batchPeriod.start,
+            period_end: batchPeriod.end,
+            notes: ''
+          }
+        });
+        successCount++;
+      } catch (e) {
+        console.error(`Failed to generate invoice for project ${projectId}:`, e);
+        errorCount++;
+      }
+    }
+
+    await loadData();
+    setReadyProjects([]);
+    setSelectedProjects({});
+    setGeneratingBatch(false);
+
+    if (errorCount > 0) {
+      alert(`Generated ${successCount} invoice(s). ${errorCount} failed.`);
+    } else {
+      alert(`Successfully generated ${successCount} invoice(s).`);
     }
   };
 
@@ -420,6 +509,147 @@ export default function Invoices() {
             <div style={{ fontSize: 11, color: '#94a3b8' }}>{cust.invoice_count} invoice{cust.invoice_count !== 1 ? 's' : ''}</div>
           </div>
         ))}
+      </div>
+
+      {/* Batch Invoice Generator */}
+      <div className="card no-print" style={{ marginBottom: 16 }}>
+        <div
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+          onClick={() => setShowBatchGenerator(!showBatchGenerator)}
+        >
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>Batch Invoice Generator</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>Find and invoice multiple projects at once</div>
+          </div>
+          <span style={{ fontSize: 18, color: '#64748b' }}>{showBatchGenerator ? '▼' : '▶'}</span>
+        </div>
+
+        {showBatchGenerator && (
+          <div style={{ marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 16 }}>
+              <div>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Period Start</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={batchPeriod.start}
+                  onChange={e => setBatchPeriod({ ...batchPeriod, start: e.target.value })}
+                  style={{ width: 150 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Period End</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={batchPeriod.end}
+                  onChange={e => setBatchPeriod({ ...batchPeriod, end: e.target.value })}
+                  style={{ width: 150 }}
+                />
+              </div>
+              <button
+                className="btn btn-secondary"
+                onClick={findReadyProjects}
+                disabled={findingProjects}
+              >
+                {findingProjects ? 'Searching...' : 'Find Projects'}
+              </button>
+            </div>
+
+            {readyProjects.length > 0 && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, color: '#64748b' }}>
+                    Found {readyProjects.length} project{readyProjects.length !== 1 ? 's' : ''} with approved timesheets
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={selectAllProjects}>Select All</button>
+                    <button className="btn btn-secondary btn-sm" onClick={selectNoneProjects}>Select None</button>
+                  </div>
+                </div>
+
+                <div className="table-wrap" style={{ marginBottom: 16 }}>
+                  <table style={{ fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 40 }}></th>
+                        <th>Project</th>
+                        <th>Customer</th>
+                        <th>Type</th>
+                        <th>Timesheets</th>
+                        <th>Hours/Amount</th>
+                        <th>Est. Invoice</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {readyProjects.map(proj => (
+                        <tr key={proj.id}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={!!selectedProjects[proj.id]}
+                              onChange={() => toggleProjectSelection(proj.id)}
+                              style={{ width: 18, height: 18 }}
+                            />
+                          </td>
+                          <td>
+                            <strong>{proj.project_name}</strong>
+                            {proj.po_number && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>PO: {proj.po_number}</span>}
+                          </td>
+                          <td>{proj.customer_name}</td>
+                          <td>
+                            <span className={`badge ${proj.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 10 }}>
+                              {proj.project_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>{proj.timesheet_count}</td>
+                          <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                            {proj.project_type === 'fixed_price'
+                              ? formatCurrency(proj.fixed_amount)
+                              : `${proj.total_hours.toFixed(2)} hrs`
+                            }
+                          </td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>
+                            {formatCurrency(proj.estimated_amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
+                        <td colSpan="6" style={{ textAlign: 'right' }}>Selected Total:</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', color: '#10b981' }}>
+                          {formatCurrency(
+                            readyProjects
+                              .filter(p => selectedProjects[p.id])
+                              .reduce((sum, p) => sum + (p.estimated_amount || 0), 0)
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <button
+                  className="btn btn-primary"
+                  onClick={generateBatchInvoices}
+                  disabled={generatingBatch || Object.keys(selectedProjects).filter(id => selectedProjects[id]).length === 0}
+                >
+                  {generatingBatch
+                    ? 'Generating...'
+                    : `Generate ${Object.keys(selectedProjects).filter(id => selectedProjects[id]).length} Invoice(s)`
+                  }
+                </button>
+              </>
+            )}
+
+            {readyProjects.length === 0 && !findingProjects && (
+              <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>
+                Click "Find Projects" to search for projects with approved timesheets in the selected date range.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Filter and Sort Controls */}
