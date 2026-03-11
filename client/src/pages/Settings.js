@@ -48,6 +48,8 @@ export default function Settings() {
     smtp_email: '',
     smtp_password: '',
   });
+  const [smtpPasswordChanged, setSmtpPasswordChanged] = useState(false);
+  const [hasExistingPassword, setHasExistingPassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -74,7 +76,9 @@ export default function Settings() {
   const loadSettings = async () => {
     try {
       const data = await apiFetch('/settings');
-      setSettings((prev) => ({ ...prev, ...data }));
+      setSettings((prev) => ({ ...prev, ...data, smtp_password: '' }));
+      setHasExistingPassword(!!data.smtp_password);
+      setSmtpPasswordChanged(false);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -193,8 +197,18 @@ export default function Settings() {
     setError('');
     setSuccess('');
     try {
-      await apiFetch('/settings', { method: 'PUT', body: settings });
+      // Only include smtp_password if it was changed
+      const dataToSave = { ...settings };
+      if (!smtpPasswordChanged) {
+        delete dataToSave.smtp_password;
+      }
+      await apiFetch('/settings', { method: 'PUT', body: dataToSave });
       setSuccess('Settings saved successfully!');
+      if (smtpPasswordChanged && settings.smtp_password) {
+        setHasExistingPassword(true);
+        setSmtpPasswordChanged(false);
+        setSettings(prev => ({ ...prev, smtp_password: '' }));
+      }
       setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
       setError(e.message);
@@ -485,9 +499,18 @@ export default function Settings() {
               className="form-input"
               type="password"
               value={settings.smtp_password}
-              onChange={(e) => handleChange('smtp_password', e.target.value)}
-              placeholder="••••••••••••••••"
+              onChange={(e) => {
+                handleChange('smtp_password', e.target.value);
+                setSmtpPasswordChanged(true);
+              }}
+              placeholder={hasExistingPassword ? '••••••••••••••••  (saved - leave blank to keep)' : 'Enter App Password'}
             />
+            {hasExistingPassword && !smtpPasswordChanged && (
+              <div style={{ color: '#10b981', fontSize: 12, marginTop: 4 }}>✓ Password saved</div>
+            )}
+            {smtpPasswordChanged && settings.smtp_password && (
+              <div style={{ color: '#f59e0b', fontSize: 12, marginTop: 4 }}>New password will be saved</div>
+            )}
             <div className="form-hint">
               Generate an App Password at{' '}
               <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">
