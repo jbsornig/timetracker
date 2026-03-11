@@ -745,7 +745,7 @@ export default function Invoices() {
                   <th>Paid</th>
                   <SortHeader field="balance">Balance</SortHeader>
                   <th>Status</th>
-                  <th style={{ width: 200 }}>Actions</th>
+                  <th style={{ width: 260 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -789,8 +789,9 @@ export default function Invoices() {
                         {getStatus(inv) === 'voided' ? (
                           <button className="btn btn-secondary btn-sm" onClick={() => handleUnvoid(inv)} style={{ marginRight: 4 }}>Restore</button>
                         ) : (
-                          <button className="btn btn-danger btn-sm" onClick={() => handleVoid(inv)}>Void</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleVoid(inv)} style={{ marginRight: 4 }}>Void</button>
                         )}
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(inv.id, inv.invoice_number)}>Delete</button>
                       </td>
                     </tr>
                   );
