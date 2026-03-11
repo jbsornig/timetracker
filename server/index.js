@@ -150,6 +150,10 @@ app.post('/api/test-email', auth, adminOnly, async (req, res) => {
     return res.status(400).json({ error: 'Email settings not fully configured. Please fill in all email fields and save settings first.' });
   }
 
+  console.log('=== TEST EMAIL ===');
+  console.log('From:', settings.smtp_email);
+  console.log('To:', settings.admin_notification_email);
+
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -159,7 +163,12 @@ app.post('/api/test-email', auth, adminOnly, async (req, res) => {
       },
     });
 
-    await transporter.sendMail({
+    // Verify connection first
+    console.log('Verifying SMTP connection...');
+    await transporter.verify();
+    console.log('SMTP connection verified successfully');
+
+    const info = await transporter.sendMail({
       from: settings.smtp_email,
       to: settings.admin_notification_email,
       subject: 'TimeTracker Test Email',
@@ -177,7 +186,21 @@ app.post('/api/test-email', auth, adminOnly, async (req, res) => {
         </div>
       `,
     });
-    res.json({ success: true, message: 'Test email sent successfully!' });
+
+    console.log('Email sent! Message ID:', info.messageId);
+    console.log('Response:', info.response);
+    console.log('Accepted:', info.accepted);
+    console.log('Rejected:', info.rejected);
+
+    res.json({
+      success: true,
+      message: `Test email sent successfully! Message ID: ${info.messageId}`,
+      details: {
+        messageId: info.messageId,
+        accepted: info.accepted,
+        rejected: info.rejected
+      }
+    });
   } catch (err) {
     console.error('Test email failed:', err);
     res.status(500).json({ error: `Failed to send email: ${err.message}` });
