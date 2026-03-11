@@ -157,24 +157,27 @@ export default function Dashboard({ setPage }) {
               <thead><tr><th>Project</th><th>Customer</th><th>Location</th><th>PO #</th><th>Hours</th></tr></thead>
               <tbody>
                 {projects.map(p => {
+                  const totalUsed = (p.hours_used || 0) + (p.hours_pending || 0);
                   const remaining = p.budgeted_hours ? p.budgeted_hours - (p.hours_used || 0) : null;
-                  const pct = p.budgeted_hours ? ((p.hours_used || 0) / p.budgeted_hours) * 100 : 0;
+                  const projectedRemaining = p.budgeted_hours ? p.budgeted_hours - totalUsed : null;
+                  const pct = p.budgeted_hours ? (totalUsed / p.budgeted_hours) * 100 : 0;
+                  const hasPending = (p.hours_pending || 0) > 0;
                   return (
                     <tr key={p.id}>
                       <td><strong>{p.name}</strong></td>
                       <td>{p.customer_name}</td>
                       <td>{p.location || '—'}</td>
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{p.po_number || '—'}</td>
-                      <td style={{ minWidth: 140 }}>
+                      <td style={{ minWidth: 160 }}>
                         {p.project_type === 'fixed_price' ? (
                           <span style={{ color: '#64748b', fontSize: 13 }}>Fixed Price</span>
                         ) : p.budgeted_hours ? (
                           <div>
-                            <div style={{ fontSize: 13, color: remaining < 0 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981', fontWeight: 500 }}>
-                              {remaining >= 0 ? `${remaining.toFixed(1)} hrs remaining` : `${Math.abs(remaining).toFixed(1)} hrs over`}
+                            <div style={{ fontSize: 13, color: projectedRemaining < 0 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981', fontWeight: 500 }}>
+                              {projectedRemaining >= 0 ? `${projectedRemaining.toFixed(1)} hrs remaining` : `${Math.abs(projectedRemaining).toFixed(1)} hrs over`}
                             </div>
                             <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                              {(p.hours_used || 0).toFixed(1)} of {p.budgeted_hours.toFixed(1)} used
+                              {(p.hours_used || 0).toFixed(1)} approved{hasPending ? ` + ${(p.hours_pending).toFixed(1)} pending` : ''} of {p.budgeted_hours.toFixed(1)}
                             </div>
                           </div>
                         ) : (

@@ -63,6 +63,7 @@ export default function Reports() {
   const [payrollHolidays, setPayrollHolidays] = useState([]);
   const [budgetData, setBudgetData] = useState([]);
   const [invoicedData, setInvoicedData] = useState([]);
+  const [contractHoursData, setContractHoursData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState(getDefaultDates());
   const [invoicedDateRange, setInvoicedDateRange] = useState(getDefaultDates());
@@ -74,6 +75,8 @@ export default function Reports() {
   useEffect(() => {
     if (activeTab === 'budget') {
       loadBudgetData();
+    } else if (activeTab === 'contract-hours') {
+      loadContractHoursData();
     }
   }, [activeTab]);
 
@@ -114,6 +117,19 @@ export default function Reports() {
         `/reports/invoiced?period_start=${invoicedDateRange.period_start}&period_end=${invoicedDateRange.period_end}`
       );
       setInvoicedData(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadContractHoursData = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiFetch('/reports/contract-hours');
+      setContractHoursData(data);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -213,6 +229,12 @@ export default function Reports() {
             onClick={() => setActiveTab('budget')}
           >
             Project Budget Report
+          </button>
+          <button
+            className={`btn ${activeTab === 'contract-hours' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('contract-hours')}
+          >
+            Contract Hours
           </button>
         </div>
       </div>
@@ -672,6 +694,67 @@ export default function Reports() {
                 </div>
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'contract-hours' && (
+        <div className="card">
+          <div className="card-title">Contract Hours Remaining</div>
+          <p style={{ color: '#64748b', marginBottom: 16, fontSize: 14 }}>
+            Shows remaining budget for active hourly projects. Hours are shown for single-engineer contracts; dollars for multi-engineer contracts.
+          </p>
+
+          {loading ? (
+            <div style={{ padding: 40, color: '#94a3b8', textAlign: 'center' }}>Loading...</div>
+          ) : contractHoursData.length === 0 ? (
+            <div className="empty-state">
+              <h3>No active hourly projects</h3>
+              <p>Create hourly projects with engineers assigned to see remaining hours.</p>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Customer</th>
+                    <th>PO #</th>
+                    <th>Engineers</th>
+                    <th>Remaining</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contractHoursData.map((row) => {
+                    const isOverBudget = row.remaining_dollars < 0;
+                    const showHours = row.engineer_count === 1 && row.remaining_hours !== null;
+                    return (
+                      <tr key={row.id}>
+                        <td>
+                          <strong>{row.project_name}</strong>
+                          {row.single_engineer && (
+                            <div style={{ fontSize: 12, color: '#64748b' }}>{row.single_engineer}</div>
+                          )}
+                        </td>
+                        <td>{row.customer_name}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.po_number || '-'}</td>
+                        <td style={{ textAlign: 'center' }}>{row.engineer_count}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: isOverBudget ? 'var(--danger)' : 'var(--success)' }}>
+                          {showHours ? (
+                            <>
+                              {row.remaining_hours >= 0 ? row.remaining_hours.toFixed(1) : `(${Math.abs(row.remaining_hours).toFixed(1)})`} hrs
+                              <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>{formatCurrency(row.remaining_dollars)}</div>
+                            </>
+                          ) : (
+                            formatCurrency(row.remaining_dollars)
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

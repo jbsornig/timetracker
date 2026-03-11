@@ -368,11 +368,15 @@ app.get('/api/projects', auth, (req, res) => {
     `).all();
   } else {
     // For engineers: include remaining hours calculation (without exposing bill rate)
+    // hours_used = approved only, hours_pending = draft + submitted (for real-time tracking)
     projects = db.prepare(`
       SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.total_payment,
         COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
                   JOIN timesheets ts ON ts.id = te.timesheet_id
                   WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as hours_used,
+        COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
+                  JOIN timesheets ts ON ts.id = te.timesheet_id
+                  WHERE ts.project_id = p.id AND ts.status IN ('draft', 'submitted')), 0) as hours_pending,
         CASE
           WHEN p.project_type = 'fixed_price' THEN NULL
           WHEN ep.bill_rate > 0 THEN ROUND(p.po_amount / ep.bill_rate, 1)
@@ -1891,6 +1895,63 @@ app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
     ORDER BY c.name, p.name
   `).all();
   res.json(data);
+});
+
+// Contract hours report - shows remaining hours (single engineer) or dollars (multiple)
+app.get('/api/reports/contract-hours', auth, adminOnly, (req, res) => {
+  const db = getDb();
+
+  // Get all active hourly projects with their budget info
+  const projects = db.prepare(`
+    SELECT p.id, p.name as project_name, p.po_number, p.po_amount, p.project_type,
+           c.name as customer_name,
+           COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
+                     JOIN timesheets ts ON ts.id = te.timesheet_id
+                     WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as hours_billed,
+           COALESCE((SELECT SUM(te.hours * ep2.bill_rate) FROM timesheet_entries te
+                     JOIN timesheets ts ON ts.id = te.timesheet_id
+                     JOIN engineer_projects ep2 ON ep2.project_id = p.id AND ep2.user_id = ts.user_id
+                     WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as amount_billed
+    FROM projects p
+    JOIN customers c ON c.id = p.customer_id
+    WHERE p.status = 'active' AND p.project_type = 'hourly'
+    ORDER BY c.name, p.name
+  `).all();
+
+  // For each project, get assigned engineers
+  const result = projects.map(p => {
+    const engineers = db.prepare(`
+      SELECT ep.user_id, u.name as engineer_name, ep.bill_rate
+      FROM engineer_projects ep
+      JOIN users u ON u.id = ep.user_id
+      WHERE ep.project_id = ?
+    `).all(p.id);
+
+    const engineerCount = engineers.length;
+    const remaining_dollars = p.po_amount - p.amount_billed;
+
+    let remaining_hours = null;
+    let single_engineer = null;
+    let bill_rate = null;
+
+    if (engineerCount === 1 && engineers[0].bill_rate > 0) {
+      bill_rate = engineers[0].bill_rate;
+      remaining_hours = remaining_dollars / bill_rate;
+      single_engineer = engineers[0].engineer_name;
+    }
+
+    return {
+      ...p,
+      engineer_count: engineerCount,
+      engineers: engineers.map(e => e.engineer_name).join(', '),
+      single_engineer,
+      bill_rate,
+      remaining_dollars,
+      remaining_hours
+    };
+  });
+
+  res.json(result);
 });
 
 // ─── BACKUP & RESTORE ─────────────────────────────────────────────────────────
