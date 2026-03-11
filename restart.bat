@@ -1,9 +1,9 @@
 @echo off
-echo Stopping existing Node processes...
-taskkill /F /IM node.exe 2>nul
-
-echo Waiting for processes to stop...
-timeout /t 2 /nobreak >nul
+echo.
+echo NOTE: Please manually close any existing TimeTracker server windows first.
+echo       (Close the windows titled "TimeTracker Server" and "TimeTracker Client")
+echo.
+pause
 
 echo Starting backend server...
 start "TimeTracker Server" cmd /k "cd /d "%~dp0server" && node index.js"
