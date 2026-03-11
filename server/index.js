@@ -768,7 +768,19 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
     return res.status(400).json({ error: 'period_start and period_end are required' });
   }
 
+  console.log('=== FIND READY DEBUG ===');
+  console.log('Period:', period_start, 'to', period_end);
+
   const db = getDb();
+
+  // First, let's see all approved timesheets
+  const allApproved = db.prepare(`
+    SELECT ts.id, ts.week_ending, ts.period_end, ts.status, p.name as project_name
+    FROM timesheets ts
+    JOIN projects p ON p.id = ts.project_id
+    WHERE ts.status = 'approved'
+  `).all();
+  console.log('All approved timesheets:', allApproved);
 
   // Find all projects with approved timesheets in the date range
   const projects = db.prepare(`
