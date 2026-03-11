@@ -281,7 +281,7 @@ export default function Timesheets() {
   const [entries, setEntries] = useState([]);
   const [originalEntries, setOriginalEntries] = useState([]);
   const [modal, setModal] = useState(null);
-  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '' });
+  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '', monthly_hours: '', description: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ status: '', project_id: '', user_id: '' });
@@ -386,6 +386,7 @@ export default function Timesheets() {
     e.preventDefault();
     const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
     const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+    const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
 
     if (!newForm.project_id) {
       setError('Project is required');
@@ -402,6 +403,16 @@ export default function Timesheets() {
         setError('Percentage must be a whole number between 1 and 100');
         return;
       }
+    } else if (isMonthly) {
+      if (!newForm.period_start || !newForm.monthly_hours) {
+        setError('Month and total hours are required');
+        return;
+      }
+      const hours = parseFloat(newForm.monthly_hours);
+      if (isNaN(hours) || hours <= 0) {
+        setError('Hours must be a positive number');
+        return;
+      }
     } else {
       if (!newForm.week_ending) {
         setError('Week ending is required');
@@ -412,13 +423,25 @@ export default function Timesheets() {
     setSaving(true);
     setError('');
     try {
-      const body = isFixedPrice
-        ? { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end, percentage: parseInt(newForm.percentage) }
-        : { project_id: newForm.project_id, week_ending: newForm.week_ending };
+      let body;
+      if (isFixedPrice) {
+        body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end, percentage: parseInt(newForm.percentage) };
+      } else if (isMonthly) {
+        body = {
+          project_id: newForm.project_id,
+          week_ending: newForm.week_ending,
+          period_start: newForm.period_start,
+          period_end: newForm.period_end,
+          monthly_hours: parseFloat(newForm.monthly_hours),
+          description: newForm.description || ''
+        };
+      } else {
+        body = { project_id: newForm.project_id, week_ending: newForm.week_ending };
+      }
       const result = await apiFetch('/timesheets', { method: 'POST', body });
       await loadTimesheets();
       setModal(null);
-      if (!isFixedPrice) {
+      if (!isFixedPrice && !isMonthly) {
         openTimesheet(result.id);
       }
     } catch (e) {
@@ -1207,14 +1230,31 @@ export default function Timesheets() {
               <tbody>
                 {timesheets.map((ts) => {
                   const isFixedPrice = ts.project_type === 'fixed_price';
+                  const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
+                  const getBadgeClass = () => {
+                    if (isFixedPrice) return 'badge-fixed';
+                    if (isMonthly) return 'badge-submitted';
+                    return 'badge-hourly';
+                  };
+                  const getBadgeText = () => {
+                    if (isFixedPrice) return 'Fixed';
+                    if (isMonthly) return 'Monthly';
+                    return 'Hourly';
+                  };
                   return (
                     <tr key={ts.id}>
                       <td>
-                        {isFixedPrice && ts.period_start ? (
+                        {(isFixedPrice || isMonthly) && ts.period_start ? (
                           <>
-                            {formatDate(ts.period_start)}
-                            <br />
-                            <span style={{ fontSize: 12, color: '#94a3b8' }}>to {formatDate(ts.period_end)}</span>
+                            {isMonthly ? (
+                              new Date(ts.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                            ) : (
+                              <>
+                                {formatDate(ts.period_start)}
+                                <br />
+                                <span style={{ fontSize: 12, color: '#94a3b8' }}>to {formatDate(ts.period_end)}</span>
+                              </>
+                            )}
                           </>
                         ) : (
                           formatDate(ts.week_ending)
@@ -1231,8 +1271,8 @@ export default function Timesheets() {
                         <span style={{ fontSize: 12, color: '#94a3b8' }}>{ts.customer_name}</span>
                       </td>
                       <td>
-                        <span className={`badge ${isFixedPrice ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
-                          {isFixedPrice ? 'Fixed' : 'Hourly'}
+                        <span className={`badge ${getBadgeClass()}`} style={{ fontSize: 11 }}>
+                          {getBadgeText()}
                         </span>
                       </td>
                       <td style={{ fontFamily: 'DM Mono, monospace' }}>
@@ -1305,26 +1345,42 @@ export default function Timesheets() {
         ) : (
           timesheets.map((ts) => {
             const isFixedPrice = ts.project_type === 'fixed_price';
+            const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
+            const canOpen = !isFixedPrice && !isMonthly;
+            const getBadgeClass = () => {
+              if (isFixedPrice) return 'badge-fixed';
+              if (isMonthly) return 'badge-submitted';
+              return 'badge-hourly';
+            };
+            const getBadgeText = () => {
+              if (isFixedPrice) return 'Fixed';
+              if (isMonthly) return 'Monthly';
+              return 'Hourly';
+            };
             return (
               <div
                 key={ts.id}
                 className="timesheet-day-card"
-                onClick={() => !isFixedPrice && openTimesheet(ts.id)}
-                style={{ cursor: isFixedPrice ? 'default' : 'pointer' }}
+                onClick={() => canOpen && openTimesheet(ts.id)}
+                style={{ cursor: canOpen ? 'pointer' : 'default' }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                      {isFixedPrice && ts.period_start ? (
-                        <>{formatDate(ts.period_start)} - {formatDate(ts.period_end)}</>
+                      {(isFixedPrice || isMonthly) && ts.period_start ? (
+                        isMonthly ? (
+                          new Date(ts.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                        ) : (
+                          <>{formatDate(ts.period_start)} - {formatDate(ts.period_end)}</>
+                        )
                       ) : (
                         <>Week of {formatDate(ts.week_ending)}</>
                       )}
                     </div>
                     <div style={{ color: '#64748b', fontSize: 14 }}>
                       {ts.project_name}
-                      <span className={`badge ${isFixedPrice ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 10, marginLeft: 8 }}>
-                        {isFixedPrice ? 'Fixed' : 'Hourly'}
+                      <span className={`badge ${getBadgeClass()}`} style={{ fontSize: 10, marginLeft: 8 }}>
+                        {getBadgeText()}
                       </span>
                     </div>
                     {isAdmin && (
@@ -1477,18 +1533,25 @@ export default function Timesheets() {
       {modal === 'new' && (() => {
         const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
         const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+        const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
         const totalPayment = selectedProject?.total_payment || 0;
         const calculatedAmount = isFixedPrice && newForm.percentage ? (parseInt(newForm.percentage) / 100) * totalPayment : 0;
 
+        const getModalTitle = () => {
+          if (isFixedPrice) return 'New Fixed Price Invoice';
+          if (isMonthly) return 'New Monthly Hours Entry';
+          return 'New Timesheet';
+        };
+
         return (
           <Modal
-            title={isFixedPrice ? 'New Fixed Price Invoice' : 'New Timesheet'}
+            title={getModalTitle()}
             onClose={() => setModal(null)}
             footer={
               <>
                 <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
                 <button className="btn btn-primary" onClick={handleCreateTimesheet} disabled={saving}>
-                  {saving ? 'Creating...' : isFixedPrice ? 'Create Invoice' : 'Create Timesheet'}
+                  {saving ? 'Creating...' : isFixedPrice ? 'Create Invoice' : isMonthly ? 'Submit Hours' : 'Create Timesheet'}
                 </button>
               </>
             }
@@ -1505,7 +1568,7 @@ export default function Timesheets() {
                   <option value="">Select a project...</option>
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.customer_name}) {p.project_type === 'fixed_price' ? '[Fixed]' : ''}
+                      {p.name} ({p.customer_name}) {p.project_type === 'fixed_price' ? '[Fixed]' : p.requires_daily_logs === 0 ? '[Monthly]' : ''}
                     </option>
                   ))}
                 </select>
@@ -1579,6 +1642,55 @@ export default function Timesheets() {
                       </div>
                     </div>
                   )}
+                </>
+              ) : isMonthly ? (
+                <>
+                  <div style={{ background: '#fef3c7', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, color: '#92400e', fontWeight: 600, marginBottom: 4 }}>Monthly Hours Project</div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>
+                      This project doesn't require daily time logs. Enter your total hours for the month.
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Month *</label>
+                    <input
+                      className="form-input"
+                      type="month"
+                      value={newForm.period_start ? newForm.period_start.substring(0, 7) : ''}
+                      onChange={(e) => {
+                        const month = e.target.value;
+                        if (month) {
+                          const [year, mon] = month.split('-');
+                          const firstDay = `${year}-${mon}-01`;
+                          const lastDay = new Date(parseInt(year), parseInt(mon), 0).toISOString().split('T')[0];
+                          setNewForm({ ...newForm, period_start: firstDay, period_end: lastDay, week_ending: lastDay });
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Total Hours *</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      value={newForm.monthly_hours}
+                      onChange={(e) => setNewForm({ ...newForm, monthly_hours: e.target.value })}
+                      placeholder="e.g., 160"
+                      style={{ width: 150 }}
+                    />
+                    <div className="form-hint">Total hours worked this month</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Description (optional)</label>
+                    <input
+                      className="form-input"
+                      value={newForm.description}
+                      onChange={(e) => setNewForm({ ...newForm, description: e.target.value })}
+                      placeholder="Work performed this month..."
+                    />
+                  </div>
                 </>
               ) : (
                 <div className="form-group">

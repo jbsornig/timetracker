@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '' };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -73,6 +73,7 @@ export default function Projects() {
       include_timesheets: project.include_timesheets !== 0,
       project_type: project.project_type || 'hourly',
       total_cost: project.total_cost || '',
+      requires_daily_logs: project.requires_daily_logs !== 0,
     });
     setError('');
     if (project.customer_id) {
@@ -474,6 +475,20 @@ export default function Projects() {
               </label>
               <div className="form-hint">When checked, emailed invoices will include detailed timesheet reports</div>
             </div>
+            {form.project_type === 'hourly' && (
+              <div className="form-group" style={{ marginTop: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.requires_daily_logs}
+                    onChange={(e) => setForm({ ...form, requires_daily_logs: e.target.checked })}
+                    style={{ width: 18, height: 18 }}
+                  />
+                  <span>Requires daily time logs</span>
+                </label>
+                <div className="form-hint">When unchecked, engineers can submit monthly hour totals instead of daily logs</div>
+              </div>
+            )}
           </form>
         </Modal>
       )}

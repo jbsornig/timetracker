@@ -390,21 +390,16 @@ app.get('/api/projects', auth, (req, res) => {
 });
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0);
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost } = req.body;
-  console.log('=== PROJECT UPDATE DEBUG ===');
-  console.log('Project ID:', req.params.id);
-  console.log('project_type:', project_type);
-  console.log('total_cost received:', total_cost);
-  console.log('Full body:', req.body);
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs } = req.body;
   const db = getDb();
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -477,7 +472,7 @@ app.get('/api/timesheets', auth, (req, res) => {
   const { week_ending, project_id, user_id, status } = req.query;
   let query = `
     SELECT ts.*, u.name as engineer_name, p.name as project_name,
-           c.name as customer_name, p.po_number, p.project_type,
+           c.name as customer_name, p.po_number, p.project_type, p.requires_daily_logs,
            COALESCE(SUM(te.hours), 0) as total_hours,
            ep.pay_rate, ep.total_payment
     FROM timesheets ts
@@ -502,7 +497,7 @@ app.get('/api/timesheets/:id', auth, (req, res) => {
   const db = getDb();
   const ts = db.prepare(`
     SELECT ts.*, u.name as engineer_name, u.engineer_id as eng_id,
-           p.name as project_name, p.po_number, p.location, p.project_type, p.total_cost,
+           p.name as project_name, p.po_number, p.location, p.project_type, p.total_cost, p.requires_daily_logs,
            c.name as customer_name, ep.bill_rate, ep.pay_rate, ep.total_payment
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
@@ -519,15 +514,17 @@ app.get('/api/timesheets/:id', auth, (req, res) => {
 });
 
 app.post('/api/timesheets', auth, (req, res) => {
-  const { project_id, week_ending, period_start, period_end, percentage } = req.body;
+  const { project_id, week_ending, period_start, period_end, percentage, monthly_hours, description } = req.body;
   const user_id = req.user.role === 'admin' && req.body.user_id ? req.body.user_id : req.user.id;
   const db = getDb();
 
-  // Check project type
-  const project = db.prepare('SELECT project_type, total_cost FROM projects WHERE id = ?').get(project_id);
+  // Check project type and settings
+  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs FROM projects WHERE id = ?').get(project_id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
+
+  const isMonthly = project.project_type !== 'fixed_price' && project.requires_daily_logs === 0;
 
   try {
     if (project.project_type === 'fixed_price') {
@@ -542,6 +539,15 @@ app.post('/api/timesheets', auth, (req, res) => {
       const amount = (percentage / 100) * totalPayment;
       // For fixed price, week_ending can be same as period_end
       const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, percentage, amount) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user_id, project_id, period_end, period_start, period_end, percentage, amount);
+      res.json({ id: result.lastInsertRowid });
+    } else if (isMonthly) {
+      // Monthly hours: simple total without daily breakdown
+      if (!period_start || !period_end || !monthly_hours) {
+        return res.status(400).json({ error: 'Month and hours are required' });
+      }
+      const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').run(user_id, project_id, period_end, period_start, period_end, 'submitted');
+      // Create single entry with total hours
+      db.prepare('INSERT INTO timesheet_entries (timesheet_id, entry_date, hours, description) VALUES (?, ?, ?, ?)').run(result.lastInsertRowid, period_end, parseFloat(monthly_hours), description || null);
       res.json({ id: result.lastInsertRowid });
     } else {
       // Hourly: traditional weekly timesheet with daily entries

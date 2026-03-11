@@ -269,6 +269,10 @@ function initSchema() {
     db.exec('ALTER TABLE projects ADD COLUMN total_cost REAL DEFAULT 0');
     console.log('✅ Migration: Added total_cost column to projects');
   }
+  if (!projectCols3.find(c => c.name === 'requires_daily_logs')) {
+    db.exec('ALTER TABLE projects ADD COLUMN requires_daily_logs INTEGER DEFAULT 1');
+    console.log('✅ Migration: Added requires_daily_logs column to projects');
+  }
 
   // Add total_payment column to engineer_projects for fixed price projects
   const epCols = db.prepare("PRAGMA table_info(engineer_projects)").all();
