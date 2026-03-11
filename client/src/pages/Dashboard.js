@@ -154,16 +154,36 @@ export default function Dashboard({ setPage }) {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Project</th><th>Customer</th><th>Location</th><th>PO #</th></tr></thead>
+              <thead><tr><th>Project</th><th>Customer</th><th>Location</th><th>PO #</th><th>Hours</th></tr></thead>
               <tbody>
-                {projects.map(p => (
-                  <tr key={p.id}>
-                    <td><strong>{p.name}</strong></td>
-                    <td>{p.customer_name}</td>
-                    <td>{p.location || '—'}</td>
-                    <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{p.po_number || '—'}</td>
-                  </tr>
-                ))}
+                {projects.map(p => {
+                  const remaining = p.budgeted_hours ? p.budgeted_hours - (p.hours_used || 0) : null;
+                  const pct = p.budgeted_hours ? ((p.hours_used || 0) / p.budgeted_hours) * 100 : 0;
+                  return (
+                    <tr key={p.id}>
+                      <td><strong>{p.name}</strong></td>
+                      <td>{p.customer_name}</td>
+                      <td>{p.location || '—'}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{p.po_number || '—'}</td>
+                      <td style={{ minWidth: 140 }}>
+                        {p.project_type === 'fixed_price' ? (
+                          <span style={{ color: '#64748b', fontSize: 13 }}>Fixed Price</span>
+                        ) : p.budgeted_hours ? (
+                          <div>
+                            <div style={{ fontSize: 13, color: remaining < 0 ? '#ef4444' : pct >= 80 ? '#f59e0b' : '#10b981', fontWeight: 500 }}>
+                              {remaining >= 0 ? `${remaining.toFixed(1)} hrs remaining` : `${Math.abs(remaining).toFixed(1)} hrs over`}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                              {(p.hours_used || 0).toFixed(1)} of {p.budgeted_hours.toFixed(1)} used
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: 13 }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

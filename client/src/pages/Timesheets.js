@@ -290,6 +290,7 @@ export default function Timesheets() {
   const [quickFill, setQuickFill] = useState({
     start_time: '',
     end_time: '',
+    lunch_break: '',
     description: '',
     days: { Sun: false, Mon: false, Tue: false, Wed: false, Thu: false, Fri: false, Sat: false }
   });
@@ -450,14 +451,16 @@ export default function Timesheets() {
     setEntries((prev) => {
       const updated = [...prev];
       updated[idx] = { ...updated[idx], [field]: value };
-      if (field === 'start_time' || field === 'end_time') {
+      if (field === 'start_time' || field === 'end_time' || field === 'lunch_break') {
         const start = field === 'start_time' ? value : updated[idx].start_time;
         const end = field === 'end_time' ? value : updated[idx].end_time;
+        const lunch = field === 'lunch_break' ? (parseFloat(value) || 0) : (parseFloat(updated[idx].lunch_break) || 0);
         if (start && end) {
           const [sh, sm] = start.split(':').map(Number);
           const [eh, em] = end.split(':').map(Number);
           let hours = (eh * 60 + em - sh * 60 - sm) / 60;
           if (hours < 0) hours += 24;
+          hours = Math.max(0, hours - lunch);
           updated[idx].hours = hours;
         } else {
           updated[idx].hours = 0;
@@ -476,11 +479,13 @@ export default function Timesheets() {
         // Recalculate hours
         const start = field === 'start_time' ? parsed : updated[idx].start_time;
         const end = field === 'end_time' ? parsed : updated[idx].end_time;
+        const lunch = parseFloat(updated[idx].lunch_break) || 0;
         if (start && end && start.includes(':') && end.includes(':')) {
           const [sh, sm] = start.split(':').map(Number);
           const [eh, em] = end.split(':').map(Number);
           let hours = (eh * 60 + em - sh * 60 - sm) / 60;
           if (hours < 0) hours += 24;
+          hours = Math.max(0, hours - lunch);
           updated[idx].hours = hours;
         }
       }
@@ -495,6 +500,7 @@ export default function Timesheets() {
         ...updated[idx],
         start_time: '',
         end_time: '',
+        lunch_break: 0,
         hours: 0,
         description: '',
         shift: 1
@@ -504,9 +510,10 @@ export default function Timesheets() {
   };
 
   const handleQuickFillApply = () => {
-    const { start_time, end_time, description, days } = quickFill;
+    const { start_time, end_time, lunch_break, description, days } = quickFill;
     const parsedStart = parseTimeInput(start_time);
     const parsedEnd = parseTimeInput(end_time);
+    const lunch = parseFloat(lunch_break) || 0;
 
     // Calculate hours
     let hours = 0;
@@ -515,6 +522,7 @@ export default function Timesheets() {
       const [eh, em] = parsedEnd.split(':').map(Number);
       hours = (eh * 60 + em - sh * 60 - sm) / 60;
       if (hours < 0) hours += 24;
+      hours = Math.max(0, hours - lunch);
     }
 
     setEntries((prev) => {
@@ -526,6 +534,7 @@ export default function Timesheets() {
             ...entry,
             start_time: parsedStart,
             end_time: parsedEnd,
+            lunch_break: lunch,
             hours: hours,
             description: description
           };
@@ -838,6 +847,20 @@ export default function Timesheets() {
                   style={{ width: 80 }}
                 />
               </div>
+              <div>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Lunch (hrs)</label>
+                <input
+                  className="time-input"
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  max="4"
+                  value={quickFill.lunch_break}
+                  onChange={(e) => setQuickFill(prev => ({ ...prev, lunch_break: e.target.value }))}
+                  placeholder="0.5"
+                  style={{ width: 70 }}
+                />
+              </div>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Description</label>
                 <input
@@ -893,6 +916,7 @@ export default function Timesheets() {
                   <th style={{ width: 100 }}>Date</th>
                   <th style={{ width: 100 }}>Start</th>
                   <th style={{ width: 100 }}>End</th>
+                  <th style={{ width: 70 }}>Lunch</th>
                   <th style={{ width: 80 }}>Hours</th>
                   <th style={{ width: 60 }}>Shift</th>
                   <th>Description</th>
@@ -924,6 +948,20 @@ export default function Timesheets() {
                         onBlur={() => handleTimeBlur(idx, 'end_time')}
                         disabled={!canEdit}
                         placeholder="15:30"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="time-input"
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        max="4"
+                        value={entry.lunch_break || ''}
+                        onChange={(e) => handleEntryChange(idx, 'lunch_break', e.target.value)}
+                        disabled={!canEdit}
+                        placeholder="0"
+                        style={{ width: 55 }}
                       />
                     </td>
                     <td className="hours-display">{(entry.hours || 0).toFixed(2)}</td>
@@ -1022,6 +1060,22 @@ export default function Timesheets() {
                     onBlur={() => handleTimeBlur(idx, 'end_time')}
                     disabled={!canEdit}
                     placeholder="15:30"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Lunch (hrs)</label>
+                  <input
+                    className="timesheet-time-input"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.25"
+                    min="0"
+                    max="4"
+                    value={entry.lunch_break || ''}
+                    onChange={(e) => handleEntryChange(idx, 'lunch_break', e.target.value)}
+                    disabled={!canEdit}
+                    placeholder="0"
+                    style={{ width: 60 }}
                   />
                 </div>
               </div>

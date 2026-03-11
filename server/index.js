@@ -297,8 +297,17 @@ app.get('/api/projects', auth, (req, res) => {
       GROUP BY p.id ORDER BY c.name, p.name
     `).all();
   } else {
+    // For engineers: include remaining hours calculation (without exposing bill rate)
     projects = db.prepare(`
-      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.bill_rate, ep.total_payment
+      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.total_payment,
+        COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
+                  JOIN timesheets ts ON ts.id = te.timesheet_id
+                  WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as hours_used,
+        CASE
+          WHEN p.project_type = 'fixed_price' THEN NULL
+          WHEN ep.bill_rate > 0 THEN ROUND(p.po_amount / ep.bill_rate, 1)
+          ELSE NULL
+        END as budgeted_hours
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
@@ -509,17 +518,20 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
   if (req.user.role !== 'admin' && ts.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
   if (ts.status === 'approved') return res.status(400).json({ error: 'Cannot edit approved timesheet' });
 
-  const update = db.prepare('UPDATE timesheet_entries SET start_time=?, end_time=?, hours=?, description=?, shift=? WHERE id=?');
+  const update = db.prepare('UPDATE timesheet_entries SET start_time=?, end_time=?, hours=?, description=?, shift=?, lunch_break=? WHERE id=?');
   const txn = db.transaction(() => {
     for (const e of entries) {
       let hours = 0;
+      const lunchBreak = parseFloat(e.lunch_break) || 0;
       if (e.start_time && e.end_time) {
         const [sh, sm] = e.start_time.split(':').map(Number);
         const [eh, em] = e.end_time.split(':').map(Number);
         hours = (eh * 60 + em - sh * 60 - sm) / 60;
         if (hours < 0) hours += 24;
+        // Subtract lunch break from hours
+        hours = Math.max(0, hours - lunchBreak);
       }
-      update.run(e.start_time || null, e.end_time || null, hours, e.description || null, e.shift || 1, e.id);
+      update.run(e.start_time || null, e.end_time || null, hours, e.description || null, e.shift || 1, lunchBreak, e.id);
     }
   });
   txn();

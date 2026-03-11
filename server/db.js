@@ -296,6 +296,13 @@ function initSchema() {
     console.log('✅ Migration: Added amount column to timesheets');
   }
 
+  // Add lunch_break column to timesheet_entries if missing
+  const teCols = db.prepare("PRAGMA table_info(timesheet_entries)").all();
+  if (!teCols.find(c => c.name === 'lunch_break')) {
+    db.exec('ALTER TABLE timesheet_entries ADD COLUMN lunch_break REAL DEFAULT 0');
+    console.log('✅ Migration: Added lunch_break column to timesheet_entries');
+  }
+
   // Seed admin user if none exists
   const adminExists = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {
