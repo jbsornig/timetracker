@@ -621,6 +621,85 @@ app.get('/api/invoices', auth, adminOnly, (req, res) => {
   res.json(invoices);
 });
 
+// Find projects with approved timesheets ready to invoice
+// NOTE: This route MUST come before /api/invoices/:id to avoid matching :id = "find-ready"
+app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
+  const { period_start, period_end } = req.query;
+  if (!period_start || !period_end) {
+    return res.status(400).json({ error: 'period_start and period_end are required' });
+  }
+
+  console.log('=== FIND READY DEBUG ===');
+  console.log('Period:', period_start, 'to', period_end);
+
+  const db = getDb();
+
+  // First, let's see all approved timesheets
+  const allApproved = db.prepare(`
+    SELECT ts.id, ts.week_ending, ts.period_end, ts.status, p.name as project_name
+    FROM timesheets ts
+    JOIN projects p ON p.id = ts.project_id
+    WHERE ts.status = 'approved'
+  `).all();
+  console.log('All approved timesheets:', allApproved);
+
+  // Find all projects with approved timesheets in the date range
+  const projects = db.prepare(`
+    SELECT
+      p.id, p.name as project_name, p.po_number, p.project_type, p.total_cost,
+      c.name as customer_name,
+      COUNT(DISTINCT ts.id) as timesheet_count,
+      COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN ts.amount ELSE 0 END), 0) as fixed_amount,
+      COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours ELSE 0 END), 0) as total_hours,
+      COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours * ep.bill_rate ELSE 0 END), 0) as hourly_amount
+    FROM projects p
+    JOIN customers c ON c.id = p.customer_id
+    JOIN timesheets ts ON ts.project_id = p.id
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status = 'approved'
+    AND (
+      ts.week_ending BETWEEN ? AND ?
+      OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+    )
+    GROUP BY p.id
+    ORDER BY c.name, p.name
+  `).all(period_start, period_end, period_start, period_end);
+
+  console.log('Found projects:', projects.length);
+
+  // Calculate estimated invoice amount for each project
+  const results = projects.map(p => {
+    let estimated_amount;
+    if (p.project_type === 'fixed_price') {
+      const engineerTotals = db.prepare('SELECT SUM(total_payment) as total FROM engineer_projects WHERE project_id = ?').get(p.id);
+      const totalEngineerPayments = engineerTotals?.total || 0;
+      if (totalEngineerPayments > 0) {
+        const percentageClaimed = p.fixed_amount / totalEngineerPayments;
+        estimated_amount = percentageClaimed * (p.total_cost || 0);
+      } else {
+        estimated_amount = 0;
+      }
+    } else {
+      estimated_amount = p.hourly_amount;
+    }
+
+    return {
+      id: p.id,
+      project_name: p.project_name,
+      customer_name: p.customer_name,
+      po_number: p.po_number,
+      project_type: p.project_type,
+      timesheet_count: p.timesheet_count,
+      total_hours: p.total_hours,
+      fixed_amount: p.fixed_amount,
+      estimated_amount
+    };
+  });
+
+  res.json(results);
+});
+
 app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
   const invoice = db.prepare(`
@@ -759,83 +838,6 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   console.log('=== END INVOICE VIEW DEBUG ===');
 
   res.json({ ...invoice, settings, lineItems, timesheetDetails, is_fixed_price: isFixedPrice });
-});
-
-// Find projects with approved timesheets ready to invoice
-app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
-  const { period_start, period_end } = req.query;
-  if (!period_start || !period_end) {
-    return res.status(400).json({ error: 'period_start and period_end are required' });
-  }
-
-  console.log('=== FIND READY DEBUG ===');
-  console.log('Period:', period_start, 'to', period_end);
-
-  const db = getDb();
-
-  // First, let's see all approved timesheets
-  const allApproved = db.prepare(`
-    SELECT ts.id, ts.week_ending, ts.period_end, ts.status, p.name as project_name
-    FROM timesheets ts
-    JOIN projects p ON p.id = ts.project_id
-    WHERE ts.status = 'approved'
-  `).all();
-  console.log('All approved timesheets:', allApproved);
-
-  // Find all projects with approved timesheets in the date range
-  const projects = db.prepare(`
-    SELECT
-      p.id, p.name as project_name, p.po_number, p.project_type, p.total_cost,
-      c.name as customer_name,
-      COUNT(DISTINCT ts.id) as timesheet_count,
-      COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN ts.amount ELSE 0 END), 0) as fixed_amount,
-      COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours ELSE 0 END), 0) as total_hours,
-      COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours * ep.bill_rate ELSE 0 END), 0) as hourly_amount
-    FROM projects p
-    JOIN customers c ON c.id = p.customer_id
-    JOIN timesheets ts ON ts.project_id = p.id
-    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
-    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved'
-    AND (
-      ts.week_ending BETWEEN ? AND ?
-      OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
-    )
-    GROUP BY p.id
-    ORDER BY c.name, p.name
-  `).all(period_start, period_end, period_start, period_end);
-
-  // Calculate estimated invoice amount for each project
-  const results = projects.map(p => {
-    let estimated_amount;
-    if (p.project_type === 'fixed_price') {
-      // For fixed price, we need to calculate based on engineer budget percentage
-      const engineerTotals = db.prepare('SELECT SUM(total_payment) as total FROM engineer_projects WHERE project_id = ?').get(p.id);
-      const totalEngineerPayments = engineerTotals?.total || 0;
-      if (totalEngineerPayments > 0) {
-        const percentageClaimed = p.fixed_amount / totalEngineerPayments;
-        estimated_amount = percentageClaimed * (p.total_cost || 0);
-      } else {
-        estimated_amount = 0;
-      }
-    } else {
-      estimated_amount = p.hourly_amount;
-    }
-
-    return {
-      id: p.id,
-      project_name: p.project_name,
-      customer_name: p.customer_name,
-      po_number: p.po_number,
-      project_type: p.project_type,
-      timesheet_count: p.timesheet_count,
-      total_hours: p.total_hours,
-      fixed_amount: p.fixed_amount,
-      estimated_amount
-    };
-  });
-
-  res.json(results);
 });
 
 app.delete('/api/invoices/:id', auth, adminOnly, (req, res) => {
