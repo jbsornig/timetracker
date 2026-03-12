@@ -1959,16 +1959,24 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     }
   }
 
-  // Format dates for Chase CSV (YYMMDD) - use local timezone
+  // Format dates for Chase CSV (YYMMDD) - use Eastern timezone
   const now = new Date();
-  const year = now.getFullYear().toString().slice(2); // YY
-  const month = (now.getMonth() + 1).toString().padStart(2, '0'); // MM
-  const day = now.getDate().toString().padStart(2, '0'); // DD
-  const hours = now.getHours().toString().padStart(2, '0'); // HH
-  const minutes = now.getMinutes().toString().padStart(2, '0'); // MM
-  const fileDate = `${year}${month}${day}`; // YYMMDD local time
-  const fileTime = `${hours}${minutes}`; // HHMM local time
-  const deliveryYYMMDD = delivery_date.slice(2).replace(/-/g, ''); // Convert YYYY-MM-DD to YYMMDD
+  // Convert to Eastern time (handles DST automatically)
+  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const year = eastern.getFullYear().toString().slice(2); // YY
+  const month = (eastern.getMonth() + 1).toString().padStart(2, '0'); // MM
+  const day = eastern.getDate().toString().padStart(2, '0'); // DD
+  const hours = eastern.getHours().toString().padStart(2, '0'); // HH
+  const minutes = eastern.getMinutes().toString().padStart(2, '0'); // MM
+  const fileDate = `${year}${month}${day}`; // YYMMDD Eastern time
+  const fileTime = `${hours}${minutes}`; // HHMM Eastern time
+
+  // File ID modifier - single digit 0-9 (cycles based on minute)
+  const fileIdModifier = (eastern.getMinutes() % 10).toString();
+
+  // Delivery date - parse as local date, not UTC
+  const deliveryParts = delivery_date.split('-');
+  const deliveryYYMMDD = deliveryParts[0].slice(2) + deliveryParts[1] + deliveryParts[2];
 
   // Get month/year for addenda (based on period end date)
   const periodEndDate = new Date(period_end + 'T00:00:00');
@@ -1986,7 +1994,7 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
   // Row 1: File Header
   rows.push([
     '1',                              // Indicator
-    `PAY${fileDate}${fileTime}`,      // File ID (unique identifier, longer)
+    fileIdModifier,                   // File ID modifier (single digit 0-9)
     fileDate,                         // File creation date (YYMMDD)
     fileTime,                         // File creation time (HHMM)
     transactionCount.toString(),      // Total transactions
