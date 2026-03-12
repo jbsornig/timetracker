@@ -258,7 +258,7 @@ function initSchema() {
     db.exec('ALTER TABLE users ADD COLUMN last_login DATETIME');
     console.log('✅ Migration: Added last_login column to users');
   }
-  // Add banking fields for ACH payments
+  // Add banking fields for ACH payments (primary account)
   if (!userCols.find(c => c.name === 'bank_routing')) {
     db.exec('ALTER TABLE users ADD COLUMN bank_routing TEXT');
     console.log('✅ Migration: Added bank_routing column to users');
@@ -270,6 +270,27 @@ function initSchema() {
   if (!userCols.find(c => c.name === 'bank_account_type')) {
     db.exec("ALTER TABLE users ADD COLUMN bank_account_type TEXT DEFAULT 'checking'");
     console.log('✅ Migration: Added bank_account_type column to users');
+  }
+  // Add split deposit fields (secondary account)
+  if (!userCols.find(c => c.name === 'bank_routing_2')) {
+    db.exec('ALTER TABLE users ADD COLUMN bank_routing_2 TEXT');
+    console.log('✅ Migration: Added bank_routing_2 column to users');
+  }
+  if (!userCols.find(c => c.name === 'bank_account_2')) {
+    db.exec('ALTER TABLE users ADD COLUMN bank_account_2 TEXT');
+    console.log('✅ Migration: Added bank_account_2 column to users');
+  }
+  if (!userCols.find(c => c.name === 'bank_account_type_2')) {
+    db.exec("ALTER TABLE users ADD COLUMN bank_account_type_2 TEXT DEFAULT 'checking'");
+    console.log('✅ Migration: Added bank_account_type_2 column to users');
+  }
+  if (!userCols.find(c => c.name === 'bank_pct_1')) {
+    db.exec('ALTER TABLE users ADD COLUMN bank_pct_1 INTEGER DEFAULT 100');
+    console.log('✅ Migration: Added bank_pct_1 column to users');
+  }
+  if (!userCols.find(c => c.name === 'bank_pct_2')) {
+    db.exec('ALTER TABLE users ADD COLUMN bank_pct_2 INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added bank_pct_2 column to users');
   }
 
   // Add fixed price project columns

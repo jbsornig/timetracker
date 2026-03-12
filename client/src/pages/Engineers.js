@@ -2,7 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyUser = { name: '', email: '', password: '', engineer_id: '', role: 'engineer', holiday_pay_eligible: false, holiday_pay_rate: '', bank_routing: '', bank_account: '', bank_account_type: 'checking' };
+const emptyUser = {
+  name: '', email: '', password: '', engineer_id: '', role: 'engineer',
+  holiday_pay_eligible: false, holiday_pay_rate: '',
+  bank_routing: '', bank_account: '', bank_account_type: 'checking',
+  bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
+  bank_pct_1: 100, bank_pct_2: 0
+};
 
 export default function Engineers() {
   const [engineers, setEngineers] = useState([]);
@@ -57,6 +63,11 @@ export default function Engineers() {
       bank_routing: '', // Don't populate - will be masked display
       bank_account: '', // Don't populate - will be masked display
       bank_account_type: user.bank_account_type || 'checking',
+      bank_routing_2: '', // Don't populate - will be masked display
+      bank_account_2: '', // Don't populate - will be masked display
+      bank_account_type_2: user.bank_account_type_2 || 'checking',
+      bank_pct_1: user.bank_pct_1 ?? 100,
+      bank_pct_2: user.bank_pct_2 ?? 0,
     });
     setError('');
     setModal('edit');
@@ -106,10 +117,15 @@ export default function Engineers() {
         holiday_pay_eligible: form.role === 'engineer' ? (form.holiday_pay_eligible ? 1 : 0) : 0,
         holiday_pay_rate: form.role === 'engineer' ? (parseFloat(form.holiday_pay_rate) || 0) : 0,
         bank_account_type: form.role === 'engineer' ? form.bank_account_type : null,
+        bank_account_type_2: form.role === 'engineer' ? form.bank_account_type_2 : null,
+        bank_pct_1: form.role === 'engineer' ? (parseInt(form.bank_pct_1) || 100) : 100,
+        bank_pct_2: form.role === 'engineer' ? (parseInt(form.bank_pct_2) || 0) : 0,
       };
       // Only include banking info if provided (don't overwrite with empty)
       if (form.bank_routing) body.bank_routing = form.bank_routing;
       if (form.bank_account) body.bank_account = form.bank_account;
+      if (form.bank_routing_2) body.bank_routing_2 = form.bank_routing_2;
+      if (form.bank_account_2) body.bank_account_2 = form.bank_account_2;
       if (form.password) {
         body.password = form.password;
       }
@@ -229,9 +245,16 @@ export default function Engineers() {
                     <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{eng.engineer_id || '—'}</td>
                     <td>
                       {eng.has_banking ? (
-                        <span style={{ color: 'var(--success)', fontSize: 13 }} title={`Routing: ${eng.bank_routing_masked}\nAccount: ${eng.bank_account_masked}`}>
-                          ✓ {eng.bank_account_masked}
-                        </span>
+                        <div>
+                          <span style={{ color: 'var(--success)', fontSize: 13 }} title={`Routing: ${eng.bank_routing_masked}\nAccount: ${eng.bank_account_masked}`}>
+                            ✓ {eng.bank_account_masked}
+                          </span>
+                          {eng.has_split && (
+                            <div style={{ fontSize: 11, color: '#64748b' }}>
+                              Split: {eng.bank_pct_1}% / {eng.bank_pct_2}%
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <span style={{ color: '#f59e0b', fontSize: 13 }}>Not set</span>
                       )}
@@ -373,44 +396,145 @@ export default function Engineers() {
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
                   <div style={{ fontWeight: 600, marginBottom: 12 }}>Direct Deposit / ACH</div>
-                  {modal === 'edit' && form.has_banking && (
-                    <div className="alert alert-info" style={{ marginBottom: 16 }}>
-                      Current: Routing {engineers.find(e => e.id === form.id)?.bank_routing_masked}, Account {engineers.find(e => e.id === form.id)?.bank_account_masked}
-                      <br /><small>Leave fields blank to keep current values</small>
+
+                  {/* Primary Account */}
+                  <div style={{ background: 'var(--surface2)', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                    <div style={{ fontWeight: 500, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Primary Account</span>
+                      <span style={{ fontSize: 13, color: '#64748b' }}>{form.bank_pct_1}%</span>
                     </div>
-                  )}
-                  <div className="form-row">
-                    <div className="form-group" style={{ flex: 1 }}>
-                      <label className="form-label">Routing Number</label>
-                      <input
-                        className="form-input"
-                        value={form.bank_routing}
-                        onChange={(e) => setForm({ ...form, bank_routing: e.target.value.replace(/\D/g, '').slice(0, 9) })}
-                        placeholder="9 digits"
-                        maxLength={9}
-                      />
-                    </div>
-                    <div className="form-group" style={{ flex: 1 }}>
-                      <label className="form-label">Account Number</label>
-                      <input
-                        className="form-input"
-                        value={form.bank_account}
-                        onChange={(e) => setForm({ ...form, bank_account: e.target.value.replace(/\D/g, '').slice(0, 17) })}
-                        placeholder="Up to 17 digits"
-                        maxLength={17}
-                      />
+                    {modal === 'edit' && engineers.find(e => e.id === form.id)?.has_banking && (
+                      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                        Current: {engineers.find(e => e.id === form.id)?.bank_routing_masked} / {engineers.find(e => e.id === form.id)?.bank_account_masked}
+                      </div>
+                    )}
+                    <div className="form-row">
+                      <div className="form-group" style={{ flex: 1, marginBottom: 8 }}>
+                        <label className="form-label">Routing Number</label>
+                        <input
+                          className="form-input"
+                          value={form.bank_routing}
+                          onChange={(e) => setForm({ ...form, bank_routing: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+                          placeholder="9 digits"
+                          maxLength={9}
+                        />
+                      </div>
+                      <div className="form-group" style={{ flex: 1, marginBottom: 8 }}>
+                        <label className="form-label">Account Number</label>
+                        <input
+                          className="form-input"
+                          value={form.bank_account}
+                          onChange={(e) => setForm({ ...form, bank_account: e.target.value.replace(/\D/g, '').slice(0, 17) })}
+                          placeholder="Up to 17 digits"
+                          maxLength={17}
+                        />
+                      </div>
+                      <div className="form-group" style={{ flex: 0.6, marginBottom: 8 }}>
+                        <label className="form-label">Type</label>
+                        <select
+                          className="form-select"
+                          value={form.bank_account_type}
+                          onChange={(e) => setForm({ ...form, bank_account_type: e.target.value })}
+                        >
+                          <option value="checking">Checking</option>
+                          <option value="savings">Savings</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Split Deposit Toggle */}
                   <div className="form-group">
-                    <label className="form-label">Account Type</label>
-                    <select
-                      className="form-select"
-                      value={form.bank_account_type}
-                      onChange={(e) => setForm({ ...form, bank_account_type: e.target.value })}
-                    >
-                      <option value="checking">Checking</option>
-                      <option value="savings">Savings</option>
-                    </select>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={form.bank_pct_2 > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setForm({ ...form, bank_pct_1: 80, bank_pct_2: 20 });
+                          } else {
+                            setForm({ ...form, bank_pct_1: 100, bank_pct_2: 0, bank_routing_2: '', bank_account_2: '' });
+                          }
+                        }}
+                        style={{ width: 18, height: 18 }}
+                      />
+                      <span>Split deposit to a second account</span>
+                    </label>
+                  </div>
+
+                  {/* Secondary Account (if split enabled) */}
+                  {form.bank_pct_2 > 0 && (
+                    <>
+                      <div style={{ background: 'var(--surface2)', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                        <div style={{ fontWeight: 500, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>Secondary Account</span>
+                          <span style={{ fontSize: 13, color: '#64748b' }}>{form.bank_pct_2}%</span>
+                        </div>
+                        {modal === 'edit' && engineers.find(e => e.id === form.id)?.has_split && (
+                          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                            Current: {engineers.find(e => e.id === form.id)?.bank_routing_2_masked} / {engineers.find(e => e.id === form.id)?.bank_account_2_masked}
+                          </div>
+                        )}
+                        <div className="form-row">
+                          <div className="form-group" style={{ flex: 1, marginBottom: 8 }}>
+                            <label className="form-label">Routing Number</label>
+                            <input
+                              className="form-input"
+                              value={form.bank_routing_2}
+                              onChange={(e) => setForm({ ...form, bank_routing_2: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+                              placeholder="9 digits"
+                              maxLength={9}
+                            />
+                          </div>
+                          <div className="form-group" style={{ flex: 1, marginBottom: 8 }}>
+                            <label className="form-label">Account Number</label>
+                            <input
+                              className="form-input"
+                              value={form.bank_account_2}
+                              onChange={(e) => setForm({ ...form, bank_account_2: e.target.value.replace(/\D/g, '').slice(0, 17) })}
+                              placeholder="Up to 17 digits"
+                              maxLength={17}
+                            />
+                          </div>
+                          <div className="form-group" style={{ flex: 0.6, marginBottom: 8 }}>
+                            <label className="form-label">Type</label>
+                            <select
+                              className="form-select"
+                              value={form.bank_account_type_2}
+                              onChange={(e) => setForm({ ...form, bank_account_type_2: e.target.value })}
+                            >
+                              <option value="checking">Checking</option>
+                              <option value="savings">Savings</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Split Percentage Slider */}
+                      <div className="form-group">
+                        <label className="form-label">Split Percentage</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span style={{ fontSize: 13, minWidth: 70 }}>Primary: {form.bank_pct_1}%</span>
+                          <input
+                            type="range"
+                            min="10"
+                            max="90"
+                            step="5"
+                            value={form.bank_pct_1}
+                            onChange={(e) => {
+                              const pct1 = parseInt(e.target.value);
+                              setForm({ ...form, bank_pct_1: pct1, bank_pct_2: 100 - pct1 });
+                            }}
+                            style={{ flex: 1 }}
+                          />
+                          <span style={{ fontSize: 13, minWidth: 80 }}>Secondary: {form.bank_pct_2}%</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="form-hint" style={{ marginTop: 8 }}>
+                    Leave fields blank to keep existing values when editing.
                   </div>
                 </div>
               </>
