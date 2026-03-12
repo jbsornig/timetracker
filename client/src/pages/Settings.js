@@ -47,6 +47,7 @@ export default function Settings() {
     admin_notification_email: '',
     smtp_email: '',
     smtp_password: '',
+    chase_ach_account: '',
   });
   const [smtpPasswordChanged, setSmtpPasswordChanged] = useState(false);
   const [hasExistingPassword, setHasExistingPassword] = useState(false);
@@ -537,6 +538,28 @@ export default function Settings() {
             </button>
             <div className="form-hint" style={{ marginTop: 8 }}>
               Save your settings first, then click to send a test email to verify your configuration.
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">ACH / Direct Deposit</div>
+          <p style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
+            Configure your Chase bank account for ACH payroll exports.
+          </p>
+
+          <div className="form-group">
+            <label className="form-label">Chase Account Number</label>
+            <input
+              className="form-input"
+              value={settings.chase_ach_account}
+              onChange={(e) => handleChange('chase_ach_account', e.target.value.replace(/\D/g, ''))}
+              placeholder="Enter your Chase checking account number"
+              style={{ maxWidth: 300 }}
+            />
+            <div className="form-hint">
+              This is the funding account for ACH payments. Enter your full Chase account number (up to 17 digits).
+              Go to the Payroll Report to generate ACH files for Chase upload.
             </div>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
+import Modal from '../components/Modal';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-US', {
@@ -68,6 +69,8 @@ export default function Reports() {
   const [dateRange, setDateRange] = useState(getDefaultDates());
   const [invoicedDateRange, setInvoicedDateRange] = useState(getDefaultDates());
   const [error, setError] = useState('');
+  const [achModal, setAchModal] = useState(false);
+  const [achDeliveryDate, setAchDeliveryDate] = useState('');
 
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
@@ -145,6 +148,48 @@ export default function Reports() {
   const handleRunInvoiced = (e) => {
     e.preventDefault();
     loadInvoicedData();
+  };
+
+  const openAchModal = () => {
+    // Default delivery date to 2 business days from now
+    const date = new Date();
+    date.setDate(date.getDate() + 2);
+    // Skip weekends
+    while (date.getDay() === 0 || date.getDay() === 6) {
+      date.setDate(date.getDate() + 1);
+    }
+    setAchDeliveryDate(date.toISOString().split('T')[0]);
+    setAchModal(true);
+  };
+
+  const handleAchExport = async () => {
+    try {
+      const API_BASE = process.env.REACT_APP_API_URL || '';
+      const token = localStorage.getItem('token');
+      const url = `${API_BASE}/api/payroll/ach-export?period_start=${dateRange.period_start}&period_end=${dateRange.period_end}&delivery_date=${achDeliveryDate}`;
+
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Export failed');
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `ACH_Payroll_${achDeliveryDate.replace(/-/g, '')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+      setAchModal(false);
+    } catch (e) {
+      alert('ACH Export Error: ' + e.message);
+    }
   };
 
   const selectMonth = (option) => {
@@ -284,9 +329,14 @@ export default function Reports() {
                 {loading ? 'Loading...' : 'Run Report'}
               </button>
               {payrollData.length > 0 && (
-                <button className="btn btn-secondary" type="button" onClick={() => window.print()}>
-                  Print Report
-                </button>
+                <>
+                  <button className="btn btn-secondary" type="button" onClick={() => window.print()}>
+                    Print Report
+                  </button>
+                  <button className="btn btn-secondary" type="button" onClick={openAchModal}>
+                    Generate ACH File
+                  </button>
+                </>
               )}
             </div>
           </form>
@@ -757,6 +807,46 @@ export default function Reports() {
             </div>
           )}
         </div>
+      )}
+
+      {achModal && (
+        <Modal
+          title="Generate ACH File"
+          onClose={() => setAchModal(false)}
+          footer={
+            <>
+              <button className="btn btn-secondary" onClick={() => setAchModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAchExport}>Download CSV</button>
+            </>
+          }
+        >
+          <p style={{ marginBottom: 16 }}>
+            Generate a Chase-compatible ACH CSV file for the payroll period <strong>{formatDate(dateRange.period_start)}</strong> to <strong>{formatDate(dateRange.period_end)}</strong>.
+          </p>
+
+          <div className="form-group">
+            <label className="form-label">Delivery Date</label>
+            <input
+              className="form-input"
+              type="date"
+              value={achDeliveryDate}
+              onChange={(e) => setAchDeliveryDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+            />
+            <div className="form-hint">
+              The date you want payments to arrive in employee accounts. Must be a future business day.
+            </div>
+          </div>
+
+          <div className="alert alert-info" style={{ marginTop: 16 }}>
+            <strong>Before uploading to Chase:</strong>
+            <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+              <li>Ensure all engineers have banking info entered</li>
+              <li>Verify the payroll amounts are correct</li>
+              <li>Upload via Chase Business Online → Payments → File Upload</li>
+            </ul>
+          </div>
+        </Modal>
       )}
     </div>
   );

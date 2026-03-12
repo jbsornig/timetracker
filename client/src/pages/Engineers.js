@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyUser = { name: '', email: '', password: '', engineer_id: '', role: 'engineer', holiday_pay_eligible: false, holiday_pay_rate: '' };
+const emptyUser = { name: '', email: '', password: '', engineer_id: '', role: 'engineer', holiday_pay_eligible: false, holiday_pay_rate: '', bank_routing: '', bank_account: '', bank_account_type: 'checking' };
 
 export default function Engineers() {
   const [engineers, setEngineers] = useState([]);
@@ -54,6 +54,9 @@ export default function Engineers() {
       password: '',
       holiday_pay_eligible: user.holiday_pay_eligible === 1,
       holiday_pay_rate: user.holiday_pay_rate || '',
+      bank_routing: '', // Don't populate - will be masked display
+      bank_account: '', // Don't populate - will be masked display
+      bank_account_type: user.bank_account_type || 'checking',
     });
     setError('');
     setModal('edit');
@@ -102,7 +105,11 @@ export default function Engineers() {
         engineer_id: form.role === 'engineer' ? (form.engineer_id || null) : null,
         holiday_pay_eligible: form.role === 'engineer' ? (form.holiday_pay_eligible ? 1 : 0) : 0,
         holiday_pay_rate: form.role === 'engineer' ? (parseFloat(form.holiday_pay_rate) || 0) : 0,
+        bank_account_type: form.role === 'engineer' ? form.bank_account_type : null,
       };
+      // Only include banking info if provided (don't overwrite with empty)
+      if (form.bank_routing) body.bank_routing = form.bank_routing;
+      if (form.bank_account) body.bank_account = form.bank_account;
       if (form.password) {
         body.password = form.password;
       }
@@ -207,6 +214,7 @@ export default function Engineers() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Engineer ID</th>
+                  <th>Bank</th>
                   <th>Holiday Pay</th>
                   <th>Last Login</th>
                   <th>Projects</th>
@@ -219,6 +227,15 @@ export default function Engineers() {
                     <td><strong>{eng.name}</strong></td>
                     <td>{eng.email}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{eng.engineer_id || '—'}</td>
+                    <td>
+                      {eng.has_banking ? (
+                        <span style={{ color: 'var(--success)', fontSize: 13 }} title={`Routing: ${eng.bank_routing_masked}\nAccount: ${eng.bank_account_masked}`}>
+                          ✓ {eng.bank_account_masked}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#f59e0b', fontSize: 13 }}>Not set</span>
+                      )}
+                    </td>
                     <td>
                       {eng.holiday_pay_eligible ? (
                         <span style={{ color: 'var(--success)', fontWeight: 500 }}>
@@ -353,6 +370,48 @@ export default function Engineers() {
                       <div className="form-hint">Rate paid per holiday hour</div>
                     </div>
                   )}
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Direct Deposit / ACH</div>
+                  {modal === 'edit' && form.has_banking && (
+                    <div className="alert alert-info" style={{ marginBottom: 16 }}>
+                      Current: Routing {engineers.find(e => e.id === form.id)?.bank_routing_masked}, Account {engineers.find(e => e.id === form.id)?.bank_account_masked}
+                      <br /><small>Leave fields blank to keep current values</small>
+                    </div>
+                  )}
+                  <div className="form-row">
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Routing Number</label>
+                      <input
+                        className="form-input"
+                        value={form.bank_routing}
+                        onChange={(e) => setForm({ ...form, bank_routing: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+                        placeholder="9 digits"
+                        maxLength={9}
+                      />
+                    </div>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Account Number</label>
+                      <input
+                        className="form-input"
+                        value={form.bank_account}
+                        onChange={(e) => setForm({ ...form, bank_account: e.target.value.replace(/\D/g, '').slice(0, 17) })}
+                        placeholder="Up to 17 digits"
+                        maxLength={17}
+                      />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Account Type</label>
+                    <select
+                      className="form-select"
+                      value={form.bank_account_type}
+                      onChange={(e) => setForm({ ...form, bank_account_type: e.target.value })}
+                    >
+                      <option value="checking">Checking</option>
+                      <option value="savings">Savings</option>
+                    </select>
+                  </div>
                 </div>
               </>
             )}

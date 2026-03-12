@@ -246,16 +246,23 @@ app.delete('/api/holidays/:id', auth, adminOnly, (req, res) => {
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, created_at, last_login FROM users ORDER BY name').all();
-  res.json(users);
+  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, bank_routing, bank_account, bank_account_type, created_at, last_login FROM users ORDER BY name').all();
+  // Mask bank account numbers for display (show last 4 only)
+  const masked = users.map(u => ({
+    ...u,
+    bank_account_masked: u.bank_account ? '****' + u.bank_account.slice(-4) : null,
+    bank_routing_masked: u.bank_routing ? '****' + u.bank_routing.slice(-4) : null,
+    has_banking: !!(u.bank_routing && u.bank_account)
+  }));
+  res.json(masked);
 });
 
 app.post('/api/users', auth, adminOnly, (req, res) => {
-  const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate } = req.body;
+  const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, bank_routing, bank_account, bank_account_type } = req.body;
   const db = getDb();
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, email, hash, role || 'engineer', engineer_id || null, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0);
+    const result = db.prepare('INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, bank_routing, bank_account, bank_account_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, email, hash, role || 'engineer', engineer_id || null, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, bank_routing || null, bank_account || null, bank_account_type || 'checking');
     res.json({ id: result.lastInsertRowid, name, email, role: role || 'engineer' });
   } catch (e) {
     res.status(400).json({ error: 'Email already exists' });
@@ -263,13 +270,20 @@ app.post('/api/users', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/users/:id', auth, adminOnly, (req, res) => {
-  const { name, email, role, engineer_id, password, holiday_pay_eligible, holiday_pay_rate } = req.body;
+  const { name, email, role, engineer_id, password, holiday_pay_eligible, holiday_pay_rate, bank_routing, bank_account, bank_account_type } = req.body;
   const db = getDb();
+
+  // Get current user to preserve banking info if not provided (masked fields)
+  const current = db.prepare('SELECT bank_routing, bank_account, bank_account_type FROM users WHERE id = ?').get(req.params.id);
+  const finalRouting = bank_routing || current?.bank_routing || null;
+  const finalAccount = bank_account || current?.bank_account || null;
+  const finalAccountType = bank_account_type || current?.bank_account_type || 'checking';
+
   if (password) {
     const hash = bcrypt.hashSync(password, 10);
-    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=?, password=?, holiday_pay_eligible=?, holiday_pay_rate=? WHERE id=?').run(name, email, role, engineer_id, hash, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, req.params.id);
+    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=?, password=?, holiday_pay_eligible=?, holiday_pay_rate=?, bank_routing=?, bank_account=?, bank_account_type=? WHERE id=?').run(name, email, role, engineer_id, hash, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, finalRouting, finalAccount, finalAccountType, req.params.id);
   } else {
-    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=?, holiday_pay_eligible=?, holiday_pay_rate=? WHERE id=?').run(name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, req.params.id);
+    db.prepare('UPDATE users SET name=?, email=?, role=?, engineer_id=?, holiday_pay_eligible=?, holiday_pay_rate=?, bank_routing=?, bank_account=?, bank_account_type=? WHERE id=?').run(name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, finalRouting, finalAccount, finalAccountType, req.params.id);
   }
   res.json({ success: true });
 });
@@ -1788,6 +1802,145 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   });
 
   res.json({ data, holidays });
+});
+
+// ACH Export - Generate Chase CSV file for payroll
+app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
+  const { period_start, period_end, delivery_date } = req.query;
+  const db = getDb();
+
+  if (!delivery_date) {
+    return res.status(400).json({ error: 'Delivery date is required' });
+  }
+
+  // Get Chase account from settings
+  const chaseAccountSetting = db.prepare("SELECT value FROM settings WHERE key = 'chase_ach_account'").get();
+  const chaseAccount = chaseAccountSetting?.value;
+  if (!chaseAccount) {
+    return res.status(400).json({ error: 'Chase ACH account not configured in settings' });
+  }
+
+  // Get payroll data grouped by engineer
+  const payrollData = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+           u.bank_routing, u.bank_account, u.bank_account_type,
+           SUM(te.hours * ep.pay_rate) as total_pay
+    FROM timesheet_entries te
+    JOIN timesheets ts ON ts.id = te.timesheet_id
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status = 'approved' AND ts.week_ending BETWEEN ? AND ?
+    GROUP BY u.id
+    ORDER BY u.name
+  `).all(period_start, period_end);
+
+  // Add holiday pay for eligible engineers
+  const holidays = db.prepare(`
+    SELECT * FROM holidays WHERE date BETWEEN ? AND ? ORDER BY date
+  `).all(period_start, period_end);
+  const totalHolidayHours = holidays.reduce((sum, h) => sum + (h.hours || 8), 0);
+
+  if (totalHolidayHours > 0) {
+    const eligibleEngineers = db.prepare(`
+      SELECT id, name, engineer_id, holiday_pay_rate, bank_routing, bank_account, bank_account_type
+      FROM users
+      WHERE holiday_pay_eligible = 1 AND holiday_pay_rate > 0
+    `).all();
+
+    for (const eng of eligibleEngineers) {
+      const holidayPay = totalHolidayHours * eng.holiday_pay_rate;
+      const existing = payrollData.find(p => p.user_id === eng.id);
+      if (existing) {
+        existing.total_pay = (existing.total_pay || 0) + holidayPay;
+      } else {
+        payrollData.push({
+          user_id: eng.id,
+          engineer_name: eng.name,
+          engineer_id: eng.engineer_id,
+          bank_routing: eng.bank_routing,
+          bank_account: eng.bank_account,
+          bank_account_type: eng.bank_account_type,
+          total_pay: holidayPay
+        });
+      }
+    }
+  }
+
+  // Filter to only engineers with banking info and non-zero pay
+  const validPayments = payrollData.filter(p =>
+    p.bank_routing && p.bank_account && p.total_pay > 0
+  );
+
+  if (validPayments.length === 0) {
+    return res.status(400).json({ error: 'No valid payments to export. Ensure engineers have banking info and approved timesheets.' });
+  }
+
+  // Format dates for Chase CSV (YYMMDD)
+  const now = new Date();
+  const fileDate = now.toISOString().slice(2, 10).replace(/-/g, ''); // YYMMDD
+  const fileTime = now.toTimeString().slice(0, 5).replace(':', ''); // HHMM
+  const deliveryYYMMDD = delivery_date.slice(2).replace(/-/g, ''); // Convert YYYY-MM-DD to YYMMDD
+
+  // Calculate totals
+  const totalAmount = validPayments.reduce((sum, p) => sum + Math.round(p.total_pay * 100), 0);
+  const transactionCount = validPayments.length;
+
+  // Build CSV rows
+  const rows = [];
+
+  // Row 1: File Header
+  rows.push([
+    '1',                              // Indicator
+    `PAY${fileDate}`,                 // File ID (unique identifier)
+    fileDate,                         // File creation date (YYMMDD)
+    fileTime,                         // File creation time (HHMM)
+    transactionCount.toString(),      // Total transactions
+    totalAmount.toString(),           // Total credit amount (in cents)
+    '0',                              // Total debit amount
+    '1'                               // Batch count
+  ].join(','));
+
+  // Row 5: Batch Header
+  rows.push([
+    '5',                              // Indicator
+    '220',                            // Service class code (220 = credits)
+    chaseAccount,                     // Chase account number
+    'PPD',                            // SEC code (PPD for payroll)
+    'PAYROLL',                        // Entry description
+    deliveryYYMMDD,                   // Delivery date (YYMMDD)
+    totalAmount.toString(),           // Batch credit amount
+    '0',                              // Batch debit amount
+    '100',                            // Batch number
+    transactionCount.toString()       // Transactions in batch
+  ].join(','));
+
+  // Row 6: Transaction details
+  validPayments.forEach((payment, index) => {
+    const trxnCode = payment.bank_account_type === 'savings' ? '32' : '22';
+    const amountCents = Math.round(payment.total_pay * 100);
+    const payeeName = payment.engineer_name.slice(0, 22).replace(/,/g, ''); // Max 22 chars, no commas
+    const idNumber = (payment.engineer_id || `EMP${payment.user_id}`).slice(0, 15).replace(/,/g, '');
+    const traceId = (100 * 1000 + index + 1).toString(); // 100001, 100002, etc.
+
+    rows.push([
+      '6',                            // Indicator
+      trxnCode,                       // Transaction code (22=checking, 32=savings)
+      payment.bank_routing,           // Routing number
+      payment.bank_account,           // Account number
+      amountCents.toString(),         // Amount in cents
+      idNumber,                       // ID number (engineer_id)
+      payeeName,                      // Payee name
+      traceId,                        // Trace ID
+      ''                              // Addenda (optional)
+    ].join(','));
+  });
+
+  // Return CSV
+  const csv = rows.join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="ACH_Payroll_${fileDate}.csv"`);
+  res.send(csv);
 });
 
 // Invoiced report by date range

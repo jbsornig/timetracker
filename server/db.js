@@ -258,6 +258,19 @@ function initSchema() {
     db.exec('ALTER TABLE users ADD COLUMN last_login DATETIME');
     console.log('✅ Migration: Added last_login column to users');
   }
+  // Add banking fields for ACH payments
+  if (!userCols.find(c => c.name === 'bank_routing')) {
+    db.exec('ALTER TABLE users ADD COLUMN bank_routing TEXT');
+    console.log('✅ Migration: Added bank_routing column to users');
+  }
+  if (!userCols.find(c => c.name === 'bank_account')) {
+    db.exec('ALTER TABLE users ADD COLUMN bank_account TEXT');
+    console.log('✅ Migration: Added bank_account column to users');
+  }
+  if (!userCols.find(c => c.name === 'bank_account_type')) {
+    db.exec("ALTER TABLE users ADD COLUMN bank_account_type TEXT DEFAULT 'checking'");
+    console.log('✅ Migration: Added bank_account_type column to users');
+  }
 
   // Add fixed price project columns
   const projectCols3 = db.prepare("PRAGMA table_info(projects)").all();
@@ -328,12 +341,20 @@ function initSchema() {
       ['company_email', ''],
       ['company_logo', ''],
       ['next_invoice_number', '1000'],
+      ['chase_ach_account', ''],
     ];
     const insert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
     for (const [key, value] of defaultSettings) {
       insert.run(key, value);
     }
     console.log('✅ Default settings created');
+  }
+
+  // Add chase_ach_account setting if missing (for existing databases)
+  const chaseAchExists = db.prepare("SELECT id FROM settings WHERE key = 'chase_ach_account'").get();
+  if (!chaseAchExists) {
+    db.prepare("INSERT INTO settings (key, value) VALUES ('chase_ach_account', '')").run();
+    console.log('✅ Migration: Added chase_ach_account setting');
   }
 }
 
