@@ -72,6 +72,8 @@ app.post('/api/login', (req, res) => {
 
 app.get('/api/me', auth, (req, res) => {
   const db = getDb();
+  // Update last_login when session is validated (user opened the app)
+  db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(req.user.id);
   const user = db.prepare('SELECT id, name, email, role, engineer_id FROM users WHERE id = ?').get(req.user.id);
   res.json(user);
 });
