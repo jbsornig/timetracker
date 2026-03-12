@@ -2200,6 +2200,151 @@ app.get('/api/reports/contract-hours', auth, adminOnly, (req, res) => {
   res.json(result);
 });
 
+// ─── IMPORT BANKING INFO ──────────────────────────────────────────────────────
+
+// Import banking info from CSV data
+app.post('/api/import/banking', auth, adminOnly, (req, res) => {
+  const { csvData } = req.body;
+  const db = getDb();
+
+  if (!csvData || !csvData.trim()) {
+    return res.status(400).json({ error: 'No CSV data provided' });
+  }
+
+  try {
+    // Parse CSV
+    const lines = csvData.trim().split('\n');
+    if (lines.length < 2) {
+      return res.status(400).json({ error: 'CSV must have header row and at least one data row' });
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim());
+    const vendors = [];
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const values = lines[i].split(',');
+      const row = {};
+      headers.forEach((h, idx) => {
+        row[h] = values[idx]?.trim() || '';
+      });
+      vendors.push(row);
+    }
+
+    // Get all engineers
+    const engineers = db.prepare("SELECT id, name FROM users WHERE role = 'engineer'").all();
+
+    // Build name lookup (normalized)
+    function normalizeName(name) {
+      return name.toLowerCase().replace(/[^a-z]/g, '');
+    }
+    const engineerMap = {};
+    engineers.forEach(eng => {
+      engineerMap[normalizeName(eng.name)] = eng;
+    });
+
+    // Identify split deposits vs single deposits
+    const splitDeposits = {};
+    const singleDeposits = [];
+
+    vendors.forEach(v => {
+      const name = v.VendorName || v.Name || '';
+      const nickname = v.VendorNickname || v.Nickname || name;
+      const accountType = (v.BankAccountType || v.AccountType || 'checking').toLowerCase();
+      const routing = v.BankRoutingNumber || v.RoutingNumber || '';
+      const account = v.BankAccountNumber || v.AccountNumber || '';
+
+      // Check for percentage in name (split deposit indicator)
+      const pctMatch = name.match(/(\d+)\s*percent/i) || name.match(/-\s*(\d+)%/);
+
+      if (pctMatch) {
+        const baseName = nickname.replace(/\s*(checking|savings|\d+\s*percent|-\s*\d+%)/gi, '').trim();
+        const normalizedBase = normalizeName(baseName);
+
+        if (!splitDeposits[normalizedBase]) {
+          splitDeposits[normalizedBase] = { baseName, accounts: [] };
+        }
+        splitDeposits[normalizedBase].accounts.push({
+          pct: parseInt(pctMatch[1]),
+          type: accountType,
+          routing,
+          account
+        });
+      } else {
+        singleDeposits.push({ name: nickname, type: accountType, routing, account });
+      }
+    });
+
+    // Prepare update statements
+    const updateSingle = db.prepare(`
+      UPDATE users SET
+        bank_routing = ?, bank_account = ?, bank_account_type = ?,
+        bank_pct_1 = 100, bank_pct_2 = 0
+      WHERE id = ?
+    `);
+
+    const updateSplit = db.prepare(`
+      UPDATE users SET
+        bank_routing = ?, bank_account = ?, bank_account_type = ?,
+        bank_routing_2 = ?, bank_account_2 = ?, bank_account_type_2 = ?,
+        bank_pct_1 = ?, bank_pct_2 = ?
+      WHERE id = ?
+    `);
+
+    const results = { updated: [], notFound: [], splits: [] };
+
+    // Process single deposits
+    singleDeposits.forEach(v => {
+      const normalized = normalizeName(v.name);
+      const engineer = engineerMap[normalized];
+
+      if (engineer && v.routing && v.account) {
+        updateSingle.run(v.routing, v.account, v.type, engineer.id);
+        results.updated.push({ name: engineer.name, account: '...' + v.account.slice(-4) });
+      } else if (!engineer) {
+        results.notFound.push(v.name);
+      }
+    });
+
+    // Process split deposits
+    Object.entries(splitDeposits).forEach(([normalizedBase, data]) => {
+      const engineer = engineerMap[normalizedBase];
+
+      if (engineer && data.accounts.length >= 2) {
+        data.accounts.sort((a, b) => b.pct - a.pct);
+        const primary = data.accounts[0];
+        const secondary = data.accounts[1];
+
+        updateSplit.run(
+          primary.routing, primary.account, primary.type,
+          secondary.routing, secondary.account, secondary.type,
+          primary.pct, secondary.pct,
+          engineer.id
+        );
+        results.updated.push({
+          name: engineer.name,
+          account: '...' + primary.account.slice(-4),
+          split: `${primary.pct}%/${secondary.pct}%`
+        });
+        results.splits.push(engineer.name);
+      } else if (!engineer) {
+        results.notFound.push(data.baseName);
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Updated ${results.updated.length} engineers`,
+      updated: results.updated,
+      notFound: results.notFound,
+      splitDeposits: results.splits
+    });
+
+  } catch (err) {
+    console.error('Import error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── BACKUP & RESTORE ─────────────────────────────────────────────────────────
 
 // Backup all company data

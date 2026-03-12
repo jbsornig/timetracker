@@ -570,6 +570,75 @@ export default function Settings() {
       </form>
 
       <div className="card" style={{ marginTop: 20 }}>
+        <div className="card-title">Import Banking Info</div>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+          Import bank account information for engineers from a CSV file. Matches engineers by name.
+        </p>
+
+        <div style={{ marginBottom: 16 }}>
+          <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+            Select CSV File
+            <input
+              type="file"
+              accept=".csv"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                  const csvData = evt.target?.result;
+                  if (!csvData) return;
+
+                  if (!window.confirm(`Import banking info from "${file.name}"?\n\nThis will update bank account information for engineers whose names match the CSV. Passwords will NOT be affected.`)) {
+                    e.target.value = '';
+                    return;
+                  }
+
+                  try {
+                    const result = await apiFetch('/import/banking', {
+                      method: 'POST',
+                      body: { csvData }
+                    });
+
+                    let message = `Successfully updated ${result.updated?.length || 0} engineers.\n`;
+
+                    if (result.updated?.length > 0) {
+                      message += '\nUpdated:\n' + result.updated.map(u =>
+                        `  • ${u.name} (${u.account})${u.split ? ` - Split: ${u.split}` : ''}`
+                      ).join('\n');
+                    }
+
+                    if (result.notFound?.length > 0) {
+                      message += `\n\nNot found in database (${result.notFound.length}):\n` +
+                        result.notFound.slice(0, 10).map(n => `  • ${n}`).join('\n');
+                      if (result.notFound.length > 10) {
+                        message += `\n  ... and ${result.notFound.length - 10} more`;
+                      }
+                    }
+
+                    alert(message);
+                  } catch (err) {
+                    alert('Import failed: ' + err.message);
+                  }
+
+                  e.target.value = '';
+                };
+                reader.readAsText(file);
+              }}
+            />
+          </label>
+        </div>
+
+        <div className="form-hint">
+          <strong>Expected CSV format:</strong><br />
+          Columns: VendorName, VendorNickname, BankAccountType, BankRoutingNumber, BankAccountNumber<br />
+          For split deposits, include percentage in VendorName (e.g., "John Smith 70 percent")
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 20 }}>
         <div className="card-title">Company Data Management</div>
         <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
           Backup your data, restore from a backup, or start a new company.
