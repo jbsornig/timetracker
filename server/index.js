@@ -1974,9 +1974,21 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
   // File ID modifier - single digit 0-9 (cycles based on minute)
   const fileIdModifier = (eastern.getMinutes() % 10).toString();
 
-  // Delivery date - parse as local date, not UTC
-  const deliveryParts = delivery_date.split('-');
-  const deliveryYYMMDD = deliveryParts[0].slice(2) + deliveryParts[1] + deliveryParts[2];
+  // Delivery date - 1 business day from file creation, skip weekends
+  const deliveryDate = new Date(eastern);
+  deliveryDate.setDate(deliveryDate.getDate() + 1); // Add 1 day
+  // If Saturday, move to Monday
+  if (deliveryDate.getDay() === 6) {
+    deliveryDate.setDate(deliveryDate.getDate() + 2);
+  }
+  // If Sunday, move to Monday
+  if (deliveryDate.getDay() === 0) {
+    deliveryDate.setDate(deliveryDate.getDate() + 1);
+  }
+  const delYear = deliveryDate.getFullYear().toString().slice(2);
+  const delMonth = (deliveryDate.getMonth() + 1).toString().padStart(2, '0');
+  const delDay = deliveryDate.getDate().toString().padStart(2, '0');
+  const deliveryYYMMDD = `${delYear}${delMonth}${delDay}`;
 
   // Get month/year for addenda (based on period end date)
   const periodEndDate = new Date(period_end + 'T00:00:00');
@@ -2022,8 +2034,8 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     const trxnCode = trxn.bank_account_type === 'savings' ? '32' : '22';
     const amountCents = Math.round(trxn.amount * 100);
     const payeeName = trxn.engineer_name.slice(0, 22).replace(/,/g, ''); // Max 22 chars, no commas
-    // ID Number: use name, alphanumeric only (no hyphens or special chars)
-    const idNumber = trxn.engineer_name.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 15);
+    // ID Number: use engineer_id without hyphen (ENG001 format), alphanumeric only
+    const idNumber = (trxn.engineer_id || `EMP${trxn.user_id}`).replace(/[^a-zA-Z0-9]/g, '').slice(0, 15);
     const traceId = (100 * 1000 + index + 1).toString(); // 100001, 100002, etc.
 
     rows.push([
