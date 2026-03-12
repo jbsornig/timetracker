@@ -1959,11 +1959,22 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     }
   }
 
-  // Format dates for Chase CSV (YYMMDD)
+  // Format dates for Chase CSV (YYMMDD) - use local timezone
   const now = new Date();
-  const fileDate = now.toISOString().slice(2, 10).replace(/-/g, ''); // YYMMDD
-  const fileTime = now.toTimeString().slice(0, 5).replace(':', ''); // HHMM
+  const year = now.getFullYear().toString().slice(2); // YY
+  const month = (now.getMonth() + 1).toString().padStart(2, '0'); // MM
+  const day = now.getDate().toString().padStart(2, '0'); // DD
+  const hours = now.getHours().toString().padStart(2, '0'); // HH
+  const minutes = now.getMinutes().toString().padStart(2, '0'); // MM
+  const fileDate = `${year}${month}${day}`; // YYMMDD local time
+  const fileTime = `${hours}${minutes}`; // HHMM local time
   const deliveryYYMMDD = delivery_date.slice(2).replace(/-/g, ''); // Convert YYYY-MM-DD to YYMMDD
+
+  // Get month/year for addenda (based on period end date)
+  const periodEndDate = new Date(period_end + 'T00:00:00');
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+  const addendaText = `${monthNames[periodEndDate.getMonth()]} ${periodEndDate.getFullYear()} Invoice`;
 
   // Calculate totals
   const totalAmount = transactions.reduce((sum, t) => sum + Math.round(t.amount * 100), 0);
@@ -1975,7 +1986,7 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
   // Row 1: File Header
   rows.push([
     '1',                              // Indicator
-    `PAY${fileDate}`,                 // File ID (unique identifier)
+    `PAY${fileDate}${fileTime}`,      // File ID (unique identifier, longer)
     fileDate,                         // File creation date (YYMMDD)
     fileTime,                         // File creation time (HHMM)
     transactionCount.toString(),      // Total transactions
@@ -2003,7 +2014,8 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     const trxnCode = trxn.bank_account_type === 'savings' ? '32' : '22';
     const amountCents = Math.round(trxn.amount * 100);
     const payeeName = trxn.engineer_name.slice(0, 22).replace(/,/g, ''); // Max 22 chars, no commas
-    const idNumber = (trxn.engineer_id || `EMP${trxn.user_id}`).slice(0, 15).replace(/,/g, '');
+    // ID Number: use name, alphanumeric only (no hyphens or special chars)
+    const idNumber = trxn.engineer_name.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 15);
     const traceId = (100 * 1000 + index + 1).toString(); // 100001, 100002, etc.
 
     rows.push([
@@ -2012,10 +2024,10 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
       trxn.bank_routing,              // Routing number
       trxn.bank_account,              // Account number
       amountCents.toString(),         // Amount in cents
-      idNumber,                       // ID number (engineer_id)
+      idNumber,                       // ID number (engineer name, alphanumeric)
       payeeName,                      // Payee name
       traceId,                        // Trace ID
-      ''                              // Addenda (optional)
+      addendaText                     // Addenda (Month Year Invoice)
     ].join(','));
   });
 
