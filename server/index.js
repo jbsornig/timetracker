@@ -2358,7 +2358,7 @@ app.get('/api/backup', auth, adminOnly, (req, res) => {
         customers: db.prepare('SELECT * FROM customers').all(),
         customer_contacts: db.prepare('SELECT * FROM customer_contacts').all(),
         projects: db.prepare('SELECT * FROM projects').all(),
-        users: db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, created_at FROM users').all(),
+        users: db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at FROM users').all(),
         engineer_projects: db.prepare('SELECT * FROM engineer_projects').all(),
         timesheets: db.prepare('SELECT * FROM timesheets').all(),
         timesheet_entries: db.prepare('SELECT * FROM timesheet_entries').all(),
@@ -2433,8 +2433,13 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
         const defaultHash = bcrypt.hashSync('changeme123', 10);
         for (const u of backup.data.users) {
           if (u.id === currentUserId) continue;
-          db.prepare('INSERT INTO users (id, name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            u.id, u.name, u.email, defaultHash, u.role, u.engineer_id, u.holiday_pay_eligible || 0, u.holiday_pay_rate || 0, u.created_at
+          db.prepare(`INSERT INTO users (id, name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate,
+            bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            u.id, u.name, u.email, defaultHash, u.role, u.engineer_id, u.holiday_pay_eligible || 0, u.holiday_pay_rate || 0,
+            u.bank_routing || null, u.bank_account || null, u.bank_account_type || 'checking',
+            u.bank_routing_2 || null, u.bank_account_2 || null, u.bank_account_type_2 || 'checking',
+            u.bank_pct_1 ?? 100, u.bank_pct_2 ?? 0, u.created_at
           );
         }
       }
