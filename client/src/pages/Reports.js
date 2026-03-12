@@ -165,7 +165,7 @@ export default function Reports() {
   const handleAchExport = async () => {
     try {
       const API_BASE = process.env.REACT_APP_API_URL || '';
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('tt_token');
       const url = `${API_BASE}/api/payroll/ach-export?period_start=${dateRange.period_start}&period_end=${dateRange.period_end}&delivery_date=${achDeliveryDate}`;
 
       const response = await fetch(url, {
