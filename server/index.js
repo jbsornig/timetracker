@@ -1974,9 +1974,9 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
   // File ID modifier - single digit 0-9 (cycles based on minute)
   const fileIdModifier = (eastern.getMinutes() % 10).toString();
 
-  // Delivery date - 1 business day from file creation, skip weekends
+  // Delivery date - 2 days from file creation (at least 24 hours ahead), skip weekends
   const deliveryDate = new Date(eastern);
-  deliveryDate.setDate(deliveryDate.getDate() + 1); // Add 1 day
+  deliveryDate.setDate(deliveryDate.getDate() + 2); // Add 2 days
   // If Saturday, move to Monday
   if (deliveryDate.getDay() === 6) {
     deliveryDate.setDate(deliveryDate.getDate() + 2);
