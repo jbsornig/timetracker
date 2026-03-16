@@ -303,7 +303,6 @@ export default function Timesheets() {
     let aVal, bVal;
     switch (sortColumn) {
       case 'period':
-        // Use period_start for fixed price, week_ending for others
         aVal = a.period_start || a.week_ending || '';
         bVal = b.period_start || b.week_ending || '';
         break;
@@ -316,7 +315,6 @@ export default function Timesheets() {
         bVal = (b.project_name || '').toLowerCase();
         break;
       case 'status':
-        // Custom order: draft, submitted, approved
         const statusOrder = { draft: 1, submitted: 2, approved: 3 };
         aVal = statusOrder[a.status] || 0;
         bVal = statusOrder[b.status] || 0;
@@ -325,8 +323,14 @@ export default function Timesheets() {
         aVal = '';
         bVal = '';
     }
+    // Primary sort
     if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
     if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+    // Secondary sort by period (descending) when primary values are equal
+    const aPeriod = a.period_start || a.week_ending || '';
+    const bPeriod = b.period_start || b.week_ending || '';
+    if (aPeriod < bPeriod) return 1;
+    if (aPeriod > bPeriod) return -1;
     return 0;
   });
 
