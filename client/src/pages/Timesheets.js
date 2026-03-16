@@ -285,6 +285,50 @@ export default function Timesheets() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ status: '', project_id: '', user_id: '' });
+  const [sortColumn, setSortColumn] = useState('period');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  // Handle column header click for sorting
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Sort timesheets based on current sort settings
+  const sortedTimesheets = [...timesheets].sort((a, b) => {
+    let aVal, bVal;
+    switch (sortColumn) {
+      case 'period':
+        // Use period_start for fixed price, week_ending for others
+        aVal = a.period_start || a.week_ending || '';
+        bVal = b.period_start || b.week_ending || '';
+        break;
+      case 'engineer':
+        aVal = (a.engineer_name || '').toLowerCase();
+        bVal = (b.engineer_name || '').toLowerCase();
+        break;
+      case 'project':
+        aVal = (a.project_name || '').toLowerCase();
+        bVal = (b.project_name || '').toLowerCase();
+        break;
+      case 'status':
+        // Custom order: draft, submitted, approved
+        const statusOrder = { draft: 1, submitted: 2, approved: 3 };
+        aVal = statusOrder[a.status] || 0;
+        bVal = statusOrder[b.status] || 0;
+        break;
+      default:
+        aVal = '';
+        bVal = '';
+    }
+    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
 
   // Quick Fill state
   const [quickFill, setQuickFill] = useState({
@@ -1218,17 +1262,27 @@ export default function Timesheets() {
             <table>
               <thead>
                 <tr>
-                  <th>Period</th>
-                  {isAdmin && <th>Engineer</th>}
-                  <th>Project</th>
+                  <th onClick={() => handleSort('period')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Period {sortColumn === 'period' && (sortDirection === 'asc' ? '▲' : '▼')}
+                  </th>
+                  {isAdmin && (
+                    <th onClick={() => handleSort('engineer')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Engineer {sortColumn === 'engineer' && (sortDirection === 'asc' ? '▲' : '▼')}
+                    </th>
+                  )}
+                  <th onClick={() => handleSort('project')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Project {sortColumn === 'project' && (sortDirection === 'asc' ? '▲' : '▼')}
+                  </th>
                   <th>Type</th>
                   <th>Hours/Amount</th>
-                  <th>Status</th>
+                  <th onClick={() => handleSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                    Status {sortColumn === 'status' && (sortDirection === 'asc' ? '▲' : '▼')}
+                  </th>
                   <th style={{ width: 150 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {timesheets.map((ts) => {
+                {sortedTimesheets.map((ts) => {
                   const isFixedPrice = ts.project_type === 'fixed_price';
                   const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
                   const getBadgeClass = () => {
@@ -1343,7 +1397,7 @@ export default function Timesheets() {
             </div>
           </div>
         ) : (
-          timesheets.map((ts) => {
+          sortedTimesheets.map((ts) => {
             const isFixedPrice = ts.project_type === 'fixed_price';
             const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
             const canOpen = !isFixedPrice && !isMonthly;
