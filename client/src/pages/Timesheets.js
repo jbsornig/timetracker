@@ -285,8 +285,23 @@ export default function Timesheets() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ status: '', project_id: '', user_id: '' });
+  const [dateFilter, setDateFilter] = useState('current'); // 'all', 'current', or 'YYYY-MM'
   const [sortColumn, setSortColumn] = useState('period');
   const [sortDirection, setSortDirection] = useState('desc');
+
+  // Generate month options for date filter (current month + past 12 months)
+  const getMonthOptions = () => {
+    const options = [];
+    const now = new Date();
+    for (let i = 0; i < 13; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      options.push({ value, label });
+    }
+    return options;
+  };
+  const monthOptions = getMonthOptions();
 
   // Handle column header click for sorting
   const handleSort = (column) => {
@@ -298,8 +313,43 @@ export default function Timesheets() {
     }
   };
 
+  // Filter timesheets by date range
+  const filteredByDate = timesheets.filter(ts => {
+    if (dateFilter === 'all') return true;
+
+    // Get the timesheet's date (use period_start/end for fixed price, week_ending for hourly)
+    const tsDate = ts.period_start || ts.week_ending;
+    if (!tsDate) return true;
+
+    let filterMonth, filterYear;
+    if (dateFilter === 'current') {
+      const now = new Date();
+      filterMonth = now.getMonth() + 1;
+      filterYear = now.getFullYear();
+    } else {
+      const [y, m] = dateFilter.split('-');
+      filterYear = parseInt(y);
+      filterMonth = parseInt(m);
+    }
+
+    // Check if timesheet falls within the selected month
+    const startDate = ts.period_start || ts.week_ending;
+    const endDate = ts.period_end || ts.week_ending;
+
+    // Parse dates
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
+
+    // Month boundaries
+    const monthStart = new Date(filterYear, filterMonth - 1, 1);
+    const monthEnd = new Date(filterYear, filterMonth, 0); // Last day of month
+
+    // Check if timesheet overlaps with the selected month
+    return start <= monthEnd && end >= monthStart;
+  });
+
   // Sort timesheets based on current sort settings
-  const sortedTimesheets = [...timesheets].sort((a, b) => {
+  const sortedTimesheets = [...filteredByDate].sort((a, b) => {
     let aVal, bVal;
     switch (sortColumn) {
       case 'period':
@@ -1210,6 +1260,20 @@ export default function Timesheets() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <div className="form-group" style={{ margin: 0, minWidth: 180 }}>
+            <label className="form-label">Period</label>
+            <select
+              className="form-select"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+            >
+              <option value="all">All Time</option>
+              <option value="current">Current Month</option>
+              {monthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="form-group" style={{ margin: 0, minWidth: 150 }}>
             <label className="form-label">Status</label>
             <select
@@ -1256,10 +1320,10 @@ export default function Timesheets() {
 
       {/* Desktop Table View */}
       <div className="card timesheet-desktop">
-        {timesheets.length === 0 ? (
+        {sortedTimesheets.length === 0 ? (
           <div className="empty-state">
             <h3>No timesheets found</h3>
-            <p>Create a new timesheet to get started.</p>
+            <p>{timesheets.length > 0 ? 'Try adjusting your filters.' : 'Create a new timesheet to get started.'}</p>
           </div>
         ) : (
           <div className="table-wrap">
@@ -1393,11 +1457,11 @@ export default function Timesheets() {
 
       {/* Mobile Card List View */}
       <div className="timesheet-mobile">
-        {timesheets.length === 0 ? (
+        {sortedTimesheets.length === 0 ? (
           <div className="card">
             <div className="empty-state">
               <h3>No timesheets found</h3>
-              <p>Create a new timesheet to get started.</p>
+              <p>{timesheets.length > 0 ? 'Try adjusting your filters.' : 'Create a new timesheet to get started.'}</p>
             </div>
           </div>
         ) : (
