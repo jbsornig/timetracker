@@ -1259,7 +1259,7 @@ export default function Timesheets() {
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-group" style={{ margin: 0, minWidth: 180 }}>
             <label className="form-label">Period</label>
             <select
@@ -1315,6 +1315,12 @@ export default function Timesheets() {
               </select>
             </div>
           )}
+          <div style={{ marginLeft: 'auto', alignSelf: 'center', color: '#64748b', fontSize: 14 }}>
+            Showing <strong style={{ color: '#1e293b' }}>{sortedTimesheets.length}</strong> timesheet{sortedTimesheets.length !== 1 ? 's' : ''}
+            {sortedTimesheets.length !== timesheets.length && (
+              <span> of {timesheets.length}</span>
+            )}
+          </div>
         </div>
       </div>
 
