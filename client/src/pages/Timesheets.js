@@ -317,10 +317,6 @@ export default function Timesheets() {
   const filteredByDate = timesheets.filter(ts => {
     if (dateFilter === 'all') return true;
 
-    // Get the timesheet's date (use period_start/end for fixed price, week_ending for hourly)
-    const tsDate = ts.period_start || ts.week_ending;
-    if (!tsDate) return true;
-
     let filterMonth, filterYear;
     if (dateFilter === 'current') {
       const now = new Date();
@@ -332,17 +328,28 @@ export default function Timesheets() {
       filterMonth = parseInt(m);
     }
 
-    // Check if timesheet falls within the selected month
-    const startDate = ts.period_start || ts.week_ending;
-    const endDate = ts.period_end || ts.week_ending;
-
-    // Parse dates
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T00:00:00');
-
     // Month boundaries
     const monthStart = new Date(filterYear, filterMonth - 1, 1);
     const monthEnd = new Date(filterYear, filterMonth, 0); // Last day of month
+
+    // For weekly timesheets (week_ending is a Sunday), calculate the full week range
+    // The week covers 6 days before week_ending through week_ending
+    if (ts.week_ending && !ts.period_start) {
+      const weekEnd = new Date(ts.week_ending + 'T00:00:00');
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekStart.getDate() - 6); // Monday of that week
+
+      // Check if any day in the week falls within the selected month
+      return weekStart <= monthEnd && weekEnd >= monthStart;
+    }
+
+    // For fixed price or monthly timesheets, use period_start/end
+    const startDate = ts.period_start || ts.week_ending;
+    const endDate = ts.period_end || ts.week_ending;
+    if (!startDate) return true;
+
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T00:00:00');
 
     // Check if timesheet overlaps with the selected month
     return start <= monthEnd && end >= monthStart;
