@@ -19,6 +19,7 @@ export default function Projects() {
   const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '' });
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [engineerAssignments, setEngineerAssignments] = useState([]);
 
   useEffect(() => {
@@ -200,6 +201,19 @@ export default function Projects() {
       <div className="card" style={{ marginBottom: 16, padding: '12px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Status:</span>
+            <select
+              className="form-select"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 130 }}
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: '#64748b' }}>Customer:</span>
             <select
               className="form-select"
@@ -228,7 +242,7 @@ export default function Projects() {
             </select>
           </div>
           <span style={{ fontSize: 13, color: '#94a3b8' }}>
-            Showing {projects.filter(p => (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).length} of {projects.length} projects
+            Showing {projects.filter(p => (!statusFilter || p.status === statusFilter) && (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).length} of {projects.length} projects
           </span>
         </div>
       </div>
@@ -259,7 +273,7 @@ export default function Projects() {
                 </tr>
               </thead>
               <tbody>
-                {projects.filter(p => (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).map((p) => {
+                {projects.filter(p => (!statusFilter || p.status === statusFilter) && (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).map((p) => {
                   const isFixedPrice = p.project_type === 'fixed_price';
                   const budget = isFixedPrice ? (p.total_cost || 0) : (p.po_amount || 0);
                   const billed = p.amount_billed || 0;
