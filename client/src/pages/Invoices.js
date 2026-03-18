@@ -75,6 +75,7 @@ export default function Invoices() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState('active');
+  const [projectStatusFilter, setProjectStatusFilter] = useState('active');
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
   const [receivedFilter, setReceivedFilter] = useState('');
@@ -433,6 +434,11 @@ export default function Invoices() {
   } else if (receivedFilter === 'not_received') {
     filteredInvoices = filteredInvoices.filter(inv => !inv.received_at);
   }
+  // Apply project status filter (active/inactive)
+  if (projectStatusFilter) {
+    const activeProjectIds = new Set(projects.filter(p => p.status === projectStatusFilter).map(p => p.id));
+    filteredInvoices = filteredInvoices.filter(inv => activeProjectIds.has(inv.project_id));
+  }
 
   // Sort invoices
   const sortedInvoices = [...filteredInvoices].sort((a, b) => {
@@ -689,6 +695,19 @@ export default function Invoices() {
       {/* Filter and Sort Controls */}
       <div className="card no-print" style={{ marginBottom: 16, padding: '12px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Projects:</span>
+            <select
+              className="form-select"
+              value={projectStatusFilter}
+              onChange={(e) => setProjectStatusFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 130 }}
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: '#64748b' }}>Customer:</span>
             <select
