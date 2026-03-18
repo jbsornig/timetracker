@@ -285,6 +285,7 @@ export default function Timesheets() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ status: '', project_id: '', user_id: '' });
+  const [projectStatusFilter, setProjectStatusFilter] = useState('active');
   const [dateFilter, setDateFilter] = useState('current'); // 'all', 'current', or 'YYYY-MM'
   const [sortColumn, setSortColumn] = useState('period');
   const [sortDirection, setSortDirection] = useState('desc');
@@ -313,8 +314,14 @@ export default function Timesheets() {
     }
   };
 
-  // Filter timesheets by date range
+  // Build a set of project IDs matching the project status filter
+  const projectStatusSet = projectStatusFilter
+    ? new Set(projects.filter(p => p.status === projectStatusFilter).map(p => p.id))
+    : null;
+
+  // Filter timesheets by project status and date range
   const filteredByDate = timesheets.filter(ts => {
+    if (projectStatusSet && !projectStatusSet.has(ts.project_id)) return false;
     if (dateFilter === 'all') return true;
 
     let filterMonth, filterYear;
@@ -1267,6 +1274,18 @@ export default function Timesheets() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="form-group" style={{ margin: 0, minWidth: 130 }}>
+            <label className="form-label">Projects</label>
+            <select
+              className="form-select"
+              value={projectStatusFilter}
+              onChange={(e) => setProjectStatusFilter(e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
           <div className="form-group" style={{ margin: 0, minWidth: 180 }}>
             <label className="form-label">Period</label>
             <select
