@@ -84,10 +84,15 @@ export default function Reports() {
       loadBudgetData();
     } else if (activeTab === 'contract-hours') {
       loadContractHoursData();
-    } else if (activeTab === 'hours-summary') {
-      loadHoursSummary();
     }
   }, [activeTab]);
+
+  // Auto-load hours summary when tab is active and date range changes
+  useEffect(() => {
+    if (activeTab === 'hours-summary') {
+      loadHoursSummary();
+    }
+  }, [activeTab, hoursSummaryRange.period_start, hoursSummaryRange.period_end]);
 
   const loadHoursSummary = async () => {
     setLoading(true);
