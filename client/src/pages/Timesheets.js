@@ -1460,14 +1460,14 @@ export default function Timesheets() {
                             <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
                               {ts.status === 'draft' ? 'Edit' : 'View'}
                             </button>
-                            {ts.status === 'draft' && (
+                            {!isAdmin && ts.status === 'draft' && (
                               <button className="btn btn-success btn-sm" onClick={() => handleSubmitFromList(ts.id)} style={{ marginRight: 4 }}>
                                 Submit
                               </button>
                             )}
                           </>
                         )}
-                        {isFixedPrice && ts.status === 'draft' && (
+                        {isFixedPrice && ts.status === 'draft' && !isAdmin && (
                           <>
                             <button className="btn btn-secondary btn-sm" onClick={() => openEditFixedPrice(ts)} style={{ marginRight: 4 }}>
                               Edit
@@ -1574,7 +1574,7 @@ export default function Timesheets() {
                     </div>
                     <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
-                      {!isFixedPrice && ts.status === 'draft' && (
+                      {!isAdmin && !isFixedPrice && ts.status === 'draft' && (
                         <button
                           className="btn btn-success btn-sm"
                           onClick={(e) => { e.stopPropagation(); handleSubmitFromList(ts.id); }}
@@ -1582,7 +1582,7 @@ export default function Timesheets() {
                           Submit
                         </button>
                       )}
-                      {isFixedPrice && ts.status === 'draft' && (
+                      {!isAdmin && isFixedPrice && ts.status === 'draft' && (
                         <>
                           <button
                             className="btn btn-secondary btn-sm"
