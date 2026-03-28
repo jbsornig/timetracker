@@ -343,15 +343,18 @@ function initSchema() {
   // Remove UNIQUE constraint on timesheets (user_id, project_id, week_ending)
   // to allow multiple timesheets for the same week when it spans two months
   try {
-    const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='timesheets' AND sql LIKE '%user_id%project_id%week_ending%'").all();
-    if (indexes.length > 0) {
-      for (const idx of indexes) {
-        db.exec(`DROP INDEX "${idx.name}"`);
+    const indexes = db.prepare("PRAGMA index_list('timesheets')").all();
+    for (const idx of indexes) {
+      if (!idx.unique) continue;
+      const cols = db.prepare(`PRAGMA index_info("${idx.name}")`).all();
+      const colNames = cols.map(c => c.name).sort().join(',');
+      if (colNames === 'project_id,user_id,week_ending') {
+        db.exec(`DROP INDEX IF EXISTS "${idx.name}"`);
+        console.log(`✅ Migration: Removed UNIQUE constraint "${idx.name}" on timesheets`);
       }
-      console.log('✅ Migration: Removed UNIQUE constraint on timesheets (user_id, project_id, week_ending)');
     }
   } catch (e) {
-    // Index may not exist, that's fine
+    console.log('Note: Could not check timesheets indexes:', e.message);
   }
 
   // Seed admin user if none exists
