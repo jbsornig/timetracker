@@ -380,6 +380,25 @@ function initSchema() {
     console.log('Note: timesheets UNIQUE migration error:', e.message);
   }
 
+  // Re-check timesheet columns after table recreation (safety net)
+  const tsColsAfter = db.prepare("PRAGMA table_info(timesheets)").all();
+  if (!tsColsAfter.find(c => c.name === 'period_start')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN period_start DATE');
+    console.log('✅ Migration: Added period_start column to timesheets (post-recreation)');
+  }
+  if (!tsColsAfter.find(c => c.name === 'period_end')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN period_end DATE');
+    console.log('✅ Migration: Added period_end column to timesheets (post-recreation)');
+  }
+  if (!tsColsAfter.find(c => c.name === 'percentage')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN percentage INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added percentage column to timesheets (post-recreation)');
+  }
+  if (!tsColsAfter.find(c => c.name === 'amount')) {
+    db.exec('ALTER TABLE timesheets ADD COLUMN amount REAL DEFAULT 0');
+    console.log('✅ Migration: Added amount column to timesheets (post-recreation)');
+  }
+
   // Seed admin user if none exists
   const adminExists = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {
