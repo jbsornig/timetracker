@@ -108,7 +108,6 @@ function initSchema() {
       approved_at DATETIME,
       approved_by INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_id, project_id, week_ending),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (project_id) REFERENCES projects(id)
     );
@@ -339,6 +338,20 @@ function initSchema() {
   if (!teCols.find(c => c.name === 'lunch_break')) {
     db.exec('ALTER TABLE timesheet_entries ADD COLUMN lunch_break REAL DEFAULT 0');
     console.log('✅ Migration: Added lunch_break column to timesheet_entries');
+  }
+
+  // Remove UNIQUE constraint on timesheets (user_id, project_id, week_ending)
+  // to allow multiple timesheets for the same week when it spans two months
+  try {
+    const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='timesheets' AND sql LIKE '%user_id%project_id%week_ending%'").all();
+    if (indexes.length > 0) {
+      for (const idx of indexes) {
+        db.exec(`DROP INDEX "${idx.name}"`);
+      }
+      console.log('✅ Migration: Removed UNIQUE constraint on timesheets (user_id, project_id, week_ending)');
+    }
+  } catch (e) {
+    // Index may not exist, that's fine
   }
 
   // Seed admin user if none exists

@@ -628,7 +628,7 @@ app.post('/api/timesheets', auth, (req, res) => {
       res.json({ id: result.lastInsertRowid });
     }
   } catch (e) {
-    res.status(400).json({ error: 'Timesheet already exists for this period/project' });
+    res.status(400).json({ error: e.message || 'Error creating timesheet' });
   }
 });
 

@@ -784,6 +784,17 @@ export default function Timesheets() {
     }
   };
 
+  // Submit timesheet from list view (works for any timesheet type)
+  const handleSubmitFromList = async (id) => {
+    if (!window.confirm('Submit this timesheet for approval?')) return;
+    try {
+      await apiFetch(`/timesheets/${id}/submit`, { method: 'PUT' });
+      await loadTimesheets();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
   // Fixed price timesheet handlers
   const handleSubmitFixedPrice = async (id) => {
     if (!window.confirm('Submit this invoice for approval?')) return;
@@ -1445,9 +1456,16 @@ export default function Timesheets() {
                       </td>
                       <td>
                         {!isFixedPrice && (
-                          <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
-                            {ts.status === 'draft' ? 'Edit' : 'View'}
-                          </button>
+                          <>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
+                              {ts.status === 'draft' ? 'Edit' : 'View'}
+                            </button>
+                            {ts.status === 'draft' && (
+                              <button className="btn btn-success btn-sm" onClick={() => handleSubmitFromList(ts.id)} style={{ marginRight: 4 }}>
+                                Submit
+                              </button>
+                            )}
+                          </>
                         )}
                         {isFixedPrice && ts.status === 'draft' && (
                           <>
@@ -1556,6 +1574,14 @@ export default function Timesheets() {
                     </div>
                     <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                      {!isFixedPrice && ts.status === 'draft' && (
+                        <button
+                          className="btn btn-success btn-sm"
+                          onClick={(e) => { e.stopPropagation(); handleSubmitFromList(ts.id); }}
+                        >
+                          Submit
+                        </button>
+                      )}
                       {isFixedPrice && ts.status === 'draft' && (
                         <>
                           <button
