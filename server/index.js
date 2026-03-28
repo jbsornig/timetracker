@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
-const { getDb } = require('./db');
+const { getDb, backupDatabase, BACKUP_DIR } = require('./db');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 
 const app = express();
@@ -96,6 +96,39 @@ app.put('/api/users/change-password', auth, (req, res) => {
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, req.user.id);
 
   res.json({ message: 'Password changed successfully' });
+});
+
+// ─── BACKUPS ──────────────────────────────────────────────────────────────────
+
+app.post('/api/backups', auth, adminOnly, (req, res) => {
+  const result = backupDatabase();
+  const fs = require('fs');
+  const backups = fs.existsSync(BACKUP_DIR)
+    ? fs.readdirSync(BACKUP_DIR)
+        .filter(f => f.startsWith('timetracker-') && f.endsWith('.db'))
+        .sort().reverse()
+        .map(f => ({
+          name: f,
+          size: fs.statSync(path.join(BACKUP_DIR, f)).size,
+          created: fs.statSync(path.join(BACKUP_DIR, f)).mtime,
+        }))
+    : [];
+  res.json({ success: true, backups });
+});
+
+app.get('/api/backups', auth, adminOnly, (req, res) => {
+  const fs = require('fs');
+  const backups = fs.existsSync(BACKUP_DIR)
+    ? fs.readdirSync(BACKUP_DIR)
+        .filter(f => f.startsWith('timetracker-') && f.endsWith('.db'))
+        .sort().reverse()
+        .map(f => ({
+          name: f,
+          size: fs.statSync(path.join(BACKUP_DIR, f)).size,
+          created: fs.statSync(path.join(BACKUP_DIR, f)).mtime,
+        }))
+    : [];
+  res.json(backups);
 });
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────

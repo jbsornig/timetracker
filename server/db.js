@@ -16,12 +16,53 @@ if (fs.existsSync('/data')) {
 }
 
 const DB_PATH = path.join(DATA_DIR, 'timetracker.db');
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 console.log(`📁 Database location: ${DB_PATH}`);
 
 let db;
 
+function backupDatabase() {
+  try {
+    if (!fs.existsSync(DB_PATH)) {
+      console.log('No database to backup yet');
+      return;
+    }
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(BACKUP_DIR, `timetracker-${timestamp}.db`);
+    fs.copyFileSync(DB_PATH, backupPath);
+    // Also copy WAL and SHM files if they exist
+    if (fs.existsSync(DB_PATH + '-wal')) {
+      fs.copyFileSync(DB_PATH + '-wal', backupPath + '-wal');
+    }
+    if (fs.existsSync(DB_PATH + '-shm')) {
+      fs.copyFileSync(DB_PATH + '-shm', backupPath + '-shm');
+    }
+    console.log(`✅ Database backup created: ${backupPath}`);
+    // Keep only the 10 most recent backups
+    const backups = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('timetracker-') && f.endsWith('.db'))
+      .sort()
+      .reverse();
+    for (const old of backups.slice(10)) {
+      fs.unlinkSync(path.join(BACKUP_DIR, old));
+      // Clean up associated WAL/SHM files
+      const walPath = path.join(BACKUP_DIR, old + '-wal');
+      const shmPath = path.join(BACKUP_DIR, old + '-shm');
+      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+    }
+  } catch (err) {
+    console.error('⚠️ Database backup failed:', err.message);
+  }
+}
+
 function getDb() {
   if (!db) {
+    // ALWAYS backup before any schema initialization/migration
+    backupDatabase();
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
@@ -440,4 +481,4 @@ function initSchema() {
   }
 }
 
-module.exports = { getDb };
+module.exports = { getDb, backupDatabase, BACKUP_DIR };
