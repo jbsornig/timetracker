@@ -13,6 +13,16 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// ─── DEBUG (temporary) ───────────────────────────────────────────────────────
+app.get('/api/debug/ts-check', (req, res) => {
+  const db = getDb();
+  const tsCols = db.prepare("PRAGMA table_info(timesheets)").all().map(c => c.name);
+  const projCols = db.prepare("PRAGMA table_info(projects)").all().map(c => c.name);
+  const entries = db.prepare('SELECT * FROM timesheet_entries LIMIT 5').all();
+  const timesheets = db.prepare('SELECT id, user_id, project_id, week_ending, status FROM timesheets LIMIT 5').all();
+  res.json({ tsCols, projCols, entries, timesheets });
+});
+
 // ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
 
 async function sendNotificationEmail(subject, htmlBody) {
