@@ -2159,6 +2159,34 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
   });
 });
 
+// Hours Summary: hours per engineer per project for a date range (uses individual entry dates)
+app.get('/api/reports/hours-summary', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { period_start, period_end } = req.query;
+  if (!period_start || !period_end) {
+    return res.status(400).json({ error: 'period_start and period_end are required' });
+  }
+  const rows = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name,
+           p.id as project_id, p.name as project_name,
+           c.id as customer_id, c.name as customer_name,
+           p.project_type,
+           COALESCE(SUM(te.hours), 0) as total_hours,
+           COUNT(DISTINCT ts.id) as timesheet_count
+    FROM timesheet_entries te
+    JOIN timesheets ts ON ts.id = te.timesheet_id
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE te.entry_date >= ? AND te.entry_date <= ?
+      AND te.hours > 0
+      AND ts.status IN ('draft', 'submitted', 'approved')
+    GROUP BY u.id, p.id
+    ORDER BY u.name, p.name
+  `).all(period_start, period_end);
+  res.json(rows);
+});
+
 app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
   const db = getDb();
   const data = db.prepare(`

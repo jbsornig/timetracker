@@ -59,7 +59,11 @@ function getDefaultDates() {
 }
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState('payroll');
+  const [activeTab, setActiveTab] = useState('hours-summary');
+  const [hoursSummaryData, setHoursSummaryData] = useState([]);
+  const [hoursSummaryRange, setHoursSummaryRange] = useState(getDefaultDates());
+  const [hoursEngineerFilter, setHoursEngineerFilter] = useState('');
+  const [hoursCustomerFilter, setHoursCustomerFilter] = useState('');
   const [payrollData, setPayrollData] = useState([]);
   const [payrollHolidays, setPayrollHolidays] = useState([]);
   const [budgetData, setBudgetData] = useState([]);
@@ -80,8 +84,25 @@ export default function Reports() {
       loadBudgetData();
     } else if (activeTab === 'contract-hours') {
       loadContractHoursData();
+    } else if (activeTab === 'hours-summary') {
+      loadHoursSummary();
     }
   }, [activeTab]);
+
+  const loadHoursSummary = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiFetch(
+        `/reports/hours-summary?period_start=${hoursSummaryRange.period_start}&period_end=${hoursSummaryRange.period_end}`
+      );
+      setHoursSummaryData(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadPayrollData = async () => {
     setLoading(true);
@@ -258,6 +279,12 @@ export default function Reports() {
       <div className="card no-print" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
+            className={`btn ${activeTab === 'hours-summary' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('hours-summary')}
+          >
+            Hours Summary
+          </button>
+          <button
             className={`btn ${activeTab === 'payroll' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setActiveTab('payroll')}
           >
@@ -285,6 +312,178 @@ export default function Reports() {
       </div>
 
       {error && <div className="alert alert-error no-print">{error}</div>}
+
+      {activeTab === 'hours-summary' && (() => {
+        // Filter data
+        const filtered = hoursSummaryData.filter(row =>
+          (!hoursEngineerFilter || String(row.user_id) === hoursEngineerFilter) &&
+          (!hoursCustomerFilter || String(row.customer_id) === hoursCustomerFilter)
+        );
+
+        // Group by engineer
+        const byEngineer = {};
+        filtered.forEach(row => {
+          if (!byEngineer[row.engineer_name]) {
+            byEngineer[row.engineer_name] = { rows: [], totalHours: 0 };
+          }
+          byEngineer[row.engineer_name].rows.push(row);
+          byEngineer[row.engineer_name].totalHours += row.total_hours;
+        });
+
+        // Unique engineers and customers for filter dropdowns
+        const uniqueEngineers = [...new Map(hoursSummaryData.map(r => [r.user_id, { id: r.user_id, name: r.engineer_name }])).values()].sort((a, b) => a.name.localeCompare(b.name));
+        const uniqueCustomers = [...new Map(hoursSummaryData.map(r => [r.customer_id, { id: r.customer_id, name: r.customer_name }])).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+        const grandTotal = filtered.reduce((sum, r) => sum + r.total_hours, 0);
+
+        return (
+          <div className="card">
+            <div className="card-title no-print">Hours Summary by Engineer</div>
+
+            <div className="no-print" style={{ marginBottom: 20 }}>
+              <div style={{ marginBottom: 12 }}>
+                <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>Quick Select Month:</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {monthOptions.slice(0, 6).map((opt, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className={`btn btn-sm ${hoursSummaryRange.period_start === opt.start && hoursSummaryRange.period_end === opt.end ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => { setHoursSummaryRange({ period_start: opt.start, period_end: opt.end }); }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Period Start</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={hoursSummaryRange.period_start}
+                    onChange={(e) => setHoursSummaryRange({ ...hoursSummaryRange, period_start: e.target.value })}
+                  />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Period End</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={hoursSummaryRange.period_end}
+                    onChange={(e) => setHoursSummaryRange({ ...hoursSummaryRange, period_end: e.target.value })}
+                  />
+                </div>
+                <button className="btn btn-primary" onClick={loadHoursSummary} disabled={loading}>
+                  {loading ? 'Loading...' : 'Run Report'}
+                </button>
+              </div>
+            </div>
+
+            {hoursSummaryData.length > 0 && (
+              <div className="no-print" style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>Engineer:</span>
+                  <select
+                    className="form-select"
+                    value={hoursEngineerFilter}
+                    onChange={(e) => setHoursEngineerFilter(e.target.value)}
+                    style={{ width: 'auto', minWidth: 180 }}
+                  >
+                    <option value="">All Engineers</option>
+                    {uniqueEngineers.map(e => (
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>Customer:</span>
+                  <select
+                    className="form-select"
+                    value={hoursCustomerFilter}
+                    onChange={(e) => setHoursCustomerFilter(e.target.value)}
+                    style={{ width: 'auto', minWidth: 180 }}
+                  >
+                    <option value="">All Customers</option>
+                    {uniqueCustomers.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {filtered.length === 0 ? (
+              <div className="empty-state no-print">
+                <h3>No data</h3>
+                <p>{hoursSummaryData.length > 0 ? 'Try adjusting your filters.' : 'Select a month and run the report.'}</p>
+              </div>
+            ) : (
+              <>
+                <div className="print-only" style={{ marginBottom: 20, textAlign: 'center' }}>
+                  <h1 style={{ margin: 0, fontSize: 24 }}>Hours Summary by Engineer</h1>
+                  <p style={{ margin: '8px 0 0', color: '#666' }}>
+                    Period: {formatDate(hoursSummaryRange.period_start)} - {formatDate(hoursSummaryRange.period_end)}
+                  </p>
+                </div>
+
+                {Object.entries(byEngineer).map(([engineerName, group]) => (
+                  <div key={engineerName} style={{ marginBottom: 24 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 16, margin: 0 }}>{engineerName}</h3>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, fontSize: 15 }}>
+                        {group.totalHours.toFixed(2)} hrs total
+                      </span>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Project</th>
+                            <th>Customer</th>
+                            <th>Type</th>
+                            <th>Timesheets</th>
+                            <th>Hours</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.rows.map(row => (
+                            <tr key={row.project_id}>
+                              <td><strong>{row.project_name}</strong></td>
+                              <td>{row.customer_name}</td>
+                              <td>
+                                <span className={`badge ${row.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
+                                  {row.project_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: 'center' }}>{row.timesheet_count}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{row.total_hours.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+
+                <div style={{ borderTop: '2px solid var(--border)', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>
+                    Grand Total ({Object.keys(byEngineer).length} engineer{Object.keys(byEngineer).length !== 1 ? 's' : ''})
+                  </span>
+                  <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, fontSize: 18 }}>
+                    {grandTotal.toFixed(2)} hrs
+                  </span>
+                </div>
+
+                <div className="no-print" style={{ marginTop: 16 }}>
+                  <button className="btn btn-secondary" onClick={() => window.print()}>Print Report</button>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {activeTab === 'payroll' && (
         <div className="card">
