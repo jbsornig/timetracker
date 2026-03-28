@@ -352,6 +352,8 @@ function initSchema() {
         return colNames === 'project_id,user_id,week_ending';
       });
     if (hasUniqueConstraint) {
+      // Disable foreign keys to prevent CASCADE deleting timesheet_entries
+      db.pragma('foreign_keys = OFF');
       db.exec(`
         CREATE TABLE timesheets_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -374,6 +376,7 @@ function initSchema() {
         DROP TABLE timesheets;
         ALTER TABLE timesheets_new RENAME TO timesheets;
       `);
+      db.pragma('foreign_keys = ON');
       console.log('✅ Migration: Recreated timesheets table without UNIQUE constraint');
     }
   } catch (e) {

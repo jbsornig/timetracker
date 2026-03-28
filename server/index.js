@@ -13,23 +13,6 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// ─── DEBUG (temporary) ───────────────────────────────────────────────────────
-app.get('/api/debug/ts-check', (req, res) => {
-  const db = getDb();
-  const tsCols = db.prepare("PRAGMA table_info(timesheets)").all().map(c => c.name);
-  const projCols = db.prepare("PRAGMA table_info(projects)").all().map(c => c.name);
-  const entriesWithHours = db.prepare('SELECT * FROM timesheet_entries WHERE hours > 0 LIMIT 10').all();
-  const entriesTotal = db.prepare('SELECT COUNT(*) as cnt FROM timesheet_entries').get();
-  const entriesWithData = db.prepare('SELECT COUNT(*) as cnt FROM timesheet_entries WHERE hours > 0').get();
-  const timesheets = db.prepare('SELECT id, user_id, project_id, week_ending, status FROM timesheets ORDER BY id DESC LIMIT 10').all();
-  const tsId = req.query.id;
-  let tsDetail = null;
-  if (tsId) {
-    tsDetail = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ?').all(tsId);
-  }
-  res.json({ tsCols, projCols, entriesWithHours, entriesTotal, entriesWithData, timesheets, tsDetail });
-});
-
 // ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
 
 async function sendNotificationEmail(subject, htmlBody) {
