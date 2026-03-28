@@ -341,20 +341,43 @@ function initSchema() {
   }
 
   // Remove UNIQUE constraint on timesheets (user_id, project_id, week_ending)
-  // to allow multiple timesheets for the same week when it spans two months
+  // to allow multiple timesheets for the same week when it spans two months.
+  // SQLite autoindexes from inline UNIQUE can't be dropped, so recreate the table.
   try {
-    const indexes = db.prepare("PRAGMA index_list('timesheets')").all();
-    for (const idx of indexes) {
-      if (!idx.unique) continue;
-      const cols = db.prepare(`PRAGMA index_info("${idx.name}")`).all();
-      const colNames = cols.map(c => c.name).sort().join(',');
-      if (colNames === 'project_id,user_id,week_ending') {
-        db.exec(`DROP INDEX IF EXISTS "${idx.name}"`);
-        console.log(`✅ Migration: Removed UNIQUE constraint "${idx.name}" on timesheets`);
-      }
+    const hasUniqueConstraint = db.prepare("PRAGMA index_list('timesheets')").all()
+      .some(idx => {
+        if (!idx.unique) return false;
+        const cols = db.prepare(`PRAGMA index_info("${idx.name}")`).all();
+        const colNames = cols.map(c => c.name).sort().join(',');
+        return colNames === 'project_id,user_id,week_ending';
+      });
+    if (hasUniqueConstraint) {
+      db.exec(`
+        CREATE TABLE timesheets_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          project_id INTEGER NOT NULL,
+          week_ending DATE NOT NULL,
+          status TEXT DEFAULT 'draft',
+          submitted_at DATETIME,
+          approved_at DATETIME,
+          approved_by INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          period_start DATE,
+          period_end DATE,
+          percentage INTEGER DEFAULT 0,
+          amount REAL DEFAULT 0,
+          FOREIGN KEY (user_id) REFERENCES users(id),
+          FOREIGN KEY (project_id) REFERENCES projects(id)
+        );
+        INSERT INTO timesheets_new SELECT id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, created_at, period_start, period_end, percentage, amount FROM timesheets;
+        DROP TABLE timesheets;
+        ALTER TABLE timesheets_new RENAME TO timesheets;
+      `);
+      console.log('✅ Migration: Recreated timesheets table without UNIQUE constraint');
     }
   } catch (e) {
-    console.log('Note: Could not check timesheets indexes:', e.message);
+    console.log('Note: timesheets UNIQUE migration error:', e.message);
   }
 
   // Seed admin user if none exists
