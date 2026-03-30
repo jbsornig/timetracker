@@ -837,12 +837,15 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.status = 'approved'
     AND (
-      ts.week_ending BETWEEN ? AND ?
-      OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+      (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ?)
+      OR (p.project_type = 'fixed_price' AND (
+        ts.week_ending BETWEEN ? AND ?
+        OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+      ))
     )
     GROUP BY p.id
     ORDER BY c.name, p.name
-  `).all(period_start, period_end, period_start, period_end);
+  `).all(period_start, period_end, period_start, period_end, period_start, period_end);
 
   // Calculate estimated invoice amount for each project
   const results = projects.map(p => {
@@ -902,17 +905,24 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   }
 
   // Get line items from approved timesheets in the period
+  // For hourly: find timesheets that have any entry_date in the period
+  // For fixed price: use week_ending or period_end
   const timesheets = db.prepare(`
-    SELECT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
     AND (
-      ts.week_ending BETWEEN ? AND ?
-      OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+      (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ?)
+      OR (p.project_type = 'fixed_price' AND (
+        ts.week_ending BETWEEN ? AND ?
+        OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+      ))
     )
-  `).all(invoice.project_id, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end);
+  `).all(invoice.project_id, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end);
 
   const lineItems = [];
   const timesheetDetails = [];
@@ -957,8 +967,9 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
         });
       }
     } else {
-      // Hourly: calculate from entries
-      const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? ORDER BY entry_date').all(ts.id);
+      // Hourly: calculate from entries within the invoice period only
+      const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+        .all(ts.id, invoice.period_start, invoice.period_end);
       const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
       if (hrs > 0) {
         lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0) });
@@ -1040,16 +1051,21 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     console.log('Is fixed price:', isFixedPrice);
 
     const timesheets = db.prepare(`
-      SELECT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment
+      SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment
       FROM timesheets ts
       JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.project_id = ? AND ts.status = 'approved'
       AND (
-        ts.week_ending BETWEEN ? AND ?
-        OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+        (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ?)
+        OR (p.project_type = 'fixed_price' AND (
+          ts.week_ending BETWEEN ? AND ?
+          OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+        ))
       )
-    `).all(project_id, period_start, period_end, period_start, period_end);
+    `).all(project_id, period_start, period_end, period_start, period_end, period_start, period_end);
 
     console.log('Found timesheets:', timesheets.length);
     timesheets.forEach((ts, i) => {
@@ -1113,8 +1129,9 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
           });
         }
       } else {
-        // Hourly: calculate from entries
-        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? ORDER BY entry_date').all(ts.id);
+        // Hourly: calculate from entries within the invoice period only
+        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+          .all(ts.id, period_start, period_end);
         const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
         const amt = hrs * (ts.bill_rate || 0);
         total_hours += hrs;
@@ -1351,19 +1368,22 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   if (settings.admin_notification_email) ccList.push(settings.admin_notification_email);
 
   // Get line items and timesheet details
+  // Find timesheets that have entries in the invoice period
   const timesheets = db.prepare(`
-    SELECT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
-    AND ts.week_ending BETWEEN ? AND ?
+    AND te.entry_date BETWEEN ? AND ?
   `).all(invoice.project_id, invoice.period_start, invoice.period_end);
 
   const lineItems = [];
   const timesheetDetails = [];
   for (const ts of timesheets) {
-    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? ORDER BY entry_date').all(ts.id);
+    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+      .all(ts.id, invoice.period_start, invoice.period_end);
     const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
     if (hrs > 0) {
       lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0) });
@@ -1822,7 +1842,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.status = 'approved' AND p.project_type != 'fixed_price'
-      AND ts.week_ending BETWEEN ? AND ?
+      AND te.entry_date BETWEEN ? AND ?
     GROUP BY u.id, p.id
     ORDER BY u.name, p.name
   `).all(period_start, period_end);
@@ -1928,7 +1948,7 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.status = 'approved' AND p.project_type != 'fixed_price'
-      AND ts.week_ending BETWEEN ? AND ?
+      AND te.entry_date BETWEEN ? AND ?
     GROUP BY u.id
     ORDER BY u.name
   `).all(period_start, period_end);
@@ -2183,11 +2203,11 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
   const timesheets = db.prepare(`
     SELECT ts.id, ts.week_ending, ts.status, ts.period_start, ts.period_end, ts.percentage, ts.amount as fixed_amount,
            p.id as project_id, p.name as project_name, p.project_type, c.name as customer_name,
-           COALESCE(SUM(te.hours), 0) as total_hours,
+           COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) as total_hours,
            ep.pay_rate, ep.total_payment,
            CASE
              WHEN p.project_type = 'fixed_price' THEN ts.amount
-             ELSE COALESCE(SUM(te.hours), 0) * COALESCE(ep.pay_rate, 0)
+             ELSE COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) * COALESCE(ep.pay_rate, 0)
            END as amount
     FROM timesheets ts
     JOIN projects p ON p.id = ts.project_id
@@ -2196,12 +2216,17 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.user_id = ?
     AND (
-      ts.week_ending BETWEEN ? AND ?
-      OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+      (p.project_type != 'fixed_price' AND EXISTS (
+        SELECT 1 FROM timesheet_entries te2 WHERE te2.timesheet_id = ts.id AND te2.entry_date BETWEEN ? AND ?
+      ))
+      OR (p.project_type = 'fixed_price' AND (
+        ts.week_ending BETWEEN ? AND ?
+        OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+      ))
     )
     GROUP BY ts.id
     ORDER BY p.name, ts.week_ending, ts.period_end
-  `).all(req.user.id, dateStart, dateEnd, dateStart, dateEnd);
+  `).all(dateStart, dateEnd, dateStart, dateEnd, req.user.id, dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd);
 
   // Calculate totals
   const approvedSheets = timesheets.filter(t => t.status === 'approved');
