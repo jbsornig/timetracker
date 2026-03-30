@@ -1805,8 +1805,8 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   const { period_start, period_end } = req.query;
   const db = getDb();
 
-  // Get regular timesheet payroll data
-  const timesheetData = db.prepare(`
+  // Get hourly timesheet payroll data
+  const hourlyData = db.prepare(`
     SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
            u.holiday_pay_eligible, u.holiday_pay_rate,
            SUM(te.hours) as total_hours,
@@ -1814,16 +1814,41 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
            SUM(te.hours) * ep.pay_rate as total_pay,
            ep.bill_rate,
            SUM(te.hours) * ep.bill_rate as total_billed,
-           p.name as project_name, p.po_number
+           p.name as project_name, p.po_number,
+           'hourly' as pay_type
     FROM timesheet_entries te
     JOIN timesheets ts ON ts.id = te.timesheet_id
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND ts.week_ending BETWEEN ? AND ?
+    WHERE ts.status = 'approved' AND p.project_type != 'fixed_price'
+      AND ts.week_ending BETWEEN ? AND ?
     GROUP BY u.id, p.id
     ORDER BY u.name, p.name
   `).all(period_start, period_end);
+
+  // Get fixed price project payroll data
+  const fixedPriceData = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+           u.holiday_pay_eligible, u.holiday_pay_rate,
+           0 as total_hours,
+           0 as pay_rate,
+           ts.amount as total_pay,
+           0 as bill_rate,
+           ts.amount as total_billed,
+           p.name as project_name, p.po_number,
+           'fixed_price' as pay_type,
+           ts.percentage
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status = 'approved' AND p.project_type = 'fixed_price'
+      AND ts.week_ending BETWEEN ? AND ?
+    ORDER BY u.name, p.name
+  `).all(period_start, period_end);
+
+  const timesheetData = [...hourlyData, ...fixedPriceData];
 
   // Get holidays in the date range
   const holidays = db.prepare(`
@@ -1890,8 +1915,8 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     return res.status(400).json({ error: 'Chase ACH account not configured in settings' });
   }
 
-  // Get payroll data grouped by engineer (with split deposit info)
-  const payrollData = db.prepare(`
+  // Get hourly payroll data grouped by engineer (with split deposit info)
+  const hourlyPayroll = db.prepare(`
     SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
            u.bank_routing, u.bank_account, u.bank_account_type,
            u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
@@ -1902,10 +1927,37 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND ts.week_ending BETWEEN ? AND ?
+    WHERE ts.status = 'approved' AND p.project_type != 'fixed_price'
+      AND ts.week_ending BETWEEN ? AND ?
     GROUP BY u.id
     ORDER BY u.name
   `).all(period_start, period_end);
+
+  // Get fixed price payroll data grouped by engineer
+  const fixedPricePayroll = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+           u.bank_routing, u.bank_account, u.bank_account_type,
+           u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
+           u.bank_pct_1, u.bank_pct_2,
+           SUM(ts.amount) as total_pay
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    WHERE ts.status = 'approved' AND p.project_type = 'fixed_price'
+      AND ts.week_ending BETWEEN ? AND ?
+    GROUP BY u.id
+  `).all(period_start, period_end);
+
+  // Merge fixed price pay into hourly payroll
+  const payrollData = [...hourlyPayroll];
+  for (const fp of fixedPricePayroll) {
+    const existing = payrollData.find(p => p.user_id === fp.user_id);
+    if (existing) {
+      existing.total_pay = (existing.total_pay || 0) + (fp.total_pay || 0);
+    } else {
+      payrollData.push(fp);
+    }
+  }
 
   // Add holiday pay for eligible engineers
   const holidays = db.prepare(`

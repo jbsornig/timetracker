@@ -633,27 +633,39 @@ export default function Reports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {payrollData.map((row, idx) => (
-                      <tr key={idx} style={row.is_holiday_pay ? { background: '#eff6ff' } : undefined}>
-                        <td><strong>{row.engineer_name}</strong></td>
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.engineer_id || '-'}</td>
-                        <td>
-                          {row.is_holiday_pay ? (
-                            <span style={{ color: '#1e40af', fontWeight: 500 }}>Holiday Pay</span>
-                          ) : (
-                            row.project_name
-                          )}
-                        </td>
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: row.is_holiday_pay ? '#3b82f6' : undefined }}>
-                          {row.po_number || '-'}
-                        </td>
-                        <td style={{ fontFamily: 'DM Mono, monospace' }}>{(row.total_hours || 0).toFixed(2)}</td>
-                        <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(row.pay_rate)}/hr</td>
-                        <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(row.total_pay)}</td>
-                        <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{row.is_holiday_pay ? '—' : `${formatCurrency(row.bill_rate)}/hr`}</td>
-                        <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{row.is_holiday_pay ? '—' : formatCurrency(row.total_billed)}</td>
-                      </tr>
-                    ))}
+                    {payrollData.map((row, idx) => {
+                      const isFixed = row.pay_type === 'fixed_price';
+                      const isHoliday = row.is_holiday_pay;
+                      const rowBg = isHoliday ? { background: '#eff6ff' } : isFixed ? { background: '#fefce8' } : undefined;
+                      return (
+                        <tr key={idx} style={rowBg}>
+                          <td><strong>{row.engineer_name}</strong></td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.engineer_id || '-'}</td>
+                          <td>
+                            {isHoliday ? (
+                              <span style={{ color: '#1e40af', fontWeight: 500 }}>Holiday Pay</span>
+                            ) : (
+                              <>
+                                {row.project_name}
+                                {isFixed && <span style={{ marginLeft: 6, fontSize: 11, color: '#92400e', fontWeight: 500 }}>(Fixed)</span>}
+                              </>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: isHoliday ? '#3b82f6' : undefined }}>
+                            {row.po_number || '-'}
+                          </td>
+                          <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                            {isFixed ? `${row.percentage || 0}%` : (row.total_hours || 0).toFixed(2)}
+                          </td>
+                          <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                            {isFixed ? 'Fixed' : `${formatCurrency(row.pay_rate)}/hr`}
+                          </td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(row.total_pay)}</td>
+                          <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{(isHoliday || isFixed) ? '—' : `${formatCurrency(row.bill_rate)}/hr`}</td>
+                          <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{(isHoliday || isFixed) ? '—' : formatCurrency(row.total_billed)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
