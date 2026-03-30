@@ -609,15 +609,16 @@ export default function Invoices() {
                 </div>
 
                 <div className="table-wrap" style={{ marginBottom: 16 }}>
-                  <table style={{ fontSize: 13 }}>
+                  <table style={{ fontSize: 12 }}>
                     <thead>
                       <tr>
-                        <th style={{ width: 40 }}></th>
+                        <th style={{ width: 36 }}></th>
                         <th>Project</th>
+                        <th>Engineer(s)</th>
                         <th>Customer</th>
                         <th>Type</th>
-                        <th>Timesheets</th>
-                        <th>Hours/Amount</th>
+                        <th>TS</th>
+                        <th>Hours/Amt</th>
                         <th>Est. Invoice</th>
                       </tr>
                     </thead>
@@ -629,12 +630,15 @@ export default function Invoices() {
                               type="checkbox"
                               checked={!!selectedProjects[proj.id]}
                               onChange={() => toggleProjectSelection(proj.id)}
-                              style={{ width: 18, height: 18 }}
+                              style={{ width: 16, height: 16 }}
                             />
                           </td>
-                          <td>
-                            <strong>{proj.project_name}</strong>
-                            {proj.po_number && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>PO: {proj.po_number}</span>}
+                          <td title={proj.engineers?.join(', ')}>
+                            <strong style={{ fontSize: 12 }}>{proj.project_name}</strong>
+                            {proj.po_number && <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 6 }}>PO: {proj.po_number}</span>}
+                          </td>
+                          <td style={{ fontSize: 11, color: '#475569', maxWidth: 150 }} title={proj.engineers?.join(', ')}>
+                            {proj.engineers?.join(', ') || '-'}
                           </td>
                           <td>{proj.customer_name}</td>
                           <td>
@@ -657,7 +661,7 @@ export default function Invoices() {
                     </tbody>
                     <tfoot>
                       <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
-                        <td colSpan="6" style={{ textAlign: 'right' }}>Selected Total:</td>
+                        <td colSpan="7" style={{ textAlign: 'right' }}>Selected Total:</td>
                         <td style={{ fontFamily: 'DM Mono, monospace', color: '#10b981' }}>
                           {formatCurrency(
                             readyProjects

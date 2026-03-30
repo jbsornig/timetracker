@@ -863,6 +863,14 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       estimated_amount = p.hourly_amount;
     }
 
+    // Get engineers assigned to this project with approved timesheets in the period
+    const engineers = db.prepare(`
+      SELECT DISTINCT u.name
+      FROM timesheets ts
+      JOIN users u ON u.id = ts.user_id
+      WHERE ts.project_id = ? AND ts.status = 'approved'
+    `).all(p.id).map(e => e.name);
+
     return {
       id: p.id,
       project_name: p.project_name,
@@ -872,7 +880,8 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       timesheet_count: p.timesheet_count,
       total_hours: p.total_hours,
       fixed_amount: p.fixed_amount,
-      estimated_amount
+      estimated_amount,
+      engineers
     };
   });
 
