@@ -801,7 +801,10 @@ app.get('/api/invoices', auth, adminOnly, (req, res) => {
   const db = getDb();
   const invoices = db.prepare(`
     SELECT i.*, p.name as project_name, p.po_number, c.name as customer_name,
-           c.supplier_number, c.address as customer_address, c.payment_terms, cc.name as contact_name
+           c.supplier_number, c.address as customer_address, c.payment_terms, cc.name as contact_name,
+           (SELECT GROUP_CONCAT(DISTINCT u.name) FROM timesheets ts
+            JOIN users u ON u.id = ts.user_id
+            WHERE ts.project_id = i.project_id AND ts.status = 'approved') as engineers
     FROM invoices i
     JOIN projects p ON p.id = i.project_id
     JOIN customers c ON c.id = p.customer_id

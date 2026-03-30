@@ -825,10 +825,16 @@ export default function Invoices() {
                   return (
                     <tr key={inv.id} style={inv.status === 'voided' ? { opacity: 0.6 } : {}}>
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{inv.invoice_number}</td>
-                      <td>
+                      <td title={inv.engineers || ''}>
                         <strong>{inv.customer_name}</strong>
                         <br />
                         <span style={{ fontSize: 12, color: '#94a3b8' }}>{inv.project_name}</span>
+                        {inv.engineers && (
+                          <>
+                            <br />
+                            <span style={{ fontSize: 11, color: '#64748b' }}>{inv.engineers}</span>
+                          </>
+                        )}
                       </td>
                       <td style={{ fontSize: 13 }}>
                         {invoiceDate}
