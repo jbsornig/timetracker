@@ -1381,6 +1381,14 @@ function InvoiceContent({ inv, settings }) {
   const contactName = inv.contact_name || inv.project?.contact_name || '';
   const periodRange = `${formatDate(inv.period_start)} to ${formatDate(inv.period_end)}`;
 
+  const weekRange = (weekEnding) => {
+    if (!weekEnding) return periodRange;
+    const end = new Date(weekEnding.split('T')[0] + 'T00:00:00');
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    return `${formatDate(start.toISOString().split('T')[0])} to ${formatDate(end.toISOString().split('T')[0])}`;
+  };
+
   const invoiceDate = inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }) : formatDate(new Date().toISOString().split('T')[0]);
   const dueDate = getDueDate(inv.created_at || new Date(), paymentTerms);
 
@@ -1485,7 +1493,7 @@ function InvoiceContent({ inv, settings }) {
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
                   {item.is_fixed_price
                     ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}`
-                    : `${projectDescription || 'Engineering Labor Hours'} - ${item.engineer} - ${periodRange}`
+                    : `${projectDescription || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}`
                   }
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>

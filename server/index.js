@@ -934,6 +934,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
         OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
       ))
     )
+    ORDER BY ts.week_ending
   `).all(invoice.project_id, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end);
 
   const lineItems = [];
@@ -984,7 +985,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
         .all(ts.id, invoice.period_start, invoice.period_end);
       const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
       if (hrs > 0) {
-        lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0) });
+        lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
         timesheetDetails.push({
           id: ts.id,
           engineer_name: ts.engineer_name,
@@ -1077,6 +1078,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
           OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
         ))
       )
+      ORDER BY ts.week_ending
     `).all(project_id, period_start, period_end, period_start, period_end, period_start, period_end);
 
     console.log('Found timesheets:', timesheets.length);
@@ -1149,7 +1151,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         total_hours += hrs;
         total_amount += amt;
         if (hrs > 0) {
-          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate, amount: amt });
+          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate, amount: amt, week_ending: ts.week_ending });
           timesheetDetails.push({
             id: ts.id,
             engineer_name: ts.engineer_name,
@@ -1389,6 +1391,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
     AND te.entry_date BETWEEN ? AND ?
+    ORDER BY ts.week_ending
   `).all(invoice.project_id, invoice.period_start, invoice.period_end);
 
   const lineItems = [];
@@ -1398,7 +1401,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       .all(ts.id, invoice.period_start, invoice.period_end);
     const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
     if (hrs > 0) {
-      lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0) });
+      lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
       timesheetDetails.push({
         engineer_name: ts.engineer_name,
         engineer_id: ts.engineer_id,
@@ -1442,11 +1445,19 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const periodRange = `${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}`;
 
   // Build invoice page HTML (matches print view)
+  const weekRange = (weekEnding) => {
+    if (!weekEnding) return periodRange;
+    const end = new Date(weekEnding.split('T')[0] + 'T00:00:00');
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    return `${formatDate(start.toISOString().split('T')[0])} to ${formatDate(end.toISOString().split('T')[0])}`;
+  };
+
   const lineItemsHtml = lineItems.length > 0 ? lineItems.map(item => `
     <tr>
       <td style="border: 1px solid #ccc; padding: 8px;">${item.hours.toFixed(0)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${periodRange}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.rate.toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -2588,8 +2599,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore customers
       if (backup.data.customers) {
         for (const c of backup.data.customers) {
-          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.created_at
+          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, ap_email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.ap_email || null, c.created_at
           );
         }
       }
@@ -2597,8 +2608,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore customer_contacts
       if (backup.data.customer_contacts) {
         for (const c of backup.data.customer_contacts) {
-          db.prepare('INSERT INTO customer_contacts (id, customer_id, name, title, email, phone) VALUES (?, ?, ?, ?, ?, ?)').run(
-            c.id, c.customer_id, c.name, c.title, c.email, c.phone
+          db.prepare('INSERT INTO customer_contacts (id, customer_id, name, title, email, phone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            c.id, c.customer_id, c.name, c.title, c.email, c.phone, c.created_at || null
           );
         }
       }
@@ -2606,23 +2617,20 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore projects
       if (backup.data.projects) {
         for (const p of backup.data.projects) {
-          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.created_at
+          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.created_at
           );
         }
       }
 
-      // Restore users (except current admin)
+      // Restore users (except current admin) - preserve original passwords
       if (backup.data.users) {
-        const defaultHash = bcrypt.hashSync('changeme123', 10);
         for (const u of backup.data.users) {
           if (u.id === currentUserId) continue;
-          // Use password from backup if available, otherwise default
-          const passwordHash = u.password || defaultHash;
           db.prepare(`INSERT INTO users (id, name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate,
             bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-            u.id, u.name, u.email, passwordHash, u.role, u.engineer_id, u.holiday_pay_eligible || 0, u.holiday_pay_rate || 0,
+            u.id, u.name, u.email, u.password, u.role, u.engineer_id, u.holiday_pay_eligible || 0, u.holiday_pay_rate || 0,
             u.bank_routing || null, u.bank_account || null, u.bank_account_type || 'checking',
             u.bank_routing_2 || null, u.bank_account_2 || null, u.bank_account_type_2 || 'checking',
             u.bank_pct_1 ?? 100, u.bank_pct_2 ?? 0, u.created_at
@@ -2633,8 +2641,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore engineer_projects
       if (backup.data.engineer_projects) {
         for (const ep of backup.data.engineer_projects) {
-          db.prepare('INSERT OR IGNORE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment) VALUES (?, ?, ?, ?, ?)').run(
-            ep.user_id, ep.project_id, ep.pay_rate, ep.bill_rate, ep.total_payment || 0
+          db.prepare('INSERT OR IGNORE INTO engineer_projects (id, user_id, project_id, pay_rate, bill_rate, total_payment, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            ep.id, ep.user_id, ep.project_id, ep.pay_rate, ep.bill_rate, ep.total_payment || 0, ep.created_at || null
           );
         }
       }
@@ -2651,8 +2659,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore timesheet_entries
       if (backup.data.timesheet_entries) {
         for (const e of backup.data.timesheet_entries) {
-          db.prepare('INSERT INTO timesheet_entries (id, timesheet_id, entry_date, start_time, end_time, hours, description, shift) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-            e.id, e.timesheet_id, e.entry_date, e.start_time, e.end_time, e.hours, e.description, e.shift
+          db.prepare('INSERT INTO timesheet_entries (id, timesheet_id, entry_date, start_time, end_time, hours, description, shift, lunch_break, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            e.id, e.timesheet_id, e.entry_date, e.start_time, e.end_time, e.hours, e.description, e.shift, e.lunch_break || 0, e.created_at || null
           );
         }
       }
@@ -2685,15 +2693,15 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore holidays
       if (backup.data.holidays) {
         for (const h of backup.data.holidays) {
-          db.prepare('INSERT INTO holidays (id, name, date, created_at) VALUES (?, ?, ?, ?)').run(
-            h.id, h.name, h.date, h.created_at
+          db.prepare('INSERT INTO holidays (id, name, date, hours, created_at) VALUES (?, ?, ?, ?, ?)').run(
+            h.id, h.name, h.date, h.hours || 8, h.created_at
           );
         }
       }
     });
 
     txn();
-    res.json({ success: true, message: 'Backup restored successfully. Note: User passwords have been reset to "changeme123"' });
+    res.json({ success: true, message: 'Backup restored successfully. All data and passwords preserved.' });
   } catch (err) {
     console.error('Restore error:', err);
     res.status(500).json({ error: err.message });
