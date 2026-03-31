@@ -64,11 +64,22 @@ export default function Settings() {
   const [holidayError, setHolidayError] = useState('');
   const [holidaySaving, setHolidaySaving] = useState(false);
   const [holidayYear, setHolidayYear] = useState(new Date().getFullYear().toString());
+  const [serverBackups, setServerBackups] = useState([]);
 
   useEffect(() => {
     loadSettings();
     loadHolidays();
+    loadServerBackups();
   }, []);
+
+  const loadServerBackups = async () => {
+    try {
+      const list = await apiFetch('/backups');
+      setServerBackups(list);
+    } catch (e) {
+      // Backups list may not be available
+    }
+  };
 
   useEffect(() => {
     loadHolidays();
@@ -639,9 +650,73 @@ export default function Settings() {
       </div>
 
       <div className="card" style={{ marginTop: 20 }}>
+        <div className="card-title">Database Backup</div>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+          Create a server-side database backup. Backups are stored on the server and the 10 most recent are kept.
+        </p>
+
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+          <button
+            className="btn btn-primary"
+            onClick={async () => {
+              try {
+                const result = await apiFetch('/backups', { method: 'POST' });
+                alert(`Backup created successfully!\n${result.backups?.length || 0} backups on server.`);
+                // Refresh backup list
+                try {
+                  const list = await apiFetch('/backups');
+                  setServerBackups(list);
+                } catch (e) {}
+              } catch (e) {
+                alert('Backup failed: ' + e.message);
+              }
+            }}
+          >
+            Backup Database Now
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              try {
+                const list = await apiFetch('/backups');
+                setServerBackups(list);
+              } catch (e) {
+                alert('Failed to load backups: ' + e.message);
+              }
+            }}
+          >
+            Refresh List
+          </button>
+        </div>
+
+        {serverBackups.length > 0 && (
+          <div className="table-wrap" style={{ marginBottom: 16 }}>
+            <table style={{ fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th>Backup File</th>
+                  <th>Size</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {serverBackups.map((b, i) => (
+                  <tr key={i}>
+                    <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 11 }}>{b.name}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace' }}>{(b.size / 1024).toFixed(0)} KB</td>
+                    <td>{new Date(b.created).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 20 }}>
         <div className="card-title">Company Data Management</div>
         <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
-          Backup your data, restore from a backup, or start a new company.
+          Download data as JSON, restore from a backup, or start a new company.
         </p>
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
@@ -665,7 +740,7 @@ export default function Settings() {
               }
             }}
           >
-            Download Backup
+            Download JSON Backup
           </button>
 
           {/* Restore Button */}
