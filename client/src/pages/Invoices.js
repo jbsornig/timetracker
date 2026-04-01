@@ -588,6 +588,16 @@ export default function Invoices() {
                 />
               </div>
               <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  const prev = getPreviousMonthDates();
+                  setBatchPeriod({ start: prev.period_start, end: prev.period_end });
+                }}
+                style={{ alignSelf: 'flex-end' }}
+              >
+                Previous Month
+              </button>
+              <button
                 className="btn btn-secondary"
                 onClick={findReadyProjects}
                 disabled={findingProjects}
@@ -1032,6 +1042,8 @@ export default function Invoices() {
                   customerName={inv.customer_name || inv.project?.customer_name}
                   location={inv.location || inv.project?.location}
                   poNumber={inv.po_number || inv.project?.po_number}
+                  periodStart={inv.period_start}
+                  periodEnd={inv.period_end}
                 />
               </div>
             ))}
@@ -1180,7 +1192,7 @@ export default function Invoices() {
   );
 }
 
-function DailyTimeReport({ timesheet, settings, projectName, customerName, location, poNumber }) {
+function DailyTimeReport({ timesheet, settings, projectName, customerName, location, poNumber, periodStart, periodEnd }) {
   const ts = timesheet;
   const weekEnding = ts.week_ending
     ? new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
@@ -1210,7 +1222,10 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
     return dates;
   };
 
-  const weekDates = getWeekDates();
+  const allWeekDates = getWeekDates();
+
+  // Filter to only dates within the invoice period
+  const weekDates = (periodStart && periodEnd) ? allWeekDates.filter(date => date >= periodStart && date <= periodEnd) : allWeekDates;
 
   // Calculate totals
   let totalST = 0, totalOT = 0, totalPT = 0;
@@ -1221,8 +1236,9 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
     }
   });
   const grandTotal = totalST + totalOT + totalPT;
-  const rate = ts.bill_rate || 0;
-  const laborSubtotal = grandTotal * rate;
+  const isFixedMonthly = ts.is_fixed_monthly;
+  const rate = isFixedMonthly ? 0 : (ts.bill_rate || 0);
+  const laborSubtotal = isFixedMonthly ? (ts.bill_rate || 0) : (grandTotal * rate);
 
   // Styles - ultra compact to fit on one page even on mobile
   const cellStyle = { border: '1px solid #000', padding: '1px 2px', fontSize: '6pt', height: '14px', verticalAlign: 'middle' };
@@ -1260,7 +1276,7 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
           <div style={{ fontWeight: 'bold', fontSize: '9pt', marginBottom: '1px' }}>Daily Time Report</div>
           <div style={{ fontSize: '5pt', lineHeight: '1.2' }}>
             Mon shift 1 - Sun shift 3<br/>
-            ${rate.toFixed(2)}/hr | ST = All | OT/PT = N/A
+            {isFixedMonthly ? 'Fixed Monthly' : `$${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A
           </div>
         </div>
         {/* Right: Timesheet Info - compact */}
@@ -1293,10 +1309,11 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
           </tr>
         </thead>
         <tbody>
-          {weekDates.map((date, idx) => {
+          {weekDates.map((date) => {
             const entry = entriesByDate[date] || {};
             const dateObj = new Date(date + 'T00:00:00');
             const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
+            const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dateObj.getDay()];
             const hours = entry.hours || 0;
             const st = hours > 0 ? hours.toFixed(1) : '0.0';
 
@@ -1304,7 +1321,7 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
               <React.Fragment key={date}>
                 {/* Time Row */}
                 <tr>
-                  <td style={{ ...centerCell, whiteSpace: 'nowrap' }}>{formattedDate} {dayNames[idx]}</td>
+                  <td style={{ ...centerCell, whiteSpace: 'nowrap' }}>{formattedDate} {dayName}</td>
                   <td style={centerCell}>{location || ''}</td>
                   <td style={centerCell}></td>
                   <td style={centerCell}>{entry.shift || '1'}</td>
@@ -1361,7 +1378,9 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
             <span>Air: $0 | Car: $0 | Meals: $0 | Parking: $0 | Misc: $0</span>
           </div>
           <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}><strong>Exp Subtotal:</strong> $0.00</div>
-          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>Rate: ${rate.toFixed(2)}/hr | Hours: {grandTotal.toFixed(1)}</div>
+          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>
+            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(1)}` : `Rate: $${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(1)}`}
+          </div>
           <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold', fontSize: '6pt' }}>Total: ${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
       </div>

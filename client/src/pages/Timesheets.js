@@ -108,7 +108,17 @@ function TimesheetPrintView({ ts, entries, settings }) {
     return dates;
   };
 
-  const weekDates = getWeekDates();
+  const allWeekDates = getWeekDates();
+
+  // Filter to only dates within the billing month (based on week_ending's month)
+  const weDate = ts.week_ending ? new Date(ts.week_ending + 'T00:00:00') : null;
+  const printMonth = weDate ? weDate.getMonth() : 0;
+  const printYear = weDate ? weDate.getFullYear() : 0;
+  const weekDates = allWeekDates.filter(date => {
+    const d = new Date(date + 'T00:00:00');
+    return d.getMonth() === printMonth && d.getFullYear() === printYear;
+  });
+
   const weekEnding = ts.week_ending
     ? new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
     : '';
@@ -120,8 +130,9 @@ function TimesheetPrintView({ ts, entries, settings }) {
     if (entry && entry.hours) totalST += entry.hours;
   });
   const grandTotal = totalST;
-  const rate = ts.pay_rate || 0;
-  const laborSubtotal = grandTotal * rate;
+  const isFixedMonthly = ts.project_type === 'fixed_monthly';
+  const rate = isFixedMonthly ? 0 : (ts.pay_rate || 0);
+  const laborSubtotal = isFixedMonthly ? (ts.monthly_pay || 0) : (grandTotal * rate);
 
   // Styles - ultra compact to fit on one page even on mobile
   const cellStyle = { border: '1px solid #000', padding: '1px 2px', fontSize: '6pt', height: '14px', verticalAlign: 'middle' };
@@ -159,7 +170,7 @@ function TimesheetPrintView({ ts, entries, settings }) {
           <div style={{ fontWeight: 'bold', fontSize: '9pt', marginBottom: '1px' }}>Daily Time Report</div>
           <div style={{ fontSize: '5pt', lineHeight: '1.2' }}>
             Mon shift 1 - Sun shift 3<br/>
-            ${rate.toFixed(2)}/hr | ST = All | OT/PT = N/A
+            {isFixedMonthly ? 'Fixed Monthly' : `$${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A
           </div>
         </div>
         {/* Right: Timesheet Info - compact */}
@@ -192,10 +203,11 @@ function TimesheetPrintView({ ts, entries, settings }) {
           </tr>
         </thead>
         <tbody>
-          {weekDates.map((date, idx) => {
+          {weekDates.map((date) => {
             const entry = entriesByDate[date] || {};
             const dateObj = new Date(date + 'T00:00:00');
             const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
+            const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dateObj.getDay()];
             const hours = entry.hours || 0;
             const st = hours > 0 ? hours.toFixed(1) : '0.0';
 
@@ -203,7 +215,7 @@ function TimesheetPrintView({ ts, entries, settings }) {
               <React.Fragment key={date}>
                 {/* Time Row */}
                 <tr>
-                  <td style={{ ...centerCell, whiteSpace: 'nowrap' }}>{formattedDate} {dayNames[idx]}</td>
+                  <td style={{ ...centerCell, whiteSpace: 'nowrap' }}>{formattedDate} {dayName}</td>
                   <td style={centerCell}>{ts.location || ''}</td>
                   <td style={centerCell}></td>
                   <td style={centerCell}>{entry.shift || '1'}</td>
@@ -260,7 +272,9 @@ function TimesheetPrintView({ ts, entries, settings }) {
             <span>Air: $0 | Car: $0 | Meals: $0 | Parking: $0 | Misc: $0</span>
           </div>
           <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}><strong>Exp Subtotal:</strong> $0.00</div>
-          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>Rate: ${rate.toFixed(2)}/hr | Hours: {grandTotal.toFixed(1)}</div>
+          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>
+            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(1)}` : `Rate: $${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(1)}`}
+          </div>
           <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold', fontSize: '6pt' }}>Total: ${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
       </div>
@@ -704,9 +718,20 @@ export default function Timesheets() {
     setSaving(true);
     setError('');
     try {
+      // Clear data for entries outside the billing month (based on week_ending's month)
+      const weekEnd = new Date(selectedTimesheet.week_ending + 'T00:00:00');
+      const bMonth = weekEnd.getMonth();
+      const bYear = weekEnd.getFullYear();
+      const cleanedEntries = entries.map(e => {
+        const d = new Date(e.entry_date + 'T00:00:00');
+        if (d.getMonth() !== bMonth || d.getFullYear() !== bYear) {
+          return { ...e, start_time: '', end_time: '', hours: 0, description: '', lunch_break: 0 };
+        }
+        return e;
+      });
       await apiFetch(`/timesheets/${selectedTimesheet.id}/entries`, {
         method: 'PUT',
-        body: { entries },
+        body: { entries: cleanedEntries },
       });
       const ts = await apiFetch(`/timesheets/${selectedTimesheet.id}`);
       setSelectedTimesheet(ts);
@@ -826,6 +851,26 @@ export default function Timesheets() {
     }
   };
 
+  const handleApproveFromList = async (id) => {
+    if (!window.confirm('Approve this timesheet?')) return;
+    try {
+      await apiFetch(`/timesheets/${id}/approve`, { method: 'PUT' });
+      await loadTimesheets();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const handleRejectFromList = async (id) => {
+    if (!window.confirm('Reject this timesheet and return to draft?')) return;
+    try {
+      await apiFetch(`/timesheets/${id}/reject`, { method: 'PUT' });
+      await loadTimesheets();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
   const [editFixedPriceModal, setEditFixedPriceModal] = useState(null);
   const [editFixedPriceForm, setEditFixedPriceForm] = useState({ period_start: '', period_end: '', percentage: '' });
 
@@ -888,6 +933,15 @@ export default function Timesheets() {
   if (viewMode === 'edit' && selectedTimesheet) {
     const ts = selectedTimesheet;
     const canEdit = ts.status !== 'approved';
+
+    // Determine billing month from week_ending's month
+    const weekEndDate = new Date(ts.week_ending + 'T00:00:00');
+    const billingMonth = weekEndDate.getMonth();
+    const billingYear = weekEndDate.getFullYear();
+    const isOutsideBillingMonth = (dateStr) => {
+      const d = new Date(dateStr + 'T00:00:00');
+      return d.getMonth() !== billingMonth || d.getFullYear() !== billingYear;
+    };
 
     return (
       <div>
@@ -1070,11 +1124,14 @@ export default function Timesheets() {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((entry, idx) => (
-                  <tr key={entry.id} className="day-row">
+                {entries.map((entry, idx) => {
+                  const outsideMonth = isOutsideBillingMonth(entry.entry_date);
+                  return (
+                  <tr key={entry.id} className="day-row" style={outsideMonth ? { opacity: 0.4, background: '#f8fafc' } : undefined}>
                     <td style={{ fontWeight: 600 }}>{getDayName(entry.entry_date)}</td>
                     <td>{formatShortDate(entry.entry_date)}</td>
                     <td>
+                      {outsideMonth ? <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span> : (
                       <input
                         className="time-input"
                         type="text"
@@ -1084,8 +1141,10 @@ export default function Timesheets() {
                         disabled={!canEdit}
                         placeholder="7:00"
                       />
+                      )}
                     </td>
                     <td>
+                      {outsideMonth ? <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span> : (
                       <input
                         className="time-input"
                         type="text"
@@ -1095,8 +1154,10 @@ export default function Timesheets() {
                         disabled={!canEdit}
                         placeholder="15:30"
                       />
+                      )}
                     </td>
                     <td>
+                      {outsideMonth ? <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span> : (
                       <input
                         className="time-input"
                         type="number"
@@ -1109,9 +1170,11 @@ export default function Timesheets() {
                         placeholder="0"
                         style={{ width: 55 }}
                       />
+                      )}
                     </td>
-                    <td className="hours-display">{(entry.hours || 0).toFixed(2)}</td>
+                    <td className="hours-display">{outsideMonth ? '' : (entry.hours || 0).toFixed(2)}</td>
                     <td>
+                      {outsideMonth ? '' : (
                       <input
                         className="time-input"
                         type="number"
@@ -1122,8 +1185,10 @@ export default function Timesheets() {
                         disabled={!canEdit}
                         style={{ width: 50 }}
                       />
+                      )}
                     </td>
                     <td>
+                      {outsideMonth ? '' : (
                       <input
                         className="form-input"
                         value={entry.description}
@@ -1132,10 +1197,11 @@ export default function Timesheets() {
                         placeholder="Work description..."
                         style={{ fontSize: 13 }}
                       />
+                      )}
                     </td>
                     {canEdit && (
                       <td>
-                        {entry.hours > 0 && (
+                        {!outsideMonth && entry.hours > 0 && (
                           <button
                             className="btn btn-secondary btn-sm"
                             onClick={() => handleClearEntry(idx)}
@@ -1147,7 +1213,8 @@ export default function Timesheets() {
                       </td>
                     )}
                   </tr>
-                ))}
+                  );
+                })}
                 <tr className="total-row">
                   <td colSpan={4} style={{ textAlign: 'right' }}>Total Hours:</td>
                   <td style={{ textAlign: 'center' }}>{totalHours.toFixed(2)}</td>
@@ -1160,7 +1227,22 @@ export default function Timesheets() {
 
         {/* Mobile Card View */}
         <div className="timesheet-mobile">
-          {entries.map((entry, idx) => (
+          {entries.map((entry, idx) => {
+            const outsideMobile = isOutsideBillingMonth(entry.entry_date);
+            if (outsideMobile) {
+              return (
+                <div key={entry.id} className="timesheet-day-card" style={{ opacity: 0.4, background: '#f8fafc' }}>
+                  <div className="timesheet-day-header">
+                    <div>
+                      <div className="timesheet-day-name">{getDayName(entry.entry_date)}</div>
+                      <div className="timesheet-day-date">{formatShortDate(entry.entry_date)}</div>
+                    </div>
+                    <div style={{ color: '#cbd5e1', fontSize: 12 }}>Outside billing period</div>
+                  </div>
+                </div>
+              );
+            }
+            return (
             <div key={entry.id} className={`timesheet-day-card ${entry.hours > 0 ? 'has-hours' : ''}`}>
               <div className="timesheet-day-header">
                 <div>
@@ -1237,7 +1319,8 @@ export default function Timesheets() {
                 />
               </div>
             </div>
-          ))}
+            );
+          })}
 
           <div className="timesheet-total-card">
             <div className="timesheet-total-label">Total Hours This Week</div>
@@ -1465,6 +1548,16 @@ export default function Timesheets() {
                                 Submit
                               </button>
                             )}
+                            {isAdmin && ts.status === 'submitted' && (
+                              <>
+                                <button className="btn btn-danger btn-sm" onClick={() => handleRejectFromList(ts.id)} style={{ marginRight: 4 }}>
+                                  Reject
+                                </button>
+                                <button className="btn btn-success btn-sm" onClick={() => handleApproveFromList(ts.id)} style={{ marginRight: 4 }}>
+                                  Approve
+                                </button>
+                              </>
+                            )}
                           </>
                         )}
                         {isFixedPrice && ts.status === 'draft' && !isAdmin && (
@@ -1609,6 +1702,22 @@ export default function Timesheets() {
                           <button
                             className="btn btn-danger btn-sm"
                             onClick={(e) => { e.stopPropagation(); handleRejectFixedPrice(ts.id); }}
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      {!isFixedPrice && ts.status === 'submitted' && isAdmin && (
+                        <>
+                          <button
+                            className="btn btn-success btn-sm"
+                            onClick={(e) => { e.stopPropagation(); handleApproveFromList(ts.id); }}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={(e) => { e.stopPropagation(); handleRejectFromList(ts.id); }}
                           >
                             Reject
                           </button>

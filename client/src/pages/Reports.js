@@ -75,6 +75,7 @@ export default function Reports() {
   const [error, setError] = useState('');
   const [achModal, setAchModal] = useState(false);
   const [achDeliveryDate, setAchDeliveryDate] = useState('');
+  const [achSelections, setAchSelections] = useState({});
 
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
@@ -185,17 +186,45 @@ export default function Reports() {
       date.setDate(date.getDate() + 1);
     }
     setAchDeliveryDate(date.toISOString().split('T')[0]);
+    // Initialize selections from payroll summary - all selected with default amounts
+    const selections = {};
+    payrollSummary.forEach(row => {
+      if (row.total_pay > 0) {
+        selections[row.engineer_name] = { selected: true, amount: row.total_pay, defaultAmount: row.total_pay };
+      }
+    });
+    setAchSelections(selections);
     setAchModal(true);
   };
 
   const handleAchExport = async () => {
+    const selectedEngineers = Object.entries(achSelections)
+      .filter(([, v]) => v.selected && v.amount > 0);
+    if (selectedEngineers.length === 0) {
+      alert('Please select at least one engineer with a payment amount.');
+      return;
+    }
     try {
       const API_BASE = process.env.REACT_APP_API_URL || '';
       const token = localStorage.getItem('tt_token');
-      const url = `${API_BASE}/api/payroll/ach-export?period_start=${dateRange.period_start}&period_end=${dateRange.period_end}&delivery_date=${achDeliveryDate}`;
-
+      // Build overrides: engineer_name -> custom amount
+      const overrides = {};
+      selectedEngineers.forEach(([name, v]) => {
+        overrides[name] = v.amount;
+      });
+      const url = `${API_BASE}/api/payroll/ach-export`;
       const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` }
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          period_start: dateRange.period_start,
+          period_end: dateRange.period_end,
+          delivery_date: achDeliveryDate,
+          overrides
+        })
       });
 
       if (!response.ok) {
@@ -1027,14 +1056,21 @@ export default function Reports() {
         </div>
       )}
 
-      {achModal && (
+      {achModal && (() => {
+        const selectedCount = Object.values(achSelections).filter(v => v.selected).length;
+        const selectedTotal = Object.values(achSelections)
+          .filter(v => v.selected)
+          .reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
+        return (
         <Modal
           title="Generate ACH File"
           onClose={() => setAchModal(false)}
           footer={
             <>
               <button className="btn btn-secondary" onClick={() => setAchModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleAchExport}>Download CSV</button>
+              <button className="btn btn-primary" onClick={handleAchExport} disabled={selectedCount === 0}>
+                Download CSV ({selectedCount} engineer{selectedCount !== 1 ? 's' : ''} — {formatCurrency(selectedTotal)})
+              </button>
             </>
           }
         >
@@ -1051,8 +1087,85 @@ export default function Reports() {
               onChange={(e) => setAchDeliveryDate(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
             />
-            <div className="form-hint">
-              The date you want payments to arrive in employee accounts. Must be a future business day.
+          </div>
+
+          {/* Engineer Selection Table */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label className="form-label" style={{ margin: 0 }}>Select Engineers & Amounts</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    const updated = { ...achSelections };
+                    Object.keys(updated).forEach(k => { updated[k] = { ...updated[k], selected: true }; });
+                    setAchSelections(updated);
+                  }}
+                >Select All</button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    const updated = { ...achSelections };
+                    Object.keys(updated).forEach(k => { updated[k] = { ...updated[k], selected: false }; });
+                    setAchSelections(updated);
+                  }}
+                >Select None</button>
+              </div>
+            </div>
+            <div className="table-wrap" style={{ maxHeight: 300, overflowY: 'auto' }}>
+              <table style={{ fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 30 }}></th>
+                    <th>Engineer</th>
+                    <th style={{ width: 120 }}>Default</th>
+                    <th style={{ width: 130 }}>Amount to Pay</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(achSelections).map(([name, val]) => (
+                    <tr key={name} style={{ opacity: val.selected ? 1 : 0.5 }}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={val.selected}
+                          onChange={(e) => setAchSelections({
+                            ...achSelections,
+                            [name]: { ...val, selected: e.target.checked }
+                          })}
+                        />
+                      </td>
+                      <td><strong>{name}</strong></td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', color: '#64748b', fontSize: 12 }}>
+                        {formatCurrency(val.defaultAmount)}
+                      </td>
+                      <td>
+                        <input
+                          className="form-input"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={val.amount}
+                          onChange={(e) => setAchSelections({
+                            ...achSelections,
+                            [name]: { ...val, amount: parseFloat(e.target.value) || 0 }
+                          })}
+                          disabled={!val.selected}
+                          style={{ width: '100%', padding: '4px 8px', fontSize: 13, fontFamily: 'DM Mono, monospace' }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                    <td></td>
+                    <td>Total</td>
+                    <td></td>
+                    <td style={{ fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(selectedTotal)}</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
 
@@ -1065,7 +1178,8 @@ export default function Reports() {
             </ul>
           </div>
         </Modal>
-      )}
+        );
+      })()}
     </div>
   );
 }

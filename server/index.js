@@ -596,7 +596,7 @@ app.get('/api/timesheets/:id', auth, (req, res) => {
   const ts = db.prepare(`
     SELECT ts.*, u.name as engineer_name, u.engineer_id as eng_id,
            p.name as project_name, p.po_number, p.location, p.project_type, p.total_cost, p.requires_daily_logs,
-           c.name as customer_name, ep.bill_rate, ep.pay_rate, ep.total_payment
+           c.name as customer_name, ep.bill_rate, ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
@@ -1008,6 +1008,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
           engineer_id: ts.engineer_id,
           week_ending: ts.week_ending,
           bill_rate: ts.monthly_bill,
+          is_fixed_monthly: true,
           total_hours: hrs,
           entries: entries.map(e => ({
             entry_date: e.entry_date,
@@ -1209,6 +1210,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
             engineer_id: ts.engineer_id,
             week_ending: ts.week_ending,
             bill_rate: ts.monthly_bill,
+            is_fixed_monthly: true,
             total_hours: hrs,
             entries: entries.map(e => ({
               entry_date: e.entry_date,
@@ -1462,9 +1464,10 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   // Get line items and timesheet details
   // Find timesheets that have entries in the invoice period
   const timesheets = db.prepare(`
-    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.monthly_bill, ep.monthly_pay, p.project_type
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
@@ -1474,17 +1477,28 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
 
   const lineItems = [];
   const timesheetDetails = [];
+  const isFixedMonthly = timesheets.length > 0 && timesheets[0].project_type === 'fixed_monthly';
   for (const ts of timesheets) {
     const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
       .all(ts.id, invoice.period_start, invoice.period_end);
     const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
     if (hrs > 0) {
-      lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
+      if (isFixedMonthly) {
+        const existing = lineItems.find(li => li.engineer === ts.engineer_name);
+        if (existing) {
+          existing.hours += hrs;
+        } else {
+          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.monthly_bill || 0, amount: ts.monthly_bill || 0, is_fixed_monthly: true });
+        }
+      } else {
+        lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
+      }
       timesheetDetails.push({
         engineer_name: ts.engineer_name,
         engineer_id: ts.engineer_id,
         week_ending: ts.week_ending,
-        bill_rate: ts.bill_rate,
+        bill_rate: isFixedMonthly ? (ts.monthly_bill || 0) : ts.bill_rate,
+        is_fixed_monthly: isFixedMonthly,
         total_hours: hrs,
         entries
       });
@@ -1630,7 +1644,8 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   if (invoice.include_timesheets && timesheetDetails.length > 0) {
     timesheetPagesHtml = timesheetDetails.map(ts => {
       const weekEnding = formatDate(ts.week_ending);
-      const rate = ts.bill_rate || 0;
+      const isFixedMonthlyTs = ts.is_fixed_monthly;
+      const rate = isFixedMonthlyTs ? 0 : (ts.bill_rate || 0);
       const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
       // Build entries by date map
@@ -1640,14 +1655,16 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
         if (dateKey) entriesByDate[dateKey] = e;
       });
 
-      // Calculate week dates
+      // Calculate week dates, filtered to billing month
       const weekEnd = new Date(ts.week_ending + 'T00:00:00');
-      const weekDates = [];
+      const allWeekDates = [];
       for (let i = -6; i <= 0; i++) {
         const d = new Date(weekEnd);
         d.setDate(weekEnd.getDate() + i);
-        weekDates.push(d.toISOString().split('T')[0]);
+        allWeekDates.push(d.toISOString().split('T')[0]);
       }
+      // Filter to only dates within the invoice period
+      const weekDates = allWeekDates.filter(date => date >= invoice.period_start && date <= invoice.period_end);
 
       // Calculate totals
       let totalST = 0;
@@ -1655,19 +1672,20 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
         const entry = entriesByDate[date];
         if (entry && entry.hours) totalST += entry.hours;
       });
-      const laborSubtotal = totalST * rate;
+      const laborSubtotal = isFixedMonthlyTs ? (ts.bill_rate || 0) : (totalST * rate);
 
       // Build rows
-      const rowsHtml = weekDates.map((date, idx) => {
+      const rowsHtml = weekDates.map((date) => {
         const entry = entriesByDate[date] || {};
         const dateObj = new Date(date + 'T00:00:00');
         const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
+        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dateObj.getDay()];
         const hours = entry.hours || 0;
         const st = hours > 0 ? hours.toFixed(1) : '0.0';
 
         return `
           <tr>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formattedDate} ${dayNames[idx]}</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formattedDate} ${dayName}</td>
             <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${invoice.location || ''}</td>
             <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;"></td>
             <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${entry.shift || '1'}</td>
@@ -1700,7 +1718,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
             </div>
             <div style="width: 160px; text-align: center;">
               <div style="font-weight: bold; font-size: 9pt; margin-bottom: 1px;">Daily Time Report</div>
-              <div style="font-size: 5pt;">Mon shift 1 - Sun shift 3<br/>$${rate.toFixed(2)}/hr | ST = All | OT/PT = N/A</div>
+              <div style="font-size: 5pt;">Mon shift 1 - Sun shift 3<br/>${isFixedMonthlyTs ? 'Fixed Monthly' : `$${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A</div>
             </div>
             <div style="width: 180px; font-size: 5pt; line-height: 1.1;">
               <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Week Ending:</span><strong>${weekEnding}</strong></div>
@@ -1762,7 +1780,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
               <div style="background: #f5f5f5; text-align: center; font-weight: bold; border-bottom: 1px solid #000; padding: 0 1px; font-size: 5pt;">Expenses</div>
               <div style="padding: 0 2px; font-size: 5pt;">Air: $0 | Car: $0 | Meals: $0 | Parking: $0 | Misc: $0</div>
               <div style="text-align: right; padding: 0 2px; font-size: 5pt;"><strong>Exp Subtotal:</strong> $0.00</div>
-              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">Rate: $${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(1)}</div>
+              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">${isFixedMonthlyTs ? `Fixed Monthly | Hours: ${totalST.toFixed(1)}` : `Rate: $${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(1)}`}</div>
               <div style="text-align: right; padding: 1px 2px; font-weight: bold; font-size: 6pt;">Total: $${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
             </div>
           </div>
@@ -2042,9 +2060,20 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   res.json({ data, holidays });
 });
 
-// ACH Export - Generate Chase CSV file for payroll
+// ACH Export - Generate Chase CSV file for payroll (supports GET for backward compat and POST with overrides)
+app.post('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
+  const { period_start, period_end, delivery_date, overrides } = req.body;
+  req._achOverrides = overrides;
+  req._achParams = { period_start, period_end, delivery_date };
+  achExportHandler(req, res);
+});
 app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
-  const { period_start, period_end, delivery_date } = req.query;
+  req._achParams = req.query;
+  achExportHandler(req, res);
+});
+function achExportHandler(req, res) {
+  const { period_start, period_end, delivery_date } = req._achParams;
+  const overrides = req._achOverrides;
   const db = getDb();
 
   if (!delivery_date) {
@@ -2164,6 +2193,19 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
           bank_pct_2: eng.bank_pct_2,
           total_pay: holidayPay
         });
+      }
+    }
+  }
+
+  // Apply overrides if provided (from POST with engineer selection/custom amounts)
+  if (overrides && typeof overrides === 'object') {
+    // Filter to only selected engineers and apply custom amounts
+    const overrideNames = Object.keys(overrides);
+    for (const payment of payrollData) {
+      if (overrideNames.includes(payment.engineer_name)) {
+        payment.total_pay = parseFloat(overrides[payment.engineer_name]) || 0;
+      } else {
+        payment.total_pay = 0; // Exclude unselected engineers
       }
     }
   }
@@ -2312,7 +2354,7 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="ACH_Payroll_${fileDate}.csv"`);
   res.send(csv);
-});
+}
 
 // Invoiced report by date range
 app.get('/api/reports/invoiced', auth, adminOnly, (req, res) => {

@@ -15,7 +15,8 @@ if (fs.existsSync('/data')) {
   console.log(`   NODE_ENV: ${process.env.NODE_ENV}`);
 }
 
-const DB_PATH = path.join(DATA_DIR, 'timetracker.db');
+const DB_NAME = process.env.DB_NAME || 'timetracker.db';
+const DB_PATH = path.join(DATA_DIR, DB_NAME);
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 console.log(`📁 Database location: ${DB_PATH}`);
 
