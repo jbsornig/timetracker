@@ -16,7 +16,7 @@ export default function Projects() {
   const [saving, setSaving] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectEngineers, setProjectEngineers] = useState([]);
-  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '' });
+  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '' });
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -142,9 +142,15 @@ export default function Projects() {
   const handleAssignEngineer = async (e) => {
     e.preventDefault();
     const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+    const isFixedMonthly = selectedProject?.project_type === 'fixed_monthly';
     if (isFixedPrice) {
       if (!assignForm.user_id || !assignForm.total_payment) {
         setError('Engineer and total payment are required');
+        return;
+      }
+    } else if (isFixedMonthly) {
+      if (!assignForm.user_id || !assignForm.monthly_pay || !assignForm.monthly_bill) {
+        setError('Engineer, monthly pay, and monthly bill are required');
         return;
       }
     } else {
@@ -160,14 +166,16 @@ export default function Projects() {
         method: 'POST',
         body: {
           user_id: parseInt(assignForm.user_id),
-          pay_rate: isFixedPrice ? 0 : parseFloat(assignForm.pay_rate),
-          bill_rate: isFixedPrice ? 0 : parseFloat(assignForm.bill_rate),
+          pay_rate: isFixedPrice || isFixedMonthly ? 0 : parseFloat(assignForm.pay_rate),
+          bill_rate: isFixedPrice || isFixedMonthly ? 0 : parseFloat(assignForm.bill_rate),
           total_payment: isFixedPrice ? parseFloat(assignForm.total_payment) : 0,
+          monthly_pay: isFixedMonthly ? parseFloat(assignForm.monthly_pay) : 0,
+          monthly_bill: isFixedMonthly ? parseFloat(assignForm.monthly_bill) : 0,
         },
       });
       const engs = await apiFetch(`/projects/${selectedProject.id}/engineers`);
       setProjectEngineers(engs);
-      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '' });
+      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '' });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -275,6 +283,7 @@ export default function Projects() {
               <tbody>
                 {projects.filter(p => (!statusFilter || p.status === statusFilter) && (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).map((p) => {
                   const isFixedPrice = p.project_type === 'fixed_price';
+                  const isFixedMonthly = p.project_type === 'fixed_monthly';
                   const budget = isFixedPrice ? (p.total_cost || 0) : (p.po_amount || 0);
                   const billed = p.amount_billed || 0;
                   const remaining = budget - billed;
@@ -284,8 +293,8 @@ export default function Projects() {
                     <tr key={p.id}>
                       <td><strong>{p.name}</strong><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{p.location || ''}</span></td>
                       <td>
-                        <span className={`badge ${isFixedPrice ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
-                          {isFixedPrice ? 'Fixed' : 'Hourly'}
+                        <span className={`badge ${isFixedPrice ? 'badge-fixed' : isFixedMonthly ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
+                          {isFixedPrice ? 'Fixed Price' : isFixedMonthly ? 'Fixed Monthly' : 'Hourly'}
                         </span>
                       </td>
                       <td>{p.customer_name}</td>
@@ -404,6 +413,16 @@ export default function Projects() {
                   <input
                     type="radio"
                     name="project_type"
+                    value="fixed_monthly"
+                    checked={form.project_type === 'fixed_monthly'}
+                    onChange={(e) => setForm({ ...form, project_type: e.target.value })}
+                  />
+                  <span>Fixed Monthly</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="project_type"
                     value="fixed_price"
                     checked={form.project_type === 'fixed_price'}
                     onChange={(e) => setForm({ ...form, project_type: e.target.value })}
@@ -414,6 +433,8 @@ export default function Projects() {
               <div className="form-hint">
                 {form.project_type === 'hourly'
                   ? 'Engineers bill by the hour with time entries'
+                  : form.project_type === 'fixed_monthly'
+                  ? 'Fixed monthly pay and billing — timesheets required for detail only'
                   : 'Engineers bill a percentage of their total payment'}
               </div>
             </div>
@@ -489,7 +510,7 @@ export default function Projects() {
               </label>
               <div className="form-hint">When checked, emailed invoices will include detailed timesheet reports</div>
             </div>
-            {form.project_type === 'hourly' && (
+            {(form.project_type === 'hourly' || form.project_type === 'fixed_monthly') && (
               <div className="form-group" style={{ marginTop: 8 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                   <input
@@ -521,6 +542,9 @@ export default function Projects() {
               {selectedProject.project_type === 'fixed_price' && (
                 <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8 }}>(Fixed Price Project)</span>
               )}
+              {selectedProject.project_type === 'fixed_monthly' && (
+                <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8 }}>(Fixed Monthly Project)</span>
+              )}
             </div>
             {projectEngineers.length === 0 ? (
               <p style={{ color: '#94a3b8', fontSize: 14 }}>No engineers assigned yet.</p>
@@ -532,6 +556,11 @@ export default function Projects() {
                       <th>Engineer</th>
                       {selectedProject.project_type === 'fixed_price' ? (
                         <th>Total Payment</th>
+                      ) : selectedProject.project_type === 'fixed_monthly' ? (
+                        <>
+                          <th>Monthly Pay</th>
+                          <th>Monthly Bill</th>
+                        </>
                       ) : (
                         <>
                           <th>Pay Rate</th>
@@ -547,6 +576,11 @@ export default function Projects() {
                         <td><strong>{eng.name}</strong><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{eng.engineer_id || eng.email}</span></td>
                         {selectedProject.project_type === 'fixed_price' ? (
                           <td>${(eng.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        ) : selectedProject.project_type === 'fixed_monthly' ? (
+                          <>
+                            <td>${(eng.monthly_pay || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</td>
+                            <td>${(eng.monthly_bill || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</td>
+                          </>
                         ) : (
                           <>
                             <td>${eng.pay_rate?.toFixed(2) || '0.00'}/hr</td>
@@ -594,6 +628,33 @@ export default function Projects() {
                     placeholder="0.00"
                   />
                   <div className="form-hint">Total amount the engineer will be paid for this project</div>
+                </div>
+              ) : selectedProject.project_type === 'fixed_monthly' ? (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Monthly Pay ($)</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.01"
+                      value={assignForm.monthly_pay}
+                      onChange={(e) => setAssignForm({ ...assignForm, monthly_pay: e.target.value })}
+                      placeholder="0.00"
+                    />
+                    <div className="form-hint">Amount paid to engineer each month</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Monthly Bill ($)</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.01"
+                      value={assignForm.monthly_bill}
+                      onChange={(e) => setAssignForm({ ...assignForm, monthly_bill: e.target.value })}
+                      placeholder="0.00"
+                    />
+                    <div className="form-hint">Amount billed to customer each month</div>
+                  </div>
                 </div>
               ) : (
                 <div className="form-row">

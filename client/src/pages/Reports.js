@@ -635,8 +635,9 @@ export default function Reports() {
                   <tbody>
                     {payrollData.map((row, idx) => {
                       const isFixed = row.pay_type === 'fixed_price';
+                      const isFixedMonthly = row.pay_type === 'fixed_monthly';
                       const isHoliday = row.is_holiday_pay;
-                      const rowBg = isHoliday ? { background: '#eff6ff' } : isFixed ? { background: '#fefce8' } : undefined;
+                      const rowBg = isHoliday ? { background: '#eff6ff' } : (isFixed || isFixedMonthly) ? { background: '#fefce8' } : undefined;
                       return (
                         <tr key={idx} style={rowBg}>
                           <td><strong>{row.engineer_name}</strong></td>
@@ -647,7 +648,8 @@ export default function Reports() {
                             ) : (
                               <>
                                 {row.project_name}
-                                {isFixed && <span style={{ marginLeft: 6, fontSize: 11, color: '#92400e', fontWeight: 500 }}>(Fixed)</span>}
+                                {isFixed && <span style={{ marginLeft: 6, fontSize: 11, color: '#92400e', fontWeight: 500 }}>(Fixed Price)</span>}
+                                {isFixedMonthly && <span style={{ marginLeft: 6, fontSize: 11, color: '#92400e', fontWeight: 500 }}>(Monthly)</span>}
                               </>
                             )}
                           </td>
@@ -658,11 +660,11 @@ export default function Reports() {
                             {isFixed ? `${row.percentage || 0}%` : (row.total_hours || 0).toFixed(2)}
                           </td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>
-                            {isFixed ? 'Fixed' : `${formatCurrency(row.pay_rate)}/hr`}
+                            {isFixed ? 'Fixed' : isFixedMonthly ? 'Monthly' : `${formatCurrency(row.pay_rate)}/hr`}
                           </td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(row.total_pay)}</td>
-                          <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{(isHoliday || isFixed) ? '—' : `${formatCurrency(row.bill_rate)}/hr`}</td>
-                          <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{(isHoliday || isFixed) ? '—' : formatCurrency(row.total_billed)}</td>
+                          <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{(isHoliday || isFixed || isFixedMonthly) ? '—' : `${formatCurrency(row.bill_rate)}/hr`}</td>
+                          <td className="no-print" style={{ fontFamily: 'DM Mono, monospace' }}>{(isHoliday || isFixed || isFixedMonthly) ? '—' : formatCurrency(row.total_billed)}</td>
                         </tr>
                       );
                     })}

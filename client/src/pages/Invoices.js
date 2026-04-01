@@ -1487,17 +1487,19 @@ function InvoiceContent({ inv, settings }) {
             inv.lineItems.map((item, idx) => (
               <tr key={idx}>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_fixed_price ? `${item.percentage}%` : item.hours?.toFixed(0)}
+                  {item.is_fixed_price ? `${item.percentage}%` : item.is_fixed_monthly ? `${item.hours?.toFixed(0)} hrs` : item.hours?.toFixed(0)}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
                   {item.is_fixed_price
                     ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}`
+                    : item.is_fixed_monthly
+                    ? `${projectDescription || 'Monthly Service'} - ${item.engineer} - ${periodRange}`
                     : `${projectDescription || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}`
                   }
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
-                  {item.is_fixed_price ? 'Fixed' : `$${item.rate?.toFixed(2) || '0.00'}`}
+                  {item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `$${item.rate?.toFixed(2) || '0.00'}`}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>

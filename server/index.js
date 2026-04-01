@@ -536,10 +536,10 @@ app.get('/api/projects/:id/engineers', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/projects/:id/engineers', auth, adminOnly, (req, res) => {
-  const { user_id, pay_rate, bill_rate, total_payment } = req.body;
+  const { user_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill } = req.body;
   const db = getDb();
   try {
-    db.prepare('INSERT OR REPLACE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment) VALUES (?, ?, ?, ?, ?)').run(user_id, req.params.id, pay_rate || 0, bill_rate || 0, total_payment || 0);
+    db.prepare('INSERT OR REPLACE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user_id, req.params.id, pay_rate || 0, bill_rate || 0, total_payment || 0, monthly_pay || 0, monthly_bill || 0);
     res.json({ success: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -832,7 +832,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       COUNT(DISTINCT ts.id) as timesheet_count,
       COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN ts.amount ELSE 0 END), 0) as fixed_amount,
       COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours ELSE 0 END), 0) as total_hours,
-      COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours * ep.bill_rate ELSE 0 END), 0) as hourly_amount
+      COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'fixed_monthly') THEN te.hours * ep.bill_rate ELSE 0 END), 0) as hourly_amount
     FROM projects p
     JOIN customers c ON c.id = p.customer_id
     JOIN timesheets ts ON ts.project_id = p.id
@@ -862,6 +862,9 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       } else {
         estimated_amount = 0;
       }
+    } else if (p.project_type === 'fixed_monthly') {
+      const monthlyTotals = db.prepare('SELECT SUM(monthly_bill) as total FROM engineer_projects WHERE project_id = ?').get(p.id);
+      estimated_amount = monthlyTotals?.total || 0;
     } else {
       estimated_amount = p.hourly_amount;
     }
@@ -908,6 +911,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   if (!invoice) return res.status(404).json({ error: 'Not found' });
 
   const isFixedPrice = invoice.project_type === 'fixed_price';
+  const isFixedMonthly = invoice.project_type === 'fixed_monthly';
 
   // Get company settings
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
@@ -920,7 +924,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   // For hourly: find timesheets that have any entry_date in the period
   // For fixed price: use week_ending or period_end
   const timesheets = db.prepare(`
-    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
@@ -928,7 +932,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
     AND (
-      (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ?)
+      (p.project_type NOT IN ('fixed_price') AND te.entry_date BETWEEN ? AND ?)
       OR (p.project_type = 'fixed_price' AND (
         ts.week_ending BETWEEN ? AND ?
         OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
@@ -979,6 +983,42 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
           is_fixed_price: true
         });
       }
+    } else if (isFixedMonthly) {
+      // Fixed monthly: show hours worked but bill the fixed monthly amount per engineer
+      const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+        .all(ts.id, invoice.period_start, invoice.period_end);
+      const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+      if (hrs > 0) {
+        // Check if we already have a line item for this engineer (aggregate hours, keep one monthly bill)
+        const existing = lineItems.find(li => li.engineer === ts.engineer_name && li.is_fixed_monthly);
+        if (existing) {
+          existing.hours += hrs;
+        } else {
+          lineItems.push({
+            engineer: ts.engineer_name,
+            hours: hrs,
+            rate: ts.monthly_bill || 0,
+            amount: ts.monthly_bill || 0,
+            is_fixed_monthly: true
+          });
+        }
+        timesheetDetails.push({
+          id: ts.id,
+          engineer_name: ts.engineer_name,
+          engineer_id: ts.engineer_id,
+          week_ending: ts.week_ending,
+          bill_rate: ts.monthly_bill,
+          total_hours: hrs,
+          entries: entries.map(e => ({
+            entry_date: e.entry_date,
+            start_time: e.start_time,
+            end_time: e.end_time,
+            hours: e.hours,
+            shift: e.shift,
+            description: e.description
+          }))
+        });
+      }
     } else {
       // Hourly: calculate from entries within the invoice period only
       const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
@@ -1019,7 +1059,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     });
   }
 
-  res.json({ ...invoice, settings, lineItems, timesheetDetails, is_fixed_price: isFixedPrice });
+  res.json({ ...invoice, settings, lineItems, timesheetDetails, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
   } catch (err) {
     console.error('Error viewing invoice:', err);
     res.status(500).json({ error: err.message });
@@ -1061,10 +1101,11 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     console.log('Project type:', project.project_type);
     console.log('Project total_cost:', project.total_cost);
     const isFixedPrice = project.project_type === 'fixed_price';
-    console.log('Is fixed price:', isFixedPrice);
+    const isFixedMonthly = project.project_type === 'fixed_monthly';
+    console.log('Is fixed price:', isFixedPrice, 'Is fixed monthly:', isFixedMonthly);
 
     const timesheets = db.prepare(`
-      SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment
+      SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
       FROM timesheets ts
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
@@ -1072,7 +1113,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.project_id = ? AND ts.status = 'approved'
       AND (
-        (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ?)
+        (p.project_type NOT IN ('fixed_price') AND te.entry_date BETWEEN ? AND ?)
         OR (p.project_type = 'fixed_price' AND (
           ts.week_ending BETWEEN ? AND ?
           OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
@@ -1140,6 +1181,43 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
             period_start: ts.period_start,
             period_end: ts.period_end,
             is_fixed_price: true
+          });
+        }
+      } else if (isFixedMonthly) {
+        // Fixed monthly: show hours but bill the fixed monthly amount per engineer
+        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+          .all(ts.id, period_start, period_end);
+        const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+        total_hours += hrs;
+        if (hrs > 0) {
+          const existing = lineItems.find(li => li.engineer === ts.engineer_name && li.is_fixed_monthly);
+          if (existing) {
+            existing.hours += hrs;
+          } else {
+            lineItems.push({
+              engineer: ts.engineer_name,
+              hours: hrs,
+              rate: ts.monthly_bill || 0,
+              amount: ts.monthly_bill || 0,
+              is_fixed_monthly: true
+            });
+            total_amount += (ts.monthly_bill || 0);
+          }
+          timesheetDetails.push({
+            id: ts.id,
+            engineer_name: ts.engineer_name,
+            engineer_id: ts.engineer_id,
+            week_ending: ts.week_ending,
+            bill_rate: ts.monthly_bill,
+            total_hours: hrs,
+            entries: entries.map(e => ({
+              entry_date: e.entry_date,
+              start_time: e.start_time,
+              end_time: e.end_time,
+              hours: e.hours,
+              shift: e.shift,
+              description: e.description
+            }))
           });
         }
       } else {
@@ -1212,7 +1290,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       settings[row.key] = row.value;
     }
 
-    res.json({ id: result.lastInsertRowid, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice });
+    res.json({ id: result.lastInsertRowid, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
   } catch (err) {
     console.error('Invoice generation error:', err);
     res.status(500).json({ error: err.message });
@@ -1864,7 +1942,29 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type != 'fixed_price'
+    WHERE ts.status = 'approved' AND p.project_type = 'hourly'
+      AND te.entry_date BETWEEN ? AND ?
+    GROUP BY u.id, p.id
+    ORDER BY u.name, p.name
+  `).all(period_start, period_end);
+
+  // Get fixed monthly project payroll data
+  const fixedMonthlyData = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+           u.holiday_pay_eligible, u.holiday_pay_rate,
+           SUM(te.hours) as total_hours,
+           ep.monthly_pay as pay_rate,
+           ep.monthly_pay as total_pay,
+           ep.monthly_bill as bill_rate,
+           ep.monthly_bill as total_billed,
+           p.name as project_name, p.po_number,
+           'fixed_monthly' as pay_type
+    FROM timesheet_entries te
+    JOIN timesheets ts ON ts.id = te.timesheet_id
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status = 'approved' AND p.project_type = 'fixed_monthly'
       AND te.entry_date BETWEEN ? AND ?
     GROUP BY u.id, p.id
     ORDER BY u.name, p.name
@@ -1891,7 +1991,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     ORDER BY u.name, p.name
   `).all(period_start, period_end);
 
-  const timesheetData = [...hourlyData, ...fixedPriceData];
+  const timesheetData = [...hourlyData, ...fixedMonthlyData, ...fixedPriceData];
 
   // Get holidays in the date range
   const holidays = db.prepare(`
@@ -1970,7 +2070,25 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type != 'fixed_price'
+    WHERE ts.status = 'approved' AND p.project_type = 'hourly'
+      AND te.entry_date BETWEEN ? AND ?
+    GROUP BY u.id
+    ORDER BY u.name
+  `).all(period_start, period_end);
+
+  // Get fixed monthly payroll data grouped by engineer
+  const fixedMonthlyPayroll = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+           u.bank_routing, u.bank_account, u.bank_account_type,
+           u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
+           u.bank_pct_1, u.bank_pct_2,
+           SUM(ep.monthly_pay) as total_pay
+    FROM timesheet_entries te
+    JOIN timesheets ts ON ts.id = te.timesheet_id
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status = 'approved' AND p.project_type = 'fixed_monthly'
       AND te.entry_date BETWEEN ? AND ?
     GROUP BY u.id
     ORDER BY u.name
@@ -1991,8 +2109,16 @@ app.get('/api/payroll/ach-export', auth, adminOnly, (req, res) => {
     GROUP BY u.id
   `).all(period_start, period_end);
 
-  // Merge fixed price pay into hourly payroll
+  // Merge fixed monthly and fixed price pay into hourly payroll
   const payrollData = [...hourlyPayroll];
+  for (const fm of fixedMonthlyPayroll) {
+    const existing = payrollData.find(p => p.user_id === fm.user_id);
+    if (existing) {
+      existing.total_pay = (existing.total_pay || 0) + (fm.total_pay || 0);
+    } else {
+      payrollData.push(fm);
+    }
+  }
   for (const fp of fixedPricePayroll) {
     const existing = payrollData.find(p => p.user_id === fp.user_id);
     if (existing) {
@@ -2227,9 +2353,10 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
     SELECT ts.id, ts.week_ending, ts.status, ts.period_start, ts.period_end, ts.percentage, ts.amount as fixed_amount,
            p.id as project_id, p.name as project_name, p.project_type, c.name as customer_name,
            COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) as total_hours,
-           ep.pay_rate, ep.total_payment,
+           ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill,
            CASE
              WHEN p.project_type = 'fixed_price' THEN ts.amount
+             WHEN p.project_type = 'fixed_monthly' THEN ep.monthly_pay
              ELSE COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) * COALESCE(ep.pay_rate, 0)
            END as amount
     FROM timesheets ts
@@ -2641,8 +2768,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore engineer_projects
       if (backup.data.engineer_projects) {
         for (const ep of backup.data.engineer_projects) {
-          db.prepare('INSERT OR IGNORE INTO engineer_projects (id, user_id, project_id, pay_rate, bill_rate, total_payment, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-            ep.id, ep.user_id, ep.project_id, ep.pay_rate, ep.bill_rate, ep.total_payment || 0, ep.created_at || null
+          db.prepare('INSERT OR IGNORE INTO engineer_projects (id, user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            ep.id, ep.user_id, ep.project_id, ep.pay_rate, ep.bill_rate, ep.total_payment || 0, ep.monthly_pay || 0, ep.monthly_bill || 0, ep.created_at || null
           );
         }
       }

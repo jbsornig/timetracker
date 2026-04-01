@@ -355,6 +355,16 @@ function initSchema() {
     console.log('✅ Migration: Added total_payment column to engineer_projects');
   }
 
+  // Add monthly_pay and monthly_bill columns for fixed_monthly projects
+  if (!epCols.find(c => c.name === 'monthly_pay')) {
+    db.exec('ALTER TABLE engineer_projects ADD COLUMN monthly_pay REAL DEFAULT 0');
+    console.log('✅ Migration: Added monthly_pay column to engineer_projects');
+  }
+  if (!epCols.find(c => c.name === 'monthly_bill')) {
+    db.exec('ALTER TABLE engineer_projects ADD COLUMN monthly_bill REAL DEFAULT 0');
+    console.log('✅ Migration: Added monthly_bill column to engineer_projects');
+  }
+
   // Add fixed price timesheet columns
   const tsCols = db.prepare("PRAGMA table_info(timesheets)").all();
   if (!tsCols.find(c => c.name === 'period_start')) {
