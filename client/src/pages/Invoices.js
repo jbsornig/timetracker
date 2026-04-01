@@ -178,7 +178,9 @@ export default function Invoices() {
 
   const selectAllProjects = () => {
     const all = {};
-    readyProjects.forEach(p => { all[p.id] = true; });
+    readyProjects.forEach(p => {
+      if (!p.existing_invoice && !p.over_budget) all[p.id] = true;
+    });
     setSelectedProjects(all);
   };
 
@@ -196,9 +198,10 @@ export default function Invoices() {
     setGeneratingBatch(true);
     setError('');
     let successCount = 0;
-    let errorCount = 0;
+    const errors = [];
 
     for (const projectId of projectIds) {
+      const proj = readyProjects.find(p => String(p.id) === String(projectId));
       try {
         await apiFetch('/invoices/generate', {
           method: 'POST',
@@ -212,7 +215,7 @@ export default function Invoices() {
         successCount++;
       } catch (e) {
         console.error(`Failed to generate invoice for project ${projectId}:`, e);
-        errorCount++;
+        errors.push(`${proj?.project_name || projectId}: ${e.message}`);
       }
     }
 
@@ -221,8 +224,8 @@ export default function Invoices() {
     setSelectedProjects({});
     setGeneratingBatch(false);
 
-    if (errorCount > 0) {
-      alert(`Generated ${successCount} invoice(s). ${errorCount} failed.`);
+    if (errors.length > 0) {
+      alert(`Generated ${successCount} invoice(s). ${errors.length} failed:\n\n${errors.join('\n')}`);
     } else {
       alert(`Successfully generated ${successCount} invoice(s).`);
     }
@@ -633,27 +636,41 @@ export default function Invoices() {
                       </tr>
                     </thead>
                     <tbody>
-                      {readyProjects.map(proj => (
-                        <tr key={proj.id}>
+                      {readyProjects.map(proj => {
+                        const blocked = !!proj.existing_invoice;
+                        const overBudget = !!proj.over_budget;
+                        return (
+                        <tr key={proj.id} style={{ opacity: blocked ? 0.5 : 1, background: blocked ? '#fef2f2' : overBudget ? '#fffbeb' : undefined }}>
                           <td>
                             <input
                               type="checkbox"
                               checked={!!selectedProjects[proj.id]}
                               onChange={() => toggleProjectSelection(proj.id)}
+                              disabled={blocked}
                               style={{ width: 16, height: 16 }}
                             />
                           </td>
                           <td title={proj.engineers?.join(', ')}>
                             <strong style={{ fontSize: 12 }}>{proj.project_name}</strong>
                             {proj.po_number && <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 6 }}>PO: {proj.po_number}</span>}
+                            {blocked && (
+                              <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>
+                                Already invoiced (#{proj.existing_invoice})
+                              </div>
+                            )}
+                            {overBudget && !blocked && (
+                              <div style={{ fontSize: 10, color: '#d97706', marginTop: 2 }}>
+                                Over budget — {formatCurrency(proj.remaining_balance)} remaining
+                              </div>
+                            )}
                           </td>
                           <td style={{ fontSize: 11, color: '#475569', maxWidth: 150 }} title={proj.engineers?.join(', ')}>
                             {proj.engineers?.join(', ') || '-'}
                           </td>
                           <td>{proj.customer_name}</td>
                           <td>
-                            <span className={`badge ${proj.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 10 }}>
-                              {proj.project_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                            <span className={`badge ${proj.project_type === 'fixed_price' ? 'badge-fixed' : proj.project_type === 'fixed_monthly' ? 'badge-submitted' : 'badge-hourly'}`} style={{ fontSize: 10 }}>
+                              {proj.project_type === 'fixed_price' ? 'Fixed' : proj.project_type === 'fixed_monthly' ? 'Monthly' : 'Hourly'}
                             </span>
                           </td>
                           <td style={{ textAlign: 'center' }}>{proj.timesheet_count}</td>
@@ -663,11 +680,17 @@ export default function Invoices() {
                               : `${proj.total_hours.toFixed(2)} hrs`
                             }
                           </td>
-                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: overBudget ? '#d97706' : '#10b981' }}>
                             {formatCurrency(proj.estimated_amount)}
+                            {proj.remaining_balance !== null && !blocked && (
+                              <div style={{ fontSize: 9, color: '#64748b', fontWeight: 400 }}>
+                                {formatCurrency(proj.remaining_balance)} left
+                              </div>
+                            )}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr style={{ background: '#f8fafc', fontWeight: 600 }}>

@@ -13,6 +13,8 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+const formatMoney = (amt) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amt || 0);
+
 // ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
 
 async function sendNotificationEmail(subject, htmlBody) {
@@ -827,7 +829,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
   // Find all projects with approved timesheets in the date range
   const projects = db.prepare(`
     SELECT
-      p.id, p.name as project_name, p.po_number, p.project_type, p.total_cost,
+      p.id, p.name as project_name, p.po_number, p.po_amount, p.project_type, p.total_cost,
       c.name as customer_name,
       COUNT(DISTINCT ts.id) as timesheet_count,
       COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN ts.amount ELSE 0 END), 0) as fixed_amount,
@@ -877,6 +879,23 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       WHERE ts.project_id = ? AND ts.status = 'approved'
     `).all(p.id).map(e => e.name);
 
+    // Check for existing non-voided invoice in same period
+    const existingInvoice = db.prepare(`
+      SELECT id, invoice_number FROM invoices
+      WHERE project_id = ? AND voided_date IS NULL
+      AND period_start = ? AND period_end = ?
+    `).get(p.id, period_start, period_end);
+
+    // Get remaining PO balance
+    const billedSoFar = db.prepare(`
+      SELECT COALESCE(SUM(total_amount), 0) as total_billed
+      FROM invoices WHERE project_id = ? AND voided_date IS NULL
+    `).get(p.id);
+    const po_amount = p.po_amount || 0;
+    const total_billed = billedSoFar.total_billed || 0;
+    const remaining_balance = po_amount > 0 ? po_amount - total_billed : null;
+    const over_budget = po_amount > 0 && estimated_amount > (remaining_balance + 0.01);
+
     return {
       id: p.id,
       project_name: p.project_name,
@@ -887,7 +906,12 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       total_hours: p.total_hours,
       fixed_amount: p.fixed_amount,
       estimated_amount,
-      engineers
+      engineers,
+      existing_invoice: existingInvoice ? existingInvoice.invoice_number : null,
+      po_amount,
+      total_billed,
+      remaining_balance,
+      over_budget
     };
   });
 
@@ -1276,6 +1300,34 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     console.log('Final totals - hours:', total_hours, 'amount:', total_amount);
     console.log('Line items:', lineItems.length);
     console.log('=== END DEBUG ===');
+
+    // Check for duplicate invoice: same project + overlapping period that isn't voided
+    const existingInvoice = db.prepare(`
+      SELECT id, invoice_number, period_start, period_end, status
+      FROM invoices
+      WHERE project_id = ? AND voided_date IS NULL
+      AND period_start = ? AND period_end = ?
+    `).get(project_id, period_start, period_end);
+    if (existingInvoice) {
+      return res.status(400).json({
+        error: `Invoice #${existingInvoice.invoice_number} already exists for this project and period (${period_start} to ${period_end}). Void the existing invoice first if you need to recreate it.`
+      });
+    }
+
+    // Budget check: ensure invoice amount doesn't exceed remaining PO balance
+    if (project.po_amount > 0 && total_amount > 0) {
+      const billedSoFar = db.prepare(`
+        SELECT COALESCE(SUM(total_amount), 0) as total_billed
+        FROM invoices
+        WHERE project_id = ? AND voided_date IS NULL
+      `).get(project_id);
+      const remaining = project.po_amount - (billedSoFar.total_billed || 0);
+      if (total_amount > remaining + 0.01) {
+        return res.status(400).json({
+          error: `Invoice amount ${formatMoney(total_amount)} exceeds remaining PO balance of ${formatMoney(remaining)} (PO: ${formatMoney(project.po_amount)}, already billed: ${formatMoney(billedSoFar.total_billed || 0)}).`
+        });
+      }
+    }
 
     // Get next invoice number from settings and increment
     const nextNumRow = db.prepare("SELECT value FROM settings WHERE key = 'next_invoice_number'").get();
