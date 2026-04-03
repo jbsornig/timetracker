@@ -1423,6 +1423,52 @@ app.delete('/api/payments/:id', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// Batch payment - record payment on multiple invoices at once
+app.post('/api/invoices/batch-payment', auth, adminOnly, (req, res) => {
+  const { invoice_ids, payment_date, payment_method, reference_number, notes } = req.body;
+  if (!invoice_ids || !Array.isArray(invoice_ids) || invoice_ids.length === 0) {
+    return res.status(400).json({ error: 'No invoices selected' });
+  }
+
+  const db = getDb();
+  const results = [];
+  const errors = [];
+
+  const batchRun = db.transaction(() => {
+    for (const invoiceId of invoice_ids) {
+      const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
+      if (!invoice) {
+        errors.push({ id: invoiceId, error: 'Invoice not found' });
+        continue;
+      }
+      if (invoice.status === 'voided') {
+        errors.push({ id: invoiceId, invoice_number: invoice.invoice_number, error: 'Invoice is voided' });
+        continue;
+      }
+
+      const balance = (invoice.total_amount || 0) - (invoice.amount_paid || 0);
+      if (balance <= 0) {
+        errors.push({ id: invoiceId, invoice_number: invoice.invoice_number, error: 'Already paid in full' });
+        continue;
+      }
+
+      // Record payment for the full remaining balance
+      db.prepare('INSERT INTO payments (invoice_id, amount, payment_date, payment_method, reference_number, notes) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(invoiceId, balance, payment_date, payment_method || null, reference_number || null, notes || null);
+
+      // Update invoice to paid
+      db.prepare('UPDATE invoices SET amount_paid = ?, status = ?, paid_date = ? WHERE id = ?')
+        .run(invoice.total_amount, 'paid', payment_date, invoiceId);
+
+      results.push({ id: invoiceId, invoice_number: invoice.invoice_number, amount: balance });
+    }
+  });
+
+  batchRun();
+
+  res.json({ success: true, paid: results, errors });
+});
+
 // Void an invoice
 app.put('/api/invoices/:id/void', auth, adminOnly, (req, res) => {
   const db = getDb();

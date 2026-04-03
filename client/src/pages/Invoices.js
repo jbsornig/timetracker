@@ -101,24 +101,39 @@ export default function Invoices() {
   const [generatingBatch, setGeneratingBatch] = useState(false);
   const [showBatchGenerator, setShowBatchGenerator] = useState(false);
 
+  // Batch payment state
+  const [showBatchPayment, setShowBatchPayment] = useState(false);
+  const [batchPayCustomer, setBatchPayCustomer] = useState('');
+  const [batchPaySelected, setBatchPaySelected] = useState({});
+  const [batchPayForm, setBatchPayForm] = useState({
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_method: '',
+    reference_number: '',
+    notes: '',
+  });
+  const [batchPaySaving, setBatchPaySaving] = useState(false);
+  const [customers, setCustomers] = useState([]);
+
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
     try {
-      const [inv, proj, bal, users, ep] = await Promise.all([
+      const [inv, proj, bal, users, ep, cust] = await Promise.all([
         apiFetch('/invoices'),
         apiFetch('/projects'),
         apiFetch('/balances'),
         apiFetch('/users'),
         apiFetch('/engineer-projects'),
+        apiFetch('/customers'),
       ]);
       setInvoices(inv);
       setProjects(proj);
       setBalances(bal);
       setEngineers(users.filter(u => u.role === 'engineer'));
       setEngineerAssignments(ep);
+      setCustomers(cust);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -385,6 +400,73 @@ export default function Invoices() {
       await loadData();
     } catch (e) {
       alert('Error: ' + e.message);
+    }
+  };
+
+  // Batch payment functions
+  const outstandingForCustomer = invoices.filter(inv => {
+    const status = inv.status || 'unpaid';
+    return (status === 'unpaid' || status === 'partial' || status === 'draft') &&
+      inv.customer_name === batchPayCustomer;
+  });
+
+  const batchPayTotal = outstandingForCustomer
+    .filter(inv => batchPaySelected[inv.id])
+    .reduce((sum, inv) => sum + ((inv.total_amount || 0) - (inv.amount_paid || 0)), 0);
+
+  const toggleBatchPayInvoice = (id) => {
+    setBatchPaySelected(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const selectAllBatchPay = () => {
+    const all = {};
+    outstandingForCustomer.forEach(inv => { all[inv.id] = true; });
+    setBatchPaySelected(all);
+  };
+
+  const selectNoneBatchPay = () => {
+    setBatchPaySelected({});
+  };
+
+  const handleBatchPayment = async () => {
+    const selectedIds = Object.keys(batchPaySelected).filter(id => batchPaySelected[id]).map(Number);
+    if (selectedIds.length === 0) {
+      setError('Please select at least one invoice');
+      return;
+    }
+    if (!batchPayForm.payment_date) {
+      setError('Payment date is required');
+      return;
+    }
+    if (!window.confirm(`Record payment for ${selectedIds.length} invoice(s) totaling ${formatCurrency(batchPayTotal)}?`)) {
+      return;
+    }
+    setBatchPaySaving(true);
+    setError('');
+    try {
+      const result = await apiFetch('/invoices/batch-payment', {
+        method: 'POST',
+        body: {
+          invoice_ids: selectedIds,
+          payment_date: batchPayForm.payment_date,
+          payment_method: batchPayForm.payment_method,
+          reference_number: batchPayForm.reference_number,
+          notes: batchPayForm.notes,
+        },
+      });
+      await loadData();
+      setBatchPaySelected({});
+      const paidCount = result.paid?.length || 0;
+      const errCount = result.errors?.length || 0;
+      if (errCount > 0) {
+        alert(`Paid ${paidCount} invoice(s). ${errCount} had errors:\n${result.errors.map(e => `#${e.invoice_number}: ${e.error}`).join('\n')}`);
+      } else {
+        alert(`Successfully recorded payment for ${paidCount} invoice(s).`);
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBatchPaySaving(false);
     }
   };
 
@@ -723,6 +805,182 @@ export default function Invoices() {
             {readyProjects.length === 0 && !findingProjects && (
               <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>
                 Click "Find Projects" to search for projects with approved timesheets in the selected date range.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Batch Payment */}
+      <div className="card no-print" style={{ marginBottom: 16 }}>
+        <div
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+          onClick={() => setShowBatchPayment(!showBatchPayment)}
+        >
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>Batch Payment</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>Record payment for multiple invoices at once</div>
+          </div>
+          <span style={{ fontSize: 18, color: '#64748b' }}>{showBatchPayment ? '▼' : '▶'}</span>
+        </div>
+
+        {showBatchPayment && (
+          <div style={{ marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 16 }}>
+              <div>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Customer</label>
+                <select
+                  className="form-select"
+                  value={batchPayCustomer}
+                  onChange={(e) => { setBatchPayCustomer(e.target.value); setBatchPaySelected({}); }}
+                  style={{ minWidth: 250 }}
+                >
+                  <option value="">Select a customer...</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {batchPayCustomer && outstandingForCustomer.length > 0 && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, color: '#64748b' }}>
+                    {outstandingForCustomer.length} outstanding invoice{outstandingForCustomer.length !== 1 ? 's' : ''}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={selectAllBatchPay}>Select All</button>
+                    <button className="btn btn-secondary btn-sm" onClick={selectNoneBatchPay}>Select None</button>
+                  </div>
+                </div>
+
+                <div className="table-wrap" style={{ marginBottom: 16 }}>
+                  <table style={{ fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 36 }}></th>
+                        <th>Invoice #</th>
+                        <th>Project</th>
+                        <th>Period</th>
+                        <th>Total</th>
+                        <th>Paid</th>
+                        <th>Balance Due</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outstandingForCustomer.map(inv => {
+                        const balance = (inv.total_amount || 0) - (inv.amount_paid || 0);
+                        return (
+                          <tr key={inv.id} style={{ background: batchPaySelected[inv.id] ? '#eff6ff' : undefined }}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                checked={!!batchPaySelected[inv.id]}
+                                onChange={() => toggleBatchPayInvoice(inv.id)}
+                                style={{ width: 16, height: 16 }}
+                              />
+                            </td>
+                            <td style={{ fontFamily: 'DM Mono, monospace' }}>{inv.invoice_number}</td>
+                            <td>{inv.project_name}</td>
+                            <td style={{ fontSize: 11 }}>
+                              {inv.period_start && inv.period_end
+                                ? `${formatDate(inv.period_start)} - ${formatDate(inv.period_end)}`
+                                : '—'}
+                            </td>
+                            <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(inv.total_amount)}</td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(inv.amount_paid || 0)}</td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#dc2626' }}>{formatCurrency(balance)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
+                        <td colSpan="6" style={{ textAlign: 'right' }}>Selected Total:</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', color: '#1e40af', fontSize: 14 }}>
+                          {formatCurrency(batchPayTotal)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Payment details */}
+                {Object.values(batchPaySelected).some(v => v) && (
+                  <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Payment Details</div>
+                    {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Payment Date *</label>
+                        <input
+                          className="form-input"
+                          type="date"
+                          value={batchPayForm.payment_date}
+                          onChange={(e) => setBatchPayForm({ ...batchPayForm, payment_date: e.target.value })}
+                          style={{ width: 160 }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Payment Method</label>
+                        <select
+                          className="form-select"
+                          value={batchPayForm.payment_method}
+                          onChange={(e) => setBatchPayForm({ ...batchPayForm, payment_method: e.target.value })}
+                          style={{ width: 160 }}
+                        >
+                          <option value="">Select...</option>
+                          {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Reference #</label>
+                        <input
+                          className="form-input"
+                          value={batchPayForm.reference_number}
+                          onChange={(e) => setBatchPayForm({ ...batchPayForm, reference_number: e.target.value })}
+                          placeholder="Check #, transaction ID..."
+                          style={{ width: 200 }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Notes</label>
+                        <input
+                          className="form-input"
+                          value={batchPayForm.notes}
+                          onChange={(e) => setBatchPayForm({ ...batchPayForm, notes: e.target.value })}
+                          placeholder="Optional notes..."
+                          style={{ width: 200 }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleBatchPayment}
+                        disabled={batchPaySaving}
+                      >
+                        {batchPaySaving
+                          ? 'Recording...'
+                          : `Record Payment for ${Object.values(batchPaySelected).filter(v => v).length} Invoice(s) — ${formatCurrency(batchPayTotal)}`
+                        }
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {batchPayCustomer && outstandingForCustomer.length === 0 && (
+              <div style={{ fontSize: 13, color: '#16a34a', fontStyle: 'italic' }}>
+                No outstanding invoices for this customer.
+              </div>
+            )}
+
+            {!batchPayCustomer && (
+              <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>
+                Select a customer to see their outstanding invoices.
               </div>
             )}
           </div>
