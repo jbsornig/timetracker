@@ -31,25 +31,25 @@ function backupDatabase() {
     if (!fs.existsSync(BACKUP_DIR)) {
       fs.mkdirSync(BACKUP_DIR, { recursive: true });
     }
+
+    // Checkpoint WAL to flush all data into the main .db file
+    if (db) {
+      try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (e) { console.log('Checkpoint warning:', e.message); }
+    }
+
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(BACKUP_DIR, `timetracker-${timestamp}.db`);
     fs.copyFileSync(DB_PATH, backupPath);
-    // Also copy WAL and SHM files if they exist
-    if (fs.existsSync(DB_PATH + '-wal')) {
-      fs.copyFileSync(DB_PATH + '-wal', backupPath + '-wal');
-    }
-    if (fs.existsSync(DB_PATH + '-shm')) {
-      fs.copyFileSync(DB_PATH + '-shm', backupPath + '-shm');
-    }
     console.log(`✅ Database backup created: ${backupPath}`);
+
     // Keep only the 10 most recent backups
     const backups = fs.readdirSync(BACKUP_DIR)
-      .filter(f => f.startsWith('timetracker-') && f.endsWith('.db'))
+      .filter(f => f.startsWith('timetracker-') && f.endsWith('.db') && !f.endsWith('-wal') && !f.endsWith('-shm'))
       .sort()
       .reverse();
     for (const old of backups.slice(10)) {
       fs.unlinkSync(path.join(BACKUP_DIR, old));
-      // Clean up associated WAL/SHM files
+      // Clean up associated WAL/SHM files if any
       const walPath = path.join(BACKUP_DIR, old + '-wal');
       const shmPath = path.join(BACKUP_DIR, old + '-shm');
       if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
@@ -492,4 +492,25 @@ function initSchema() {
   }
 }
 
-module.exports = { getDb, backupDatabase, BACKUP_DIR };
+function replaceDatabase(newDbPath) {
+  // Checkpoint and close existing connection so WAL is flushed
+  if (db) {
+    try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (e) { console.log('Checkpoint warning:', e.message); }
+    db.close();
+    db = null;
+  }
+  // Remove WAL/SHM BEFORE replacing the main file
+  if (fs.existsSync(DB_PATH + '-wal')) fs.unlinkSync(DB_PATH + '-wal');
+  if (fs.existsSync(DB_PATH + '-shm')) fs.unlinkSync(DB_PATH + '-shm');
+  // Replace the database file
+  fs.copyFileSync(newDbPath, DB_PATH);
+  // Open the new database directly (skip the auto-backup in getDb)
+  db = new Database(DB_PATH);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  initSchema();
+  console.log('✅ Database replaced and reopened from:', newDbPath);
+  return db;
+}
+
+module.exports = { getDb, backupDatabase, replaceDatabase, BACKUP_DIR };

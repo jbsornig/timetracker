@@ -745,6 +745,64 @@ export default function Settings() {
             </table>
           </div>
         )}
+
+        <div style={{ marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>Restore from .db Backup</div>
+          <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
+            Upload a previously downloaded .db backup file to replace the current database. A backup of the current database will be created automatically before restoring.
+          </p>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <input
+              type="file"
+              accept=".db"
+              id="db-restore-input"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                if (!file.name.endsWith('.db')) {
+                  alert('Please select a .db file');
+                  e.target.value = '';
+                  return;
+                }
+                if (!window.confirm(
+                  `Restore database from "${file.name}"?\n\n` +
+                  'This will REPLACE all current data with the data from this backup file. ' +
+                  'A backup of the current database will be made first.\n\n' +
+                  'Are you sure you want to continue?'
+                )) {
+                  e.target.value = '';
+                  return;
+                }
+                try {
+                  const token = localStorage.getItem('tt_token');
+                  const BASE = process.env.REACT_APP_API_URL || '';
+                  const formData = new FormData();
+                  formData.append('database', file);
+                  const resp = await fetch(`${BASE}/api/backups/restore-db`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: formData,
+                  });
+                  const result = await resp.json();
+                  if (!resp.ok) throw new Error(result.error || 'Restore failed');
+                  alert(result.message || 'Database restored successfully!');
+                  window.location.reload();
+                } catch (err) {
+                  alert('Restore failed: ' + err.message);
+                } finally {
+                  e.target.value = '';
+                }
+              }}
+            />
+            <button
+              className="btn btn-secondary"
+              onClick={() => document.getElementById('db-restore-input').click()}
+            >
+              Upload .db Backup File
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: 20 }}>

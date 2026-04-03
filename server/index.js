@@ -6,7 +6,8 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
-const { getDb, backupDatabase, BACKUP_DIR } = require('./db');
+const { getDb, backupDatabase, replaceDatabase, BACKUP_DIR } = require('./db');
+const multer = require('multer');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 
 const app = express();
@@ -146,6 +147,40 @@ app.get('/api/backups/:filename/download', auth, adminOnly, (req, res) => {
     return res.status(404).json({ error: 'Backup file not found' });
   }
   res.download(filePath, filename);
+});
+
+// Restore database from uploaded .db file
+const dbUpload = multer({ dest: require('os').tmpdir(), limits: { fileSize: 100 * 1024 * 1024 } });
+app.post('/api/backups/restore-db', auth, adminOnly, dbUpload.single('database'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  try {
+    const fs = require('fs');
+    // Validate it's a real SQLite file (magic bytes: "SQLite format 3\0")
+    const buf = Buffer.alloc(16);
+    const fd = fs.openSync(req.file.path, 'r');
+    fs.readSync(fd, buf, 0, 16, 0);
+    fs.closeSync(fd);
+    if (buf.toString('utf8', 0, 15) !== 'SQLite format 3') {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Invalid file — not a SQLite database' });
+    }
+
+    // Backup current database first
+    backupDatabase();
+
+    // Replace with uploaded file
+    replaceDatabase(req.file.path);
+
+    // Clean up temp file
+    fs.unlinkSync(req.file.path);
+
+    res.json({ success: true, message: 'Database restored successfully. You may need to refresh the page.' });
+  } catch (err) {
+    console.error('Restore error:', err);
+    res.status(500).json({ error: 'Restore failed: ' + err.message });
+  }
 });
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
