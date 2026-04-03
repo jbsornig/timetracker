@@ -716,7 +716,12 @@ export default function Settings() {
                             const resp = await fetch(`${BASE}/api/backups/${encodeURIComponent(b.name)}/download`, {
                               headers: { Authorization: `Bearer ${token}` },
                             });
-                            if (!resp.ok) throw new Error('Download failed');
+                            if (!resp.ok) {
+                              const text = await resp.text();
+                              let msg = `HTTP ${resp.status}`;
+                              try { msg = JSON.parse(text).error || msg; } catch {}
+                              throw new Error(msg);
+                            }
                             const blob = await resp.blob();
                             const url = window.URL.createObjectURL(blob);
                             const a = document.createElement('a');
