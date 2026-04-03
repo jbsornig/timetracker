@@ -32,14 +32,16 @@ function backupDatabase() {
       fs.mkdirSync(BACKUP_DIR, { recursive: true });
     }
 
-    // Checkpoint WAL to flush all data into the main .db file
-    if (db) {
-      try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (e) { console.log('Checkpoint warning:', e.message); }
-    }
-
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(BACKUP_DIR, `timetracker-${timestamp}.db`);
-    fs.copyFileSync(DB_PATH, backupPath);
+
+    // Use VACUUM INTO to create a complete standalone backup (includes all WAL data)
+    if (db) {
+      db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+    } else {
+      // Fallback: if no active connection, just copy the file
+      fs.copyFileSync(DB_PATH, backupPath);
+    }
     console.log(`✅ Database backup created: ${backupPath}`);
 
     // Keep only the 10 most recent backups
