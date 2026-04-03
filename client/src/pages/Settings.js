@@ -697,6 +697,7 @@ export default function Settings() {
                   <th>Backup File</th>
                   <th>Size</th>
                   <th>Created</th>
+                  <th style={{ width: 80 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -705,6 +706,34 @@ export default function Settings() {
                     <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 11 }}>{b.name}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace' }}>{(b.size / 1024).toFixed(0)} KB</td>
                     <td>{new Date(b.created).toLocaleString()}</td>
+                    <td>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={async () => {
+                          try {
+                            const token = localStorage.getItem('tt_token');
+                            const BASE = process.env.REACT_APP_API_URL || '';
+                            const resp = await fetch(`${BASE}/api/backups/${encodeURIComponent(b.name)}/download`, {
+                              headers: { Authorization: `Bearer ${token}` },
+                            });
+                            if (!resp.ok) throw new Error('Download failed');
+                            const blob = await resp.blob();
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = b.name;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            window.URL.revokeObjectURL(url);
+                          } catch (e) {
+                            alert('Download failed: ' + e.message);
+                          }
+                        }}
+                      >
+                        Download
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

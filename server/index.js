@@ -133,6 +133,21 @@ app.get('/api/backups', auth, adminOnly, (req, res) => {
   res.json(backups);
 });
 
+// Download a specific backup file
+app.get('/api/backups/:filename/download', auth, adminOnly, (req, res) => {
+  const fs = require('fs');
+  const filename = req.params.filename;
+  // Sanitize: only allow timetracker-*.db filenames
+  if (!/^timetracker-[\dT-]+\.db$/.test(filename)) {
+    return res.status(400).json({ error: 'Invalid backup filename' });
+  }
+  const filePath = path.join(BACKUP_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Backup file not found' });
+  }
+  res.download(filePath, filename);
+});
+
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 
 // Public settings for printing (available to all authenticated users)
