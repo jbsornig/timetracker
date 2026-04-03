@@ -492,6 +492,24 @@ function initSchema() {
     db.prepare("INSERT INTO settings (key, value) VALUES ('chase_ach_account', '')").run();
     console.log('✅ Migration: Added chase_ach_account setting');
   }
+
+  // Create engineer_payments table if not exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS engineer_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      payment_date DATE NOT NULL,
+      payment_type TEXT NOT NULL DEFAULT 'payroll',
+      period_start DATE,
+      period_end DATE,
+      reference_number TEXT,
+      payment_method TEXT DEFAULT 'ACH',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
 }
 
 function replaceDatabase(newDbPath) {

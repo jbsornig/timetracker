@@ -77,6 +77,18 @@ export default function Reports() {
   const [achDeliveryDate, setAchDeliveryDate] = useState('');
   const [achSelections, setAchSelections] = useState({});
 
+  // Engineer payments state
+  const [engPayments, setEngPayments] = useState([]);
+  const [engPayFilter, setEngPayFilter] = useState({ user_id: '', period_start: '', period_end: '', payment_type: '' });
+  const [engPayForm, setEngPayForm] = useState({ user_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], payment_type: 'advance', period_start: '', period_end: '', reference_number: '', payment_method: '', notes: '' });
+  const [engPaySaving, setEngPaySaving] = useState(false);
+  const [engineers, setEngineers] = useState([]);
+  const [taxYear, setTaxYear] = useState(new Date().getFullYear().toString());
+  const [summary1099, setSummary1099] = useState([]);
+  const [verificationData, setVerificationData] = useState(null);
+  const [verificationEngineer, setVerificationEngineer] = useState('');
+  const [verificationRange, setVerificationRange] = useState({ period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
+
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
 
@@ -85,6 +97,9 @@ export default function Reports() {
       loadBudgetData();
     } else if (activeTab === 'contract-hours') {
       loadContractHoursData();
+    } else if (activeTab === 'engineer-payments') {
+      loadEngineers();
+      loadEngPayments();
     }
   }, [activeTab]);
 
@@ -160,6 +175,85 @@ export default function Reports() {
     try {
       const data = await apiFetch('/reports/contract-hours');
       setContractHoursData(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadEngineers = async () => {
+    try {
+      const users = await apiFetch('/users');
+      setEngineers(users.filter(u => u.role === 'engineer'));
+    } catch (e) {}
+  };
+
+  const loadEngPayments = async (filters) => {
+    const f = filters || engPayFilter;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (f.user_id) params.set('user_id', f.user_id);
+      if (f.period_start) params.set('period_start', f.period_start);
+      if (f.period_end) params.set('period_end', f.period_end);
+      if (f.payment_type) params.set('payment_type', f.payment_type);
+      const data = await apiFetch(`/engineer-payments?${params}`);
+      setEngPayments(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddEngPayment = async (e) => {
+    e.preventDefault();
+    if (!engPayForm.user_id || !engPayForm.amount || !engPayForm.payment_date) {
+      setError('Engineer, amount, and date are required');
+      return;
+    }
+    setEngPaySaving(true);
+    setError('');
+    try {
+      await apiFetch('/engineer-payments', { method: 'POST', body: { ...engPayForm, amount: parseFloat(engPayForm.amount) } });
+      setEngPayForm({ ...engPayForm, amount: '', reference_number: '', notes: '' });
+      loadEngPayments();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setEngPaySaving(false);
+    }
+  };
+
+  const handleDeleteEngPayment = async (id) => {
+    if (!window.confirm('Delete this payment record?')) return;
+    try {
+      await apiFetch(`/engineer-payments/${id}`, { method: 'DELETE' });
+      loadEngPayments();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const load1099Summary = async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch(`/engineer-payments/1099-summary?year=${taxYear}`);
+      setSummary1099(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadVerification = async () => {
+    if (!verificationEngineer) { setError('Select an engineer'); return; }
+    setLoading(true);
+    try {
+      const data = await apiFetch(`/engineer-payments/verification/${verificationEngineer}?period_start=${verificationRange.period_start}&period_end=${verificationRange.period_end}`);
+      setVerificationData(data);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -341,6 +435,12 @@ export default function Reports() {
             onClick={() => setActiveTab('contract-hours')}
           >
             Contract Hours
+          </button>
+          <button
+            className={`btn ${activeTab === 'engineer-payments' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('engineer-payments')}
+          >
+            Engineer Payments
           </button>
         </div>
       </div>
@@ -1180,6 +1280,312 @@ export default function Reports() {
         </Modal>
         );
       })()}
+
+      {activeTab === 'engineer-payments' && (
+        <div>
+          {/* Sub-tabs for Engineer Payments */}
+          <div className="card no-print" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setVerificationData(null); setSummary1099([]); }}>Payment History</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { load1099Summary(); setVerificationData(null); }}>1099 Summary</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSummary1099([]); }}>Verification Letter</button>
+            </div>
+          </div>
+
+          {/* Record Payment Form */}
+          {summary1099.length === 0 && !verificationData && (
+            <div className="card no-print" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Record Payment</div>
+              <form onSubmit={handleAddEngPayment}>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Engineer *</label>
+                    <select className="form-select" value={engPayForm.user_id} onChange={(e) => setEngPayForm({ ...engPayForm, user_id: e.target.value })} style={{ width: 200 }}>
+                      <option value="">Select...</option>
+                      {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Amount *</label>
+                    <input className="form-input" type="number" step="0.01" value={engPayForm.amount} onChange={(e) => setEngPayForm({ ...engPayForm, amount: e.target.value })} placeholder="0.00" style={{ width: 120 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Date *</label>
+                    <input className="form-input" type="date" value={engPayForm.payment_date} onChange={(e) => setEngPayForm({ ...engPayForm, payment_date: e.target.value })} style={{ width: 150 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Type</label>
+                    <select className="form-select" value={engPayForm.payment_type} onChange={(e) => setEngPayForm({ ...engPayForm, payment_type: e.target.value })} style={{ width: 140 }}>
+                      <option value="advance">Advance</option>
+                      <option value="bonus">Bonus</option>
+                      <option value="reimbursement">Reimbursement</option>
+                      <option value="payroll">Payroll</option>
+                      <option value="adjustment">Adjustment</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Method</label>
+                    <select className="form-select" value={engPayForm.payment_method} onChange={(e) => setEngPayForm({ ...engPayForm, payment_method: e.target.value })} style={{ width: 130 }}>
+                      <option value="">Select...</option>
+                      <option value="ACH">ACH</option>
+                      <option value="Check">Check</option>
+                      <option value="Cash">Cash</option>
+                      <option value="Zelle">Zelle</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Reference #</label>
+                    <input className="form-input" value={engPayForm.reference_number} onChange={(e) => setEngPayForm({ ...engPayForm, reference_number: e.target.value })} placeholder="Check #, etc." style={{ width: 140 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Notes</label>
+                    <input className="form-input" value={engPayForm.notes} onChange={(e) => setEngPayForm({ ...engPayForm, notes: e.target.value })} placeholder="Optional" style={{ width: 180 }} />
+                  </div>
+                  <button className="btn btn-primary" type="submit" disabled={engPaySaving}>
+                    {engPaySaving ? 'Saving...' : 'Record Payment'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Payment History Filter & Table */}
+          {summary1099.length === 0 && !verificationData && (
+            <div className="card">
+              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Payment History</div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Engineer</label>
+                  <select className="form-select" value={engPayFilter.user_id} onChange={(e) => { const f = { ...engPayFilter, user_id: e.target.value }; setEngPayFilter(f); loadEngPayments(f); }} style={{ width: 200 }}>
+                    <option value="">All Engineers</option>
+                    {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>From</label>
+                  <input className="form-input" type="date" value={engPayFilter.period_start} onChange={(e) => { const f = { ...engPayFilter, period_start: e.target.value }; setEngPayFilter(f); loadEngPayments(f); }} style={{ width: 150 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>To</label>
+                  <input className="form-input" type="date" value={engPayFilter.period_end} onChange={(e) => { const f = { ...engPayFilter, period_end: e.target.value }; setEngPayFilter(f); loadEngPayments(f); }} style={{ width: 150 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Type</label>
+                  <select className="form-select" value={engPayFilter.payment_type} onChange={(e) => { const f = { ...engPayFilter, payment_type: e.target.value }; setEngPayFilter(f); loadEngPayments(f); }} style={{ width: 140 }}>
+                    <option value="">All Types</option>
+                    <option value="payroll">Payroll</option>
+                    <option value="advance">Advance</option>
+                    <option value="bonus">Bonus</option>
+                    <option value="reimbursement">Reimbursement</option>
+                    <option value="adjustment">Adjustment</option>
+                  </select>
+                </div>
+              </div>
+
+              {engPayments.length === 0 && !loading && (
+                <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>No payments found.</div>
+              )}
+
+              {engPayments.length > 0 && (
+                <div className="table-wrap">
+                  <table style={{ fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Engineer</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Period</th>
+                        <th>Notes</th>
+                        <th style={{ width: 50 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {engPayments.map(p => (
+                        <tr key={p.id}>
+                          <td>{formatDate(p.payment_date)}</td>
+                          <td>{p.engineer_name}</td>
+                          <td><span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: p.payment_type === 'payroll' ? '#dbeafe' : p.payment_type === 'advance' ? '#fef3c7' : '#f3e8ff', color: p.payment_type === 'payroll' ? '#1e40af' : p.payment_type === 'advance' ? '#92400e' : '#6b21a8' }}>{p.payment_type}</span></td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(p.amount)}</td>
+                          <td>{p.payment_method || '—'}</td>
+                          <td style={{ fontSize: 11 }}>{p.reference_number || '—'}</td>
+                          <td style={{ fontSize: 11 }}>{p.period_start && p.period_end ? `${formatDate(p.period_start)} - ${formatDate(p.period_end)}` : '—'}</td>
+                          <td style={{ fontSize: 11, color: '#64748b' }}>{p.notes || ''}</td>
+                          <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteEngPayment(p.id)}>Del</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
+                        <td colSpan="3" style={{ textAlign: 'right' }}>Total:</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(engPayments.reduce((s, p) => s + p.amount, 0))}</td>
+                        <td colSpan="5"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 1099 Summary */}
+          {summary1099.length > 0 && !verificationData && (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>1099-NEC Summary — Tax Year {taxYear}</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select className="form-select no-print" value={taxYear} onChange={(e) => setTaxYear(e.target.value)} style={{ width: 100 }}>
+                    {yearOptions.map(y => <option key={y.label} value={y.label}>{y.label}</option>)}
+                  </select>
+                  <button className="btn btn-secondary btn-sm no-print" onClick={load1099Summary}>Refresh</button>
+                  <button className="btn btn-secondary btn-sm no-print" onClick={() => window.print()}>Print</button>
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Engineer</th>
+                      <th>Engineer ID</th>
+                      <th>Total Paid</th>
+                      <th>Payment Count</th>
+                      <th>First Payment</th>
+                      <th>Last Payment</th>
+                      <th>1099 Required</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary1099.map(row => (
+                      <tr key={row.user_id}>
+                        <td style={{ fontWeight: 600 }}>{row.engineer_name}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace' }}>{row.engineer_id || '—'}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(row.total_paid)}</td>
+                        <td>{row.payment_count}</td>
+                        <td>{formatDate(row.first_payment)}</td>
+                        <td>{formatDate(row.last_payment)}</td>
+                        <td>{row.total_paid >= 600 ? <span style={{ color: '#dc2626', fontWeight: 600 }}>YES</span> : <span style={{ color: '#64748b' }}>No</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
+                      <td>Total</td>
+                      <td></td>
+                      <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(summary1099.reduce((s, r) => s + r.total_paid, 0))}</td>
+                      <td>{summary1099.reduce((s, r) => s + r.payment_count, 0)}</td>
+                      <td colSpan="3"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div style={{ marginTop: 12, fontSize: 12, color: '#64748b' }}>
+                A 1099-NEC is required for contractors paid $600 or more during the tax year.
+              </div>
+            </div>
+          )}
+
+          {/* Verification Letter */}
+          {!summary1099.length && (
+            <div>
+              {!verificationData && (
+                <div className="card no-print" style={{ marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Employment / Payment Verification Letter</div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Engineer</label>
+                      <select className="form-select" value={verificationEngineer} onChange={(e) => setVerificationEngineer(e.target.value)} style={{ width: 200 }}>
+                        <option value="">Select...</option>
+                        {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>From</label>
+                      <input className="form-input" type="date" value={verificationRange.period_start} onChange={(e) => setVerificationRange({ ...verificationRange, period_start: e.target.value })} style={{ width: 150 }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>To</label>
+                      <input className="form-input" type="date" value={verificationRange.period_end} onChange={(e) => setVerificationRange({ ...verificationRange, period_end: e.target.value })} style={{ width: 150 }} />
+                    </div>
+                    <button className="btn btn-primary" onClick={loadVerification}>Generate Letter</button>
+                  </div>
+                </div>
+              )}
+
+              {verificationData && (
+                <div>
+                  <div className="no-print" style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+                    <button className="btn btn-secondary" onClick={() => setVerificationData(null)}>Back</button>
+                    <button className="btn btn-primary" onClick={() => window.print()}>Print Letter</button>
+                  </div>
+                  <div className="card" style={{ maxWidth: 800, margin: '0 auto', padding: 40, fontFamily: 'Georgia, serif', fontSize: 14, lineHeight: 1.8 }}>
+                    {/* Company Header */}
+                    <div style={{ textAlign: 'center', marginBottom: 30 }}>
+                      <div style={{ fontSize: 20, fontWeight: 'bold' }}>{verificationData.company.name}</div>
+                      {verificationData.company.address && <div>{verificationData.company.address}</div>}
+                      <div>
+                        {verificationData.company.phone && <span>{verificationData.company.phone}</span>}
+                        {verificationData.company.phone && verificationData.company.email && <span> | </span>}
+                        {verificationData.company.email && <span>{verificationData.company.email}</span>}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 20 }}>
+                      {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </div>
+
+                    <div style={{ marginBottom: 20, fontWeight: 'bold' }}>
+                      RE: Employment and Payment Verification
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>To Whom It May Concern,</div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      This letter is to confirm that <strong>{verificationData.engineer.name}</strong>
+                      {verificationData.engineer.engineer_id && <span> (ID: {verificationData.engineer.engineer_id})</span>}
+                      {' '}has been engaged as an independent contractor with {verificationData.company.name || 'our company'} since{' '}
+                      {new Date(verificationData.engineer.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      For the period of{' '}
+                      <strong>{new Date(verificationData.period.start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong>
+                      {' '}through{' '}
+                      <strong>{new Date(verificationData.period.end + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong>,
+                      the following compensation was provided:
+                    </div>
+
+                    <div style={{ margin: '20px 40px', padding: 16, border: '1px solid #ccc', background: '#fafafa' }}>
+                      <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
+                        <tbody>
+                          <tr><td style={{ padding: '4px 0' }}>Total Compensation:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.total_paid)}</td></tr>
+                          <tr><td style={{ padding: '4px 0' }}>Number of Payments:</td><td style={{ textAlign: 'right' }}>{verificationData.payment_count}</td></tr>
+                          <tr><td style={{ padding: '4px 0' }}>Average Monthly Income:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.avg_monthly)}</td></tr>
+                          <tr><td style={{ padding: '4px 0' }}>Months Active:</td><td style={{ textAlign: 'right' }}>{verificationData.months_active}</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      This information is provided for verification purposes only. If you have any questions or require additional information, please do not hesitate to contact us.
+                    </div>
+
+                    <div style={{ marginTop: 40 }}>
+                      <div>Sincerely,</div>
+                      <div style={{ marginTop: 40, borderTop: '1px solid #000', width: 250, paddingTop: 4 }}>
+                        Authorized Representative
+                      </div>
+                      <div>{verificationData.company.name}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

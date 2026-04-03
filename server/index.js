@@ -2497,6 +2497,25 @@ function achExportHandler(req, res) {
     ].join(','));
   });
 
+  // Auto-record engineer payments when ACH is generated (skip duplicates)
+  const existingCheck = db.prepare(
+    'SELECT id FROM engineer_payments WHERE user_id = ? AND payment_type = ? AND period_start = ? AND period_end = ?'
+  );
+  const insertPayment = db.prepare(
+    'INSERT INTO engineer_payments (user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  const achRef = `ACH_${fileDate}`;
+  for (const payment of validPayments) {
+    const existing = existingCheck.get(payment.user_id, 'payroll', period_start, period_end);
+    if (!existing) {
+      insertPayment.run(
+        payment.user_id, payment.total_pay, delivery_date,
+        'payroll', period_start, period_end,
+        achRef, 'ACH', `ACH payroll for ${period_start} to ${period_end}`
+      );
+    }
+  }
+
   // Return CSV
   const csv = rows.join('\n');
   res.setHeader('Content-Type', 'text/csv');
@@ -2857,6 +2876,126 @@ app.post('/api/import/banking', auth, adminOnly, (req, res) => {
   }
 });
 
+// ─── ENGINEER PAYMENTS ────────────────────────────────────────────────────────
+
+// List engineer payments with filters
+app.get('/api/engineer-payments', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { user_id, period_start, period_end, payment_type } = req.query;
+  let query = `
+    SELECT ep.*, u.name as engineer_name, u.engineer_id
+    FROM engineer_payments ep
+    JOIN users u ON u.id = ep.user_id
+    WHERE 1=1
+  `;
+  const params = [];
+  if (user_id) { query += ' AND ep.user_id = ?'; params.push(user_id); }
+  if (period_start && period_end) {
+    query += ' AND (ep.payment_date BETWEEN ? AND ? OR (ep.period_start IS NOT NULL AND ep.period_end IS NOT NULL AND ep.period_start <= ? AND ep.period_end >= ?))';
+    params.push(period_start, period_end, period_end, period_start);
+  } else if (period_start) {
+    query += ' AND (ep.payment_date >= ? OR ep.period_end >= ?)'; params.push(period_start, period_start);
+  } else if (period_end) {
+    query += ' AND (ep.payment_date <= ? OR ep.period_start <= ?)'; params.push(period_end, period_end);
+  }
+  if (payment_type) { query += ' AND ep.payment_type = ?'; params.push(payment_type); }
+  query += ' ORDER BY ep.payment_date DESC, ep.created_at DESC';
+  res.json(db.prepare(query).all(...params));
+});
+
+// Create an engineer payment
+app.post('/api/engineer-payments', auth, adminOnly, (req, res) => {
+  const { user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes } = req.body;
+  if (!user_id || !amount || !payment_date || !payment_type) {
+    return res.status(400).json({ error: 'user_id, amount, payment_date, and payment_type are required' });
+  }
+  const db = getDb();
+  const result = db.prepare(
+    'INSERT INTO engineer_payments (user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(user_id, amount, payment_date, payment_type, period_start || null, period_end || null, reference_number || null, payment_method || null, notes || null);
+  res.json({ success: true, id: result.lastInsertRowid });
+});
+
+// Delete an engineer payment
+app.delete('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const payment = db.prepare('SELECT * FROM engineer_payments WHERE id = ?').get(req.params.id);
+  if (!payment) return res.status(404).json({ error: 'Payment not found' });
+  db.prepare('DELETE FROM engineer_payments WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// 1099 Summary - totals per engineer for a tax year
+app.get('/api/engineer-payments/1099-summary', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { year } = req.query;
+  const taxYear = year || new Date().getFullYear();
+  const startDate = `${taxYear}-01-01`;
+  const endDate = `${taxYear}-12-31`;
+  const data = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id, u.email,
+           COALESCE(SUM(ep.amount), 0) as total_paid,
+           COUNT(ep.id) as payment_count,
+           MIN(ep.payment_date) as first_payment,
+           MAX(ep.payment_date) as last_payment
+    FROM users u
+    LEFT JOIN engineer_payments ep ON ep.user_id = u.id AND (
+      ep.payment_date BETWEEN ? AND ?
+      OR (ep.period_start IS NOT NULL AND ep.period_end IS NOT NULL AND ep.period_start <= ? AND ep.period_end >= ?)
+    )
+    WHERE u.role = 'engineer'
+    GROUP BY u.id
+    HAVING total_paid > 0
+    ORDER BY u.name
+  `).all(startDate, endDate, endDate, startDate);
+  res.json(data);
+});
+
+// Payment verification letter data
+app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { period_start, period_end } = req.query;
+  const user = db.prepare('SELECT id, name, engineer_id, email, created_at FROM users WHERE id = ?').get(req.params.userId);
+  if (!user) return res.status(404).json({ error: 'Engineer not found' });
+
+  const startDate = period_start || `${new Date().getFullYear()}-01-01`;
+  const endDate = period_end || new Date().toISOString().split('T')[0];
+
+  const payments = db.prepare(`
+    SELECT amount, payment_date, payment_type, period_start, period_end
+    FROM engineer_payments
+    WHERE user_id = ? AND (
+      payment_date BETWEEN ? AND ?
+      OR (period_start IS NOT NULL AND period_end IS NOT NULL AND period_start <= ? AND period_end >= ?)
+    )
+    ORDER BY payment_date
+  `).all(req.params.userId, startDate, endDate, endDate, startDate);
+
+  const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+  const months = new Set(payments.map(p => p.payment_date.substring(0, 7))).size || 1;
+  const avgMonthly = totalPaid / months;
+
+  // Get company info from settings
+  const settings = {};
+  db.prepare("SELECT key, value FROM settings").all().forEach(s => { settings[s.key] = s.value; });
+
+  res.json({
+    engineer: user,
+    period: { start: startDate, end: endDate },
+    total_paid: totalPaid,
+    payment_count: payments.length,
+    avg_monthly: avgMonthly,
+    months_active: months,
+    payments,
+    company: {
+      name: settings.company_name || '',
+      address: settings.company_address || '',
+      phone: settings.company_phone || '',
+      email: settings.company_email || '',
+    }
+  });
+});
+
 // ─── BACKUP & RESTORE ─────────────────────────────────────────────────────────
 
 // Backup all company data
@@ -2878,6 +3017,7 @@ app.get('/api/backup', auth, adminOnly, (req, res) => {
         payments: db.prepare('SELECT * FROM payments').all(),
         settings: db.prepare('SELECT * FROM settings').all(),
         holidays: db.prepare('SELECT * FROM holidays').all(),
+        engineer_payments: db.prepare('SELECT * FROM engineer_payments').all(),
       }
     };
 
@@ -3012,6 +3152,14 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
         for (const h of backup.data.holidays) {
           db.prepare('INSERT INTO holidays (id, name, date, hours, created_at) VALUES (?, ?, ?, ?, ?)').run(
             h.id, h.name, h.date, h.hours || 8, h.created_at
+          );
+        }
+      }
+
+      if (backup.data.engineer_payments) {
+        for (const ep of backup.data.engineer_payments) {
+          db.prepare('INSERT INTO engineer_payments (id, user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            ep.id, ep.user_id, ep.amount, ep.payment_date, ep.payment_type, ep.period_start, ep.period_end, ep.reference_number, ep.payment_method, ep.notes, ep.created_at
           );
         }
       }
