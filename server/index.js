@@ -18,38 +18,78 @@ const formatMoney = (amt) => new Intl.NumberFormat('en-US', { style: 'currency',
 
 // ─── EMAIL HELPER ─────────────────────────────────────────────────────────────
 
-async function sendNotificationEmail(subject, htmlBody) {
+async function sendTelegram(text, botToken, chatId) {
+  const https = require('https');
+  const payload = JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' });
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.telegram.org',
+      path: `/bot${botToken}/sendMessage`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { resolve(data); }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function sendNotification(subject, htmlBody, textBody) {
   const db = getDb();
   const settings = {};
-  const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('smtp_email', 'smtp_password', 'admin_notification_email')").all();
+  const keys = ['smtp_email', 'smtp_password', 'admin_notification_email', 'notification_method', 'telegram_bot_token', 'telegram_chat_id'];
+  const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`).all(...keys);
   for (const row of rows) {
     settings[row.key] = row.value;
   }
 
-  if (!settings.smtp_email || !settings.smtp_password || !settings.admin_notification_email) {
-    console.log('Email notifications not configured - skipping');
-    return;
+  const method = settings.notification_method || 'email';
+  if (method === 'none') return;
+
+  // Send email if method is 'email' or 'both'
+  if ((method === 'email' || method === 'both') && settings.smtp_email && settings.smtp_password && settings.admin_notification_email) {
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: settings.smtp_email, pass: settings.smtp_password },
+      });
+      await transporter.sendMail({
+        from: settings.smtp_email,
+        to: settings.admin_notification_email,
+        subject: subject,
+        html: htmlBody,
+      });
+      console.log('Notification email sent successfully');
+    } catch (err) {
+      console.error('Failed to send notification email:', err.message);
+    }
   }
 
-  try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: settings.smtp_email,
-        pass: settings.smtp_password,
-      },
-    });
-
-    await transporter.sendMail({
-      from: settings.smtp_email,
-      to: settings.admin_notification_email,
-      subject: subject,
-      html: htmlBody,
-    });
-    console.log('Notification email sent successfully');
-  } catch (err) {
-    console.error('Failed to send notification email:', err.message);
+  // Send Telegram if method is 'telegram' or 'both'
+  if ((method === 'telegram' || method === 'both') && settings.telegram_bot_token && settings.telegram_chat_id) {
+    try {
+      const msg = textBody || subject;
+      const result = await sendTelegram(msg, settings.telegram_bot_token, settings.telegram_chat_id);
+      if (result.ok) {
+        console.log('Telegram notification sent successfully');
+      } else {
+        console.error('Telegram error:', result.description || JSON.stringify(result));
+      }
+    } catch (err) {
+      console.error('Failed to send Telegram notification:', err.message);
+    }
   }
+}
+
+// Backward-compatible alias
+async function sendNotificationEmail(subject, htmlBody) {
+  return sendNotification(subject, htmlBody);
 }
 
 // Serve React app in production
@@ -291,6 +331,73 @@ app.post('/api/test-email', auth, adminOnly, async (req, res) => {
   } catch (err) {
     console.error('Test email failed:', err);
     res.status(500).json({ error: `Failed to send email: ${err.message}` });
+  }
+});
+
+// Get Telegram chat ID by checking recent messages to the bot
+app.post('/api/telegram/get-chat-id', auth, adminOnly, async (req, res) => {
+  const db = getDb();
+  const tokenRow = db.prepare("SELECT value FROM settings WHERE key = 'telegram_bot_token'").get();
+  const botToken = tokenRow?.value;
+  if (!botToken) return res.status(400).json({ error: 'Telegram bot token not configured. Save your settings first.' });
+
+  try {
+    const https = require('https');
+    const data = await new Promise((resolve, reject) => {
+      https.get(`https://api.telegram.org/bot${botToken}/getUpdates?limit=10`, (resp) => {
+        let d = '';
+        resp.on('data', chunk => d += chunk);
+        resp.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error('Invalid response')); } });
+      }).on('error', reject);
+    });
+
+    if (!data.ok) return res.status(400).json({ error: 'Telegram API error: ' + (data.description || 'Unknown error. Check your bot token.') });
+
+    const messages = data.result || [];
+    if (messages.length === 0) {
+      return res.status(400).json({ error: 'No messages found. Please open Telegram, find @UTechTimeBot, and send it any message first. Then try again.' });
+    }
+
+    // Get the most recent chat ID
+    const lastMsg = messages[messages.length - 1];
+    const chatId = lastMsg.message?.chat?.id || lastMsg.channel_post?.chat?.id;
+    const chatName = lastMsg.message?.chat?.first_name || lastMsg.message?.chat?.title || 'Unknown';
+
+    if (!chatId) return res.status(400).json({ error: 'Could not determine chat ID from messages.' });
+
+    // Save it
+    const existing = db.prepare("SELECT id FROM settings WHERE key = 'telegram_chat_id'").get();
+    if (existing) {
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'telegram_chat_id'").run(String(chatId));
+    } else {
+      db.prepare("INSERT INTO settings (key, value) VALUES ('telegram_chat_id', ?)").run(String(chatId));
+    }
+
+    res.json({ success: true, chat_id: chatId, chat_name: chatName, message: `Chat ID detected: ${chatId} (${chatName}). Saved!` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed: ' + err.message });
+  }
+});
+
+app.post('/api/test-telegram', auth, adminOnly, async (req, res) => {
+  const db = getDb();
+  const tokenRow = db.prepare("SELECT value FROM settings WHERE key = 'telegram_bot_token'").get();
+  const chatRow = db.prepare("SELECT value FROM settings WHERE key = 'telegram_chat_id'").get();
+  const botToken = tokenRow?.value;
+  const chatId = chatRow?.value;
+
+  if (!botToken) return res.status(400).json({ error: 'Telegram bot token not configured.' });
+  if (!chatId) return res.status(400).json({ error: 'Telegram chat ID not detected. Click "Detect Chat ID" first.' });
+
+  try {
+    const result = await sendTelegram('TimeTracker test: Telegram notifications are working!', botToken, chatId);
+    if (result.ok) {
+      res.json({ success: true, message: 'Test message sent to Telegram!' });
+    } else {
+      res.status(400).json({ error: 'Telegram error: ' + (result.description || 'Unknown error') });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed: ' + err.message });
   }
 });
 
@@ -785,9 +892,10 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
   const isFixedPrice = ts.project_type === 'fixed_price';
   const amount = isFixedPrice ? (ts.amount || 0) : (ts.total_hours * (ts.bill_rate || 0));
 
-  // Send notification email to admin
+  // Send notification to admin
   const weekEnding = new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  sendNotificationEmail(
+  const amountStr = `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  sendNotification(
     `Timesheet Submitted - ${ts.engineer_name}`,
     `
     <h2>New Timesheet Submitted</h2>
@@ -801,10 +909,11 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
         ? `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Percentage:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.percentage || 0}%</td></tr>`
         : `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Total Hours:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.total_hours.toFixed(2)}</td></tr>`
       }
-      <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
+      <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${amountStr}</td></tr>
     </table>
     <p>Log in to <a href="https://timetracker.utechconsulting.net">UTech TimeTracker</a> to review and approve.</p>
-    `
+    `,
+    `Timesheet: ${ts.engineer_name} - ${ts.project_name} WE ${weekEnding} ${isFixedPrice ? ts.percentage + '%' : ts.total_hours.toFixed(1) + 'hrs'} ${amountStr}`
   );
 
   res.json({ success: true });

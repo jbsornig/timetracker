@@ -47,6 +47,9 @@ export default function Settings() {
     admin_notification_email: '',
     smtp_email: '',
     smtp_password: '',
+    notification_method: 'email',
+    telegram_bot_token: '',
+    telegram_chat_id: '',
     chase_ach_account: '',
   });
   const [smtpPasswordChanged, setSmtpPasswordChanged] = useState(false);
@@ -482,7 +485,21 @@ export default function Settings() {
           </p>
 
           <div className="form-group">
-            <label className="form-label">Send Notifications To</label>
+            <label className="form-label">Notification Method</label>
+            <select
+              className="form-select"
+              value={settings.notification_method}
+              onChange={(e) => handleChange('notification_method', e.target.value)}
+            >
+              <option value="email">Email Only</option>
+              <option value="telegram">Telegram Only</option>
+              <option value="both">Email + Telegram</option>
+              <option value="none">None (Disabled)</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Send Email Notifications To</label>
             <input
               className="form-input"
               type="email"
@@ -492,6 +509,53 @@ export default function Settings() {
             />
             <div className="form-hint">Email address that will receive timesheet notifications</div>
           </div>
+
+          {(settings.notification_method === 'telegram' || settings.notification_method === 'both') && (
+            <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Telegram Settings</div>
+              <div className="form-group">
+                <label className="form-label">Bot Token</label>
+                <input
+                  className="form-input"
+                  value={settings.telegram_bot_token}
+                  onChange={(e) => handleChange('telegram_bot_token', e.target.value)}
+                  placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                />
+                <div className="form-hint">Token from @BotFather. Save settings after entering this.</div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Chat ID</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    className="form-input"
+                    value={settings.telegram_chat_id}
+                    onChange={(e) => handleChange('telegram_chat_id', e.target.value)}
+                    placeholder="Auto-detected"
+                    style={{ flex: 1 }}
+                    readOnly
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      try {
+                        const result = await apiFetch('/telegram/get-chat-id', { method: 'POST' });
+                        handleChange('telegram_chat_id', String(result.chat_id));
+                        alert(result.message);
+                      } catch (e) {
+                        alert('Error: ' + e.message);
+                      }
+                    }}
+                  >
+                    Detect Chat ID
+                  </button>
+                </div>
+                <div className="form-hint">
+                  Open Telegram, find <strong>@UTechTimeBot</strong>, send it any message, then click "Detect Chat ID".
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">SMTP Email (Sender)</label>
@@ -533,22 +597,40 @@ export default function Settings() {
           </div>
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={async () => {
-                try {
-                  const result = await apiFetch('/test-email', { method: 'POST' });
-                  alert(result.message || 'Test email sent!');
-                } catch (e) {
-                  alert('Error: ' + e.message);
-                }
-              }}
-            >
-              Send Test Email
-            </button>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    const result = await apiFetch('/test-email', { method: 'POST' });
+                    alert(result.message || 'Test email sent!');
+                  } catch (e) {
+                    alert('Error: ' + e.message);
+                  }
+                }}
+              >
+                Send Test Email
+              </button>
+              {(settings.notification_method === 'telegram' || settings.notification_method === 'both') && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    try {
+                      const result = await apiFetch('/test-telegram', { method: 'POST' });
+                      alert(result.message || 'Test message sent!');
+                    } catch (e) {
+                      alert('Error: ' + e.message);
+                    }
+                  }}
+                >
+                  Send Test Telegram
+                </button>
+              )}
+            </div>
             <div className="form-hint" style={{ marginTop: 8 }}>
-              Save your settings first, then click to send a test email to verify your configuration.
+              Save your settings first, then click to test your notification configuration.
             </div>
           </div>
         </div>
