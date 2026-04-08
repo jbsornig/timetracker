@@ -110,10 +110,10 @@ function TimesheetPrintView({ ts, entries, settings }) {
 
   const allWeekDates = getWeekDates();
 
-  // Filter to only dates within the billing month (based on week_ending's month)
-  const weDate = ts.week_ending ? new Date(ts.week_ending + 'T00:00:00') : null;
-  const printMonth = weDate ? weDate.getMonth() : 0;
-  const printYear = weDate ? weDate.getFullYear() : 0;
+  // Filter to only dates within the billing month (based on Monday/first day of the week)
+  const mondayDate = allWeekDates.length > 0 ? new Date(allWeekDates[0] + 'T00:00:00') : null;
+  const printMonth = mondayDate ? mondayDate.getMonth() : 0;
+  const printYear = mondayDate ? mondayDate.getFullYear() : 0;
   const weekDates = allWeekDates.filter(date => {
     const d = new Date(date + 'T00:00:00');
     return d.getMonth() === printMonth && d.getFullYear() === printYear;
@@ -718,10 +718,12 @@ export default function Timesheets() {
     setSaving(true);
     setError('');
     try {
-      // Clear data for entries outside the billing month (based on week_ending's month)
+      // Clear data for entries outside the billing month (based on Monday/first day of the week)
       const weekEnd = new Date(selectedTimesheet.week_ending + 'T00:00:00');
-      const bMonth = weekEnd.getMonth();
-      const bYear = weekEnd.getFullYear();
+      const monday = new Date(weekEnd);
+      monday.setDate(weekEnd.getDate() - 6);
+      const bMonth = monday.getMonth();
+      const bYear = monday.getFullYear();
       const cleanedEntries = entries.map(e => {
         const d = new Date(e.entry_date + 'T00:00:00');
         if (d.getMonth() !== bMonth || d.getFullYear() !== bYear) {
@@ -934,10 +936,12 @@ export default function Timesheets() {
     const ts = selectedTimesheet;
     const canEdit = ts.status !== 'approved';
 
-    // Determine billing month from week_ending's month
+    // Determine billing month from Monday (first day of the week)
     const weekEndDate = new Date(ts.week_ending + 'T00:00:00');
-    const billingMonth = weekEndDate.getMonth();
-    const billingYear = weekEndDate.getFullYear();
+    const mondayOfWeek = new Date(weekEndDate);
+    mondayOfWeek.setDate(weekEndDate.getDate() - 6);
+    const billingMonth = mondayOfWeek.getMonth();
+    const billingYear = mondayOfWeek.getFullYear();
     const isOutsideBillingMonth = (dateStr) => {
       const d = new Date(dateStr + 'T00:00:00');
       return d.getMonth() !== billingMonth || d.getFullYear() !== billingYear;
