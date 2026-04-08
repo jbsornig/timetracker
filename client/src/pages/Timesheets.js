@@ -718,22 +718,9 @@ export default function Timesheets() {
     setSaving(true);
     setError('');
     try {
-      // Clear data for entries outside the billing month (based on Monday/first day of the week)
-      const weekEnd = new Date(selectedTimesheet.week_ending + 'T00:00:00');
-      const monday = new Date(weekEnd);
-      monday.setDate(weekEnd.getDate() - 6);
-      const bMonth = monday.getMonth();
-      const bYear = monday.getFullYear();
-      const cleanedEntries = entries.map(e => {
-        const d = new Date(e.entry_date + 'T00:00:00');
-        if (d.getMonth() !== bMonth || d.getFullYear() !== bYear) {
-          return { ...e, start_time: '', end_time: '', hours: 0, description: '', lunch_break: 0 };
-        }
-        return e;
-      });
       await apiFetch(`/timesheets/${selectedTimesheet.id}/entries`, {
         method: 'PUT',
-        body: { entries: cleanedEntries },
+        body: { entries },
       });
       const ts = await apiFetch(`/timesheets/${selectedTimesheet.id}`);
       setSelectedTimesheet(ts);
@@ -936,16 +923,8 @@ export default function Timesheets() {
     const ts = selectedTimesheet;
     const canEdit = ts.status !== 'approved';
 
-    // Determine billing month from Monday (first day of the week)
-    const weekEndDate = new Date(ts.week_ending + 'T00:00:00');
-    const mondayOfWeek = new Date(weekEndDate);
-    mondayOfWeek.setDate(weekEndDate.getDate() - 6);
-    const billingMonth = mondayOfWeek.getMonth();
-    const billingYear = mondayOfWeek.getFullYear();
-    const isOutsideBillingMonth = (dateStr) => {
-      const d = new Date(dateStr + 'T00:00:00');
-      return d.getMonth() !== billingMonth || d.getFullYear() !== billingYear;
-    };
+    // All days in the week are editable — no greying out for cross-month weeks
+    const isOutsideBillingMonth = () => false;
 
     return (
       <div>
