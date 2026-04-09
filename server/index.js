@@ -1804,7 +1804,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
 
   const lineItemsHtml = lineItems.length > 0 ? lineItems.map(item => `
     <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${item.hours.toFixed(0)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${item.hours.toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.rate.toFixed(2)}</td>
@@ -1813,7 +1813,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     </tr>
   `).join('') : `
     <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${(invoice.total_hours || 0).toFixed(0)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${(invoice.total_hours || 0).toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${periodRange}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">—</td>

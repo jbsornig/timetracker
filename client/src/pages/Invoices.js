@@ -3,7 +3,10 @@ import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
 function formatDate(dateStr) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+  if (!dateStr) return '—';
+  // Handle both "2026-04-01" and "2026-04-01 14:04:18" formats
+  const normalized = dateStr.includes('T') ? dateStr : dateStr.includes(' ') ? dateStr.replace(' ', 'T') : dateStr + 'T00:00:00';
+  return new Date(normalized).toLocaleDateString('en-US', {
     month: 'numeric',
     day: 'numeric',
     year: 'numeric',
@@ -42,7 +45,8 @@ function getDefaultDates() {
 }
 
 function getDueDate(invoiceDate, paymentTerms = 'Net 30') {
-  const d = new Date(invoiceDate);
+  const normalized = typeof invoiceDate === 'string' && invoiceDate.includes(' ') ? invoiceDate.replace(' ', 'T') : invoiceDate;
+  const d = new Date(normalized);
 
   // Parse payment terms to get number of days
   let days = 30; // default
@@ -1112,7 +1116,7 @@ export default function Invoices() {
               <tbody>
                 {sortedInvoices.map((inv) => {
                   const balance = (inv.total_amount || 0) - (inv.amount_paid || 0);
-                  const invoiceDate = inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }) : '—';
+                  const invoiceDate = inv.created_at ? formatDate(inv.created_at) : '—';
                   return (
                     <tr key={inv.id} style={inv.status === 'voided' ? { opacity: 0.6 } : {}}>
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{inv.invoice_number}</td>
@@ -1689,7 +1693,7 @@ function InvoiceContent({ inv, settings }) {
     return `${formatDate(start.toISOString().split('T')[0])} to ${formatDate(end.toISOString().split('T')[0])}`;
   };
 
-  const invoiceDate = inv.created_at ? new Date(inv.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }) : formatDate(new Date().toISOString().split('T')[0]);
+  const invoiceDate = inv.created_at ? formatDate(inv.created_at) : formatDate(new Date().toISOString().split('T')[0]);
   const dueDate = getDueDate(inv.created_at || new Date(), paymentTerms);
 
   return (
@@ -1787,7 +1791,7 @@ function InvoiceContent({ inv, settings }) {
             inv.lineItems.map((item, idx) => (
               <tr key={idx}>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_fixed_price ? `${item.percentage}%` : item.is_fixed_monthly ? `${item.hours?.toFixed(0)} hrs` : item.hours?.toFixed(0)}
+                  {item.is_fixed_price ? `${item.percentage}%` : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
@@ -1807,7 +1811,7 @@ function InvoiceContent({ inv, settings }) {
             ))
           ) : (
             <tr>
-              <td style={{ border: '1px solid #ccc', padding: '8px' }}>{inv.total_hours?.toFixed(0) || 0}</td>
+              <td style={{ border: '1px solid #ccc', padding: '8px' }}>{inv.total_hours?.toFixed(2) || '0.00'}</td>
               <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
               <td style={{ border: '1px solid #ccc', padding: '8px' }}>
                 {projectDescription || 'Engineering Labor Hours'} - {periodRange}
