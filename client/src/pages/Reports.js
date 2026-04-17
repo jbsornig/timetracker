@@ -11,7 +11,8 @@ function formatCurrency(amount) {
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
-  return new Date(dateStr.split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', {
+  const normalized = dateStr.includes('T') ? dateStr : dateStr.includes(' ') ? dateStr.replace(' ', 'T') : dateStr + 'T00:00:00';
+  return new Date(normalized.split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', {
     month: 'numeric',
     day: 'numeric',
     year: 'numeric',
@@ -88,6 +89,7 @@ export default function Reports() {
   const [verificationData, setVerificationData] = useState(null);
   const [verificationEngineer, setVerificationEngineer] = useState('');
   const [verificationRange, setVerificationRange] = useState({ period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
+  const [overdueData, setOverdueData] = useState([]);
 
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
@@ -100,6 +102,8 @@ export default function Reports() {
     } else if (activeTab === 'engineer-payments') {
       loadEngineers();
       loadEngPayments();
+    } else if (activeTab === 'overdue') {
+      loadOverdueInvoices();
     }
   }, [activeTab]);
 
@@ -175,6 +179,19 @@ export default function Reports() {
     try {
       const data = await apiFetch('/reports/contract-hours');
       setContractHoursData(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadOverdueInvoices = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiFetch('/reports/overdue-invoices');
+      setOverdueData(data);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -441,6 +458,12 @@ export default function Reports() {
             onClick={() => setActiveTab('engineer-payments')}
           >
             Engineer Payments
+          </button>
+          <button
+            className={`btn ${activeTab === 'overdue' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('overdue')}
+          >
+            Overdue Invoices
           </button>
         </div>
       </div>
@@ -1584,6 +1607,166 @@ export default function Reports() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'overdue' && (
+        <div>
+          {loading ? <div style={{ padding: 20, color: '#94a3b8' }}>Loading...</div> : (() => {
+            const overdue = overdueData.filter(inv => inv.days_overdue > 0);
+            const current = overdueData.filter(inv => inv.days_overdue <= 0);
+            const agingBuckets = {
+              '1-30': overdue.filter(inv => inv.aging === '1-30'),
+              '31-60': overdue.filter(inv => inv.aging === '31-60'),
+              '61-90': overdue.filter(inv => inv.aging === '61-90'),
+              '90+': overdue.filter(inv => inv.aging === '90+'),
+            };
+            const totalOverdue = overdue.reduce((s, inv) => s + inv.balance, 0);
+            const totalCurrent = current.reduce((s, inv) => s + inv.balance, 0);
+
+            return (
+              <>
+                {/* Aging Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 24 }}>
+                  <div className="card" style={{ padding: 16, textAlign: 'center' }}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Current</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#10b981' }}>{formatCurrency(totalCurrent)}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{current.length} invoice{current.length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div className="card" style={{ padding: 16, textAlign: 'center' }}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>1-30 Days</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>{formatCurrency(agingBuckets['1-30'].reduce((s, i) => s + i.balance, 0))}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{agingBuckets['1-30'].length} invoice{agingBuckets['1-30'].length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div className="card" style={{ padding: 16, textAlign: 'center' }}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>31-60 Days</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#f97316' }}>{formatCurrency(agingBuckets['31-60'].reduce((s, i) => s + i.balance, 0))}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{agingBuckets['31-60'].length} invoice{agingBuckets['31-60'].length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div className="card" style={{ padding: 16, textAlign: 'center' }}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>61-90 Days</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>{formatCurrency(agingBuckets['61-90'].reduce((s, i) => s + i.balance, 0))}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{agingBuckets['61-90'].length} invoice{agingBuckets['61-90'].length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div className="card" style={{ padding: 16, textAlign: 'center' }}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>90+ Days</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#dc2626' }}>{formatCurrency(agingBuckets['90+'].reduce((s, i) => s + i.balance, 0))}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{agingBuckets['90+'].length} invoice{agingBuckets['90+'].length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div className="card" style={{ padding: 16, textAlign: 'center', background: totalOverdue > 0 ? '#fef2f2' : undefined }}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Total Overdue</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: totalOverdue > 0 ? '#dc2626' : '#10b981' }}>{formatCurrency(totalOverdue)}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{overdue.length} invoice{overdue.length !== 1 ? 's' : ''}</div>
+                  </div>
+                </div>
+
+                {/* Overdue Invoice Table */}
+                {overdue.length === 0 ? (
+                  <div className="card" style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                    No overdue invoices. All invoices are current.
+                  </div>
+                ) : (
+                  <div className="card" style={{ padding: 0 }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>
+                      Overdue Invoices ({overdue.length})
+                    </div>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Invoice #</th>
+                            <th>Customer</th>
+                            <th>Project</th>
+                            <th>Invoice Date</th>
+                            <th>Due Date</th>
+                            <th style={{ textAlign: 'center' }}>Days Overdue</th>
+                            <th style={{ textAlign: 'right' }}>Total</th>
+                            <th style={{ textAlign: 'right' }}>Paid</th>
+                            <th style={{ textAlign: 'right' }}>Balance Due</th>
+                            <th>Aging</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overdue.sort((a, b) => b.days_overdue - a.days_overdue).map(inv => (
+                            <tr key={inv.id}>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{inv.invoice_number}</td>
+                              <td>{inv.customer_name}</td>
+                              <td style={{ fontSize: 12 }}>{inv.project_name}</td>
+                              <td>{formatDate(inv.created_at)}</td>
+                              <td>{formatDate(inv.due_date)}</td>
+                              <td style={{ textAlign: 'center', fontWeight: 600, color: inv.days_overdue > 90 ? '#dc2626' : inv.days_overdue > 60 ? '#ef4444' : inv.days_overdue > 30 ? '#f97316' : '#f59e0b' }}>
+                                {inv.days_overdue}
+                              </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(inv.total_amount)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(inv.amount_paid)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'DM Mono, monospace' }}>{formatCurrency(inv.balance)}</td>
+                              <td>
+                                <span style={{
+                                  padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+                                  background: inv.aging === '90+' ? '#fecaca' : inv.aging === '61-90' ? '#fed7aa' : inv.aging === '31-60' ? '#fef08a' : '#fef9c3',
+                                  color: inv.aging === '90+' ? '#991b1b' : inv.aging === '61-90' ? '#9a3412' : inv.aging === '31-60' ? '#854d0e' : '#a16207',
+                                }}>
+                                  {inv.aging} days
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                            <td colSpan={6}>Totals</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(overdue.reduce((s, i) => s + (i.total_amount || 0), 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(overdue.reduce((s, i) => s + (i.amount_paid || 0), 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(totalOverdue)}</td>
+                            <td></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Current (Not Yet Due) */}
+                {current.length > 0 && (
+                  <div className="card" style={{ padding: 0, marginTop: 20 }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>
+                      Current - Not Yet Due ({current.length})
+                    </div>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Invoice #</th>
+                            <th>Customer</th>
+                            <th>Project</th>
+                            <th>Invoice Date</th>
+                            <th>Due Date</th>
+                            <th style={{ textAlign: 'center' }}>Days Until Due</th>
+                            <th style={{ textAlign: 'right' }}>Balance Due</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {current.sort((a, b) => a.days_overdue - b.days_overdue).map(inv => (
+                            <tr key={inv.id}>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{inv.invoice_number}</td>
+                              <td>{inv.customer_name}</td>
+                              <td style={{ fontSize: 12 }}>{inv.project_name}</td>
+                              <td>{formatDate(inv.created_at)}</td>
+                              <td>{formatDate(inv.due_date)}</td>
+                              <td style={{ textAlign: 'center', color: '#10b981' }}>{Math.abs(inv.days_overdue)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(inv.balance)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                            <td colSpan={6}>Total</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(totalCurrent)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

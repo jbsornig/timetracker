@@ -2849,6 +2849,47 @@ app.get('/api/reports/contract-hours', auth, adminOnly, (req, res) => {
   res.json(result);
 });
 
+app.get('/api/reports/overdue-invoices', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const invoices = db.prepare(`
+    SELECT i.*, p.name as project_name, p.po_number,
+           c.name as customer_name, c.payment_terms
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.status IN ('unpaid', 'partial') AND i.voided_date IS NULL
+    ORDER BY i.created_at
+  `).all();
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const results = invoices.map(inv => {
+    const terms = inv.payment_terms || 'Net 30';
+    let days = 30;
+    if (terms === 'Immediate') { days = 0; }
+    else { const m = terms.match(/Net\s*(\d+)/i); if (m) days = parseInt(m[1], 10); }
+
+    const created = new Date(inv.created_at.replace(' ', 'T'));
+    const dueDate = new Date(created);
+    dueDate.setDate(dueDate.getDate() + days);
+    dueDate.setHours(0, 0, 0, 0);
+
+    const daysOverdue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+    const balance = (inv.total_amount || 0) - (inv.amount_paid || 0);
+
+    return {
+      ...inv,
+      due_date: dueDate.toISOString().split('T')[0],
+      days_overdue: daysOverdue,
+      balance,
+      aging: daysOverdue <= 0 ? 'current' : daysOverdue <= 30 ? '1-30' : daysOverdue <= 60 ? '31-60' : daysOverdue <= 90 ? '61-90' : '90+',
+    };
+  });
+
+  res.json(results);
+});
+
 // ─── IMPORT BANKING INFO ──────────────────────────────────────────────────────
 
 // Import banking info from CSV data
