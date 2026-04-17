@@ -1802,7 +1802,8 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     return `${formatDate(start.toISOString().split('T')[0])} to ${formatDate(end.toISOString().split('T')[0])}`;
   };
 
-  const lineItemsHtml = lineItems.length > 0 ? lineItems.map(item => `
+  const hasHours = lineItems.some(item => item.hours > 0);
+  const lineItemRows = lineItems.map(item => `
     <tr>
       <td style="border: 1px solid #ccc; padding: 8px;">${item.hours.toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
@@ -1811,7 +1812,15 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
-  `).join('') : `
+  `).join('');
+  const totalHoursRow = hasHours && lineItems.length > 1 ? `
+    <tr style="border-top: 2px solid #000; font-weight: bold;">
+      <td style="border: 1px solid #ccc; padding: 8px;">${lineItems.reduce((s, i) => s + (i.hours || 0), 0).toFixed(2)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;" colspan="4">Total Hours</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${lineItems.reduce((s, i) => s + (i.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+    </tr>
+  ` : '';
+  const lineItemsHtml = lineItems.length > 0 ? lineItemRows + totalHoursRow : `
     <tr>
       <td style="border: 1px solid #ccc; padding: 8px;">${(invoice.total_hours || 0).toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>

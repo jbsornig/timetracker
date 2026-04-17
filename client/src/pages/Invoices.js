@@ -1788,7 +1788,8 @@ function InvoiceContent({ inv, settings }) {
         </thead>
         <tbody>
           {inv.lineItems && inv.lineItems.length > 0 ? (
-            inv.lineItems.map((item, idx) => (
+            <>
+            {inv.lineItems.map((item, idx) => (
               <tr key={idx}>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
                   {item.is_fixed_price ? `${item.percentage}%` : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
@@ -1808,7 +1809,19 @@ function InvoiceContent({ inv, settings }) {
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
               </tr>
-            ))
+            ))}
+            {inv.lineItems.some(item => item.hours > 0) && inv.lineItems.length > 1 && (
+              <tr style={{ borderTop: '2px solid #000', fontWeight: 'bold' }}>
+                <td style={{ border: '1px solid #ccc', padding: '8px' }}>
+                  {inv.lineItems.reduce((sum, item) => sum + (item.hours || 0), 0).toFixed(2)}
+                </td>
+                <td style={{ border: '1px solid #ccc', padding: '8px' }} colSpan={4}>Total Hours</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
+                  ${inv.lineItems.reduce((sum, item) => sum + (item.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+              </tr>
+            )}
+            </>
           ) : (
             <tr>
               <td style={{ border: '1px solid #ccc', padding: '8px' }}>{inv.total_hours?.toFixed(2) || '0.00'}</td>
