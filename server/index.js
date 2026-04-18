@@ -2323,7 +2323,16 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     return a.project_name.localeCompare(b.project_name);
   });
 
-  res.json({ data, holidays });
+  // Get uncleared advances for all engineers
+  const unclearedAdvances = db.prepare(`
+    SELECT ep.*, u.name as engineer_name
+    FROM engineer_payments ep
+    JOIN users u ON u.id = ep.user_id
+    WHERE ep.payment_type = 'advance' AND ep.cleared = 0
+    ORDER BY ep.payment_date
+  `).all();
+
+  res.json({ data, holidays, unclearedAdvances });
 });
 
 // ACH Export - Generate Chase CSV file for payroll (supports GET for backward compat and POST with overrides)
@@ -2460,6 +2469,30 @@ function achExportHandler(req, res) {
           total_pay: holidayPay
         });
       }
+    }
+  }
+
+  // Deduct uncleared advances from payroll
+  const unclearedAdvances = db.prepare(`
+    SELECT ep.id, ep.user_id, ep.amount
+    FROM engineer_payments ep
+    WHERE ep.payment_type = 'advance' AND ep.cleared = 0
+  `).all();
+
+  const advancesByUser = {};
+  for (const adv of unclearedAdvances) {
+    if (!advancesByUser[adv.user_id]) advancesByUser[adv.user_id] = { total: 0, ids: [] };
+    advancesByUser[adv.user_id].total += adv.amount;
+    advancesByUser[adv.user_id].ids.push(adv.id);
+  }
+
+  for (const payment of payrollData) {
+    const advances = advancesByUser[payment.user_id];
+    if (advances && advances.total > 0) {
+      payment.advance_deduction = advances.total;
+      payment.advance_ids = advances.ids;
+      payment.gross_pay = payment.total_pay;
+      payment.total_pay = Math.max(0, payment.total_pay - advances.total);
     }
   }
 
@@ -2631,6 +2664,19 @@ function achExportHandler(req, res) {
         'payroll', period_start, period_end,
         achRef, 'ACH', `ACH payroll for ${period_start} to ${period_end}`
       );
+    }
+  }
+
+  // Mark advances as cleared for ALL engineers in this payroll run (including $0 net pay)
+  const clearAdvance = db.prepare(
+    "UPDATE engineer_payments SET cleared = 1, cleared_payroll_period = ? WHERE id = ?"
+  );
+  const payrollPeriod = `${period_start} to ${period_end}`;
+  for (const payment of payrollData) {
+    if (payment.advance_ids && payment.advance_ids.length > 0) {
+      for (const advId of payment.advance_ids) {
+        clearAdvance.run(payrollPeriod, advId);
+      }
     }
   }
 
@@ -3075,6 +3121,19 @@ app.post('/api/engineer-payments', auth, adminOnly, (req, res) => {
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
+// Toggle cleared status on an advance payment
+app.put('/api/engineer-payments/:id/clear', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const payment = db.prepare('SELECT * FROM engineer_payments WHERE id = ?').get(req.params.id);
+  if (!payment) return res.status(404).json({ error: 'Payment not found' });
+  if (payment.payment_type !== 'advance') return res.status(400).json({ error: 'Only advance payments can be cleared' });
+
+  const { cleared, cleared_payroll_period } = req.body;
+  db.prepare('UPDATE engineer_payments SET cleared = ?, cleared_payroll_period = ? WHERE id = ?')
+    .run(cleared ? 1 : 0, cleared ? (cleared_payroll_period || null) : null, req.params.id);
+  res.json({ success: true });
+});
+
 // Delete an engineer payment
 app.delete('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
@@ -3197,9 +3256,13 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
   }
 
   try {
+    // Disable foreign key checks during restore
+    db.pragma('foreign_keys = OFF');
+
     const txn = db.transaction(() => {
       // Clear existing data (except current admin user)
       const currentUserId = req.user.id;
+      db.prepare('DELETE FROM engineer_payments').run();
       db.prepare('DELETE FROM payments').run();
       db.prepare('DELETE FROM invoices').run();
       db.prepare('DELETE FROM timesheet_entries').run();
@@ -3317,16 +3380,18 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
 
       if (backup.data.engineer_payments) {
         for (const ep of backup.data.engineer_payments) {
-          db.prepare('INSERT INTO engineer_payments (id, user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            ep.id, ep.user_id, ep.amount, ep.payment_date, ep.payment_type, ep.period_start, ep.period_end, ep.reference_number, ep.payment_method, ep.notes, ep.created_at
+          db.prepare('INSERT INTO engineer_payments (id, user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes, cleared, cleared_payroll_period, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            ep.id, ep.user_id, ep.amount, ep.payment_date, ep.payment_type, ep.period_start, ep.period_end, ep.reference_number, ep.payment_method, ep.notes, ep.cleared || 0, ep.cleared_payroll_period || null, ep.created_at
           );
         }
       }
     });
 
     txn();
+    db.pragma('foreign_keys = ON');
     res.json({ success: true, message: 'Backup restored successfully. All data and passwords preserved.' });
   } catch (err) {
+    db.pragma('foreign_keys = ON');
     console.error('Restore error:', err);
     res.status(500).json({ error: err.message });
   }

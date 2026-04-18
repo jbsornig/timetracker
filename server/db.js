@@ -510,6 +510,16 @@ function initSchema() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
+
+  // Add cleared columns to engineer_payments for advance tracking
+  try {
+    db.exec("ALTER TABLE engineer_payments ADD COLUMN cleared INTEGER DEFAULT 0");
+    console.log('✅ Migration: Added cleared column to engineer_payments');
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec("ALTER TABLE engineer_payments ADD COLUMN cleared_payroll_period TEXT");
+    console.log('✅ Migration: Added cleared_payroll_period column to engineer_payments');
+  } catch (e) { /* column already exists */ }
 }
 
 function replaceDatabase(newDbPath) {

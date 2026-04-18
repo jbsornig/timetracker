@@ -90,6 +90,7 @@ export default function Reports() {
   const [verificationEngineer, setVerificationEngineer] = useState('');
   const [verificationRange, setVerificationRange] = useState({ period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
   const [overdueData, setOverdueData] = useState([]);
+  const [unclearedAdvances, setUnclearedAdvances] = useState([]);
 
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
@@ -138,6 +139,7 @@ export default function Reports() {
       );
       setPayrollData(response.data || []);
       setPayrollHolidays(response.holidays || []);
+      setUnclearedAdvances(response.unclearedAdvances || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -297,11 +299,18 @@ export default function Reports() {
       date.setDate(date.getDate() + 1);
     }
     setAchDeliveryDate(date.toISOString().split('T')[0]);
-    // Initialize selections from payroll summary - all selected with default amounts
+    // Initialize selections from payroll summary - include all engineers, even $0 net pay
     const selections = {};
     payrollSummary.forEach(row => {
-      if (row.total_pay > 0) {
-        selections[row.engineer_name] = { selected: true, amount: row.total_pay, defaultAmount: row.total_pay };
+      if (row.gross_pay > 0 || row.advance_deduction > 0) {
+        selections[row.engineer_name] = {
+          selected: row.total_pay > 0,
+          amount: row.total_pay,
+          defaultAmount: row.total_pay,
+          grossPay: row.gross_pay,
+          advanceDeduction: row.advance_deduction,
+          fullyPaidByAdvance: row.total_pay <= 0 && row.advance_deduction > 0
+        };
       }
     });
     setAchSelections(selections);
@@ -366,11 +375,19 @@ export default function Reports() {
     setInvoicedDateRange({ period_start: option.start, period_end: option.end });
   };
 
+  // Group advances by engineer
+  const advancesByEngineer = unclearedAdvances.reduce((acc, adv) => {
+    if (!acc[adv.engineer_name]) acc[adv.engineer_name] = { total: 0, items: [] };
+    acc[adv.engineer_name].total += adv.amount;
+    acc[adv.engineer_name].items.push(adv);
+    return acc;
+  }, {});
+
   // Group payroll by engineer for summary
   const payrollByEngineer = payrollData.reduce((acc, row) => {
     const key = row.engineer_name;
     if (!acc[key]) {
-      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, total_hours: 0, total_pay: 0, holiday_hours: 0, holiday_pay: 0 };
+      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, user_id: row.user_id, total_hours: 0, gross_pay: 0, total_pay: 0, holiday_hours: 0, holiday_pay: 0, advance_deduction: 0 };
     }
     if (row.is_holiday_pay) {
       acc[key].holiday_hours += row.total_hours || 0;
@@ -378,20 +395,33 @@ export default function Reports() {
     } else {
       acc[key].total_hours += row.total_hours || 0;
     }
-    acc[key].total_pay += row.total_pay || 0;
+    acc[key].gross_pay += row.total_pay || 0;
     return acc;
   }, {});
+
+  // Apply advance deductions to summary
+  for (const row of Object.values(payrollByEngineer)) {
+    const advances = advancesByEngineer[row.engineer_name];
+    row.advance_deduction = advances ? advances.total : 0;
+    row.total_pay = Math.max(0, row.gross_pay - row.advance_deduction);
+  }
+
   const payrollSummary = Object.values(payrollByEngineer);
 
+  const hasAnyAdvances = unclearedAdvances.length > 0;
+  const totalAdvanceDeductions = payrollSummary.reduce((s, r) => s + r.advance_deduction, 0);
   const payrollTotals = payrollData.reduce(
     (acc, row) => ({
       hours: acc.hours + (row.is_holiday_pay ? 0 : (row.total_hours || 0)),
       holidayHours: acc.holidayHours + (row.is_holiday_pay ? (row.total_hours || 0) : 0),
+      grossPay: acc.grossPay + (row.total_pay || 0),
       pay: acc.pay + (row.total_pay || 0),
       billed: acc.billed + (row.total_billed || 0),
+      advanceDeductions: totalAdvanceDeductions,
     }),
-    { hours: 0, holidayHours: 0, pay: 0, billed: 0 }
+    { hours: 0, holidayHours: 0, grossPay: 0, pay: 0, billed: 0, advanceDeductions: 0 }
   );
+  payrollTotals.pay = Math.max(0, payrollTotals.grossPay - totalAdvanceDeductions);
 
   const budgetTotals = budgetData.reduce(
     (acc, row) => ({
@@ -737,7 +767,9 @@ export default function Reports() {
                         <th>Engineer ID</th>
                         <th>Work Hours</th>
                         {payrollHolidays.length > 0 && <th>Holiday Hours</th>}
-                        <th>Amount to Pay</th>
+                        <th style={{ textAlign: 'right' }}>Gross Pay</th>
+                        {hasAnyAdvances && <th style={{ textAlign: 'right' }}>Advances</th>}
+                        <th style={{ textAlign: 'right' }}>Net Pay</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -751,7 +783,13 @@ export default function Reports() {
                               {row.holiday_hours > 0 ? `${row.holiday_hours.toFixed(2)}` : '—'}
                             </td>
                           )}
-                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#16a34a' }}>{formatCurrency(row.total_pay)}</td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{formatCurrency(row.gross_pay)}</td>
+                          {hasAnyAdvances && (
+                            <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: row.advance_deduction > 0 ? '#dc2626' : '#94a3b8' }}>
+                              {row.advance_deduction > 0 ? `(${formatCurrency(row.advance_deduction)})` : '—'}
+                            </td>
+                          )}
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, textAlign: 'right', color: '#16a34a' }}>{formatCurrency(row.total_pay)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -760,7 +798,9 @@ export default function Reports() {
                         <td colSpan={2}>Totals</td>
                         <td style={{ fontFamily: 'DM Mono, monospace' }}>{payrollTotals.hours.toFixed(2)}</td>
                         {payrollHolidays.length > 0 && <td style={{ fontFamily: 'DM Mono, monospace' }}>{payrollTotals.holidayHours.toFixed(2)}</td>}
-                        <td style={{ fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(payrollTotals.pay)}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{formatCurrency(payrollTotals.grossPay)}</td>
+                        {hasAnyAdvances && <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#dc2626' }}>({formatCurrency(payrollTotals.advanceDeductions)})</td>}
+                        <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#16a34a' }}>{formatCurrency(payrollTotals.pay)}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -840,8 +880,18 @@ export default function Reports() {
                   <div className="stat-value">{payrollTotals.hours.toFixed(1)}</div>
                 </div>
                 <div className="stat-card">
-                  <div className="stat-label">Total Pay Owed</div>
-                  <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(payrollTotals.pay)}</div>
+                  <div className="stat-label">Gross Pay</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(payrollTotals.grossPay)}</div>
+                </div>
+                {hasAnyAdvances && (
+                  <div className="stat-card" style={{ borderColor: '#fbbf24' }}>
+                    <div className="stat-label">Advance Deductions</div>
+                    <div className="stat-value" style={{ fontSize: 22, color: '#dc2626' }}>({formatCurrency(payrollTotals.advanceDeductions)})</div>
+                  </div>
+                )}
+                <div className="stat-card">
+                  <div className="stat-label">Net Pay</div>
+                  <div className="stat-value" style={{ fontSize: 22, color: '#16a34a' }}>{formatCurrency(payrollTotals.pay)}</div>
                 </div>
                 <div className="stat-card accent">
                   <div className="stat-label">Total Billable</div>
@@ -1241,13 +1291,14 @@ export default function Reports() {
                   <tr>
                     <th style={{ width: 30 }}></th>
                     <th>Engineer</th>
-                    <th style={{ width: 120 }}>Default</th>
-                    <th style={{ width: 130 }}>Amount to Pay</th>
+                    <th style={{ width: 100 }}>Gross</th>
+                    {hasAnyAdvances && <th style={{ width: 100 }}>Advances</th>}
+                    <th style={{ width: 130 }}>Net Pay</th>
                   </tr>
                 </thead>
                 <tbody>
                   {Object.entries(achSelections).map(([name, val]) => (
-                    <tr key={name} style={{ opacity: val.selected ? 1 : 0.5 }}>
+                    <tr key={name} style={{ opacity: val.selected ? 1 : val.fullyPaidByAdvance ? 0.7 : 0.5, background: val.fullyPaidByAdvance ? '#fefce8' : undefined }}>
                       <td>
                         <input
                           type="checkbox"
@@ -1256,26 +1307,41 @@ export default function Reports() {
                             ...achSelections,
                             [name]: { ...val, selected: e.target.checked }
                           })}
+                          disabled={val.fullyPaidByAdvance}
                         />
-                      </td>
-                      <td><strong>{name}</strong></td>
-                      <td style={{ fontFamily: 'DM Mono, monospace', color: '#64748b', fontSize: 12 }}>
-                        {formatCurrency(val.defaultAmount)}
                       </td>
                       <td>
-                        <input
-                          className="form-input"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={val.amount}
-                          onChange={(e) => setAchSelections({
-                            ...achSelections,
-                            [name]: { ...val, amount: parseFloat(e.target.value) || 0 }
-                          })}
-                          disabled={!val.selected}
-                          style={{ width: '100%', padding: '4px 8px', fontSize: 13, fontFamily: 'DM Mono, monospace' }}
-                        />
+                        <strong>{name}</strong>
+                        {val.fullyPaidByAdvance && (
+                          <div style={{ fontSize: 10, color: '#92400e', marginTop: 2 }}>Paid via advance — will be cleared</div>
+                        )}
+                      </td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', color: '#64748b', fontSize: 12 }}>
+                        {formatCurrency(val.grossPay || val.defaultAmount)}
+                      </td>
+                      {hasAnyAdvances && (
+                        <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: val.advanceDeduction > 0 ? '#dc2626' : '#94a3b8' }}>
+                          {val.advanceDeduction > 0 ? `(${formatCurrency(val.advanceDeduction)})` : '—'}
+                        </td>
+                      )}
+                      <td>
+                        {val.fullyPaidByAdvance ? (
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#94a3b8' }}>$0.00</span>
+                        ) : (
+                          <input
+                            className="form-input"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={val.amount}
+                            onChange={(e) => setAchSelections({
+                              ...achSelections,
+                              [name]: { ...val, amount: parseFloat(e.target.value) || 0 }
+                            })}
+                            disabled={!val.selected}
+                            style={{ width: '100%', padding: '4px 8px', fontSize: 13, fontFamily: 'DM Mono, monospace' }}
+                          />
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1431,7 +1497,26 @@ export default function Reports() {
                         <tr key={p.id}>
                           <td>{formatDate(p.payment_date)}</td>
                           <td>{p.engineer_name}</td>
-                          <td><span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: p.payment_type === 'payroll' ? '#dbeafe' : p.payment_type === 'advance' ? '#fef3c7' : '#f3e8ff', color: p.payment_type === 'payroll' ? '#1e40af' : p.payment_type === 'advance' ? '#92400e' : '#6b21a8' }}>{p.payment_type}</span></td>
+                          <td>
+                            <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: p.payment_type === 'payroll' ? '#dbeafe' : p.payment_type === 'advance' ? '#fef3c7' : '#f3e8ff', color: p.payment_type === 'payroll' ? '#1e40af' : p.payment_type === 'advance' ? '#92400e' : '#6b21a8' }}>{p.payment_type}</span>
+                            {p.payment_type === 'advance' && (
+                              <span
+                                style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: 'pointer', background: p.cleared ? '#dcfce7' : '#fef2f2', color: p.cleared ? '#166534' : '#991b1b' }}
+                                title={p.cleared ? `Cleared: ${p.cleared_payroll_period || ''}. Click to unmark.` : 'Uncleared — will be deducted from next payroll. Click to mark cleared.'}
+                                onClick={async () => {
+                                  try {
+                                    await apiFetch(`/engineer-payments/${p.id}/clear`, {
+                                      method: 'PUT',
+                                      body: { cleared: !p.cleared, cleared_payroll_period: !p.cleared ? 'Manual' : null }
+                                    });
+                                    loadEngPayments();
+                                  } catch (e) { alert('Error: ' + e.message); }
+                                }}
+                              >
+                                {p.cleared ? `Cleared${p.cleared_payroll_period ? ': ' + p.cleared_payroll_period : ''}` : 'Uncleared'}
+                              </span>
+                            )}
+                          </td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(p.amount)}</td>
                           <td>{p.payment_method || '—'}</td>
                           <td style={{ fontSize: 11 }}>{p.reference_number || '—'}</td>
