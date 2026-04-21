@@ -423,7 +423,10 @@ export default function Timesheets() {
 
   // Check if entries have been modified
   const hasUnsavedChanges = useCallback(() => {
-    if (viewMode !== 'edit' || !selectedTimesheet || selectedTimesheet.status === 'approved') {
+    if (viewMode !== 'edit' || !selectedTimesheet) {
+      return false;
+    }
+    if (selectedTimesheet.status === 'approved' && !isAdmin) {
       return false;
     }
     return JSON.stringify(entries) !== JSON.stringify(originalEntries);
@@ -921,7 +924,8 @@ export default function Timesheets() {
 
   if (viewMode === 'edit' && selectedTimesheet) {
     const ts = selectedTimesheet;
-    const canEdit = ts.status !== 'approved';
+    const canEdit = ts.status !== 'approved' || isAdmin;
+    const hasInvoicedEntries = entries.some(e => e.invoice_id);
 
     // All days in the week are editable — no greying out for cross-month weeks
     const isOutsideBillingMonth = () => false;
@@ -976,6 +980,12 @@ export default function Timesheets() {
         </div>
 
         {error && <div className="alert alert-error no-print">{error}</div>}
+
+        {isAdmin && ts.status === 'approved' && (
+          <div className="no-print" style={{ padding: '8px 12px', marginBottom: 12, borderRadius: 6, background: '#fefce8', border: '1px solid #fde68a', fontSize: 13, color: '#92400e' }}>
+            Admin edit mode — {hasInvoicedEntries ? 'invoiced entries are locked (green rows). Un-invoiced entries can be edited.' : 'all entries can be edited since none have been invoiced yet.'}
+          </div>
+        )}
 
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 16 }}>
@@ -1109,10 +1119,15 @@ export default function Timesheets() {
               <tbody>
                 {entries.map((entry, idx) => {
                   const outsideMonth = isOutsideBillingMonth(entry.entry_date);
+                  const isInvoiced = !!entry.invoice_id;
+                  const entryDisabled = !canEdit || isInvoiced;
                   return (
-                  <tr key={entry.id} className="day-row" style={outsideMonth ? { opacity: 0.4, background: '#f8fafc' } : undefined}>
+                  <tr key={entry.id} className="day-row" style={outsideMonth ? { opacity: 0.4, background: '#f8fafc' } : isInvoiced ? { background: '#f0fdf4' } : undefined}>
                     <td style={{ fontWeight: 600 }}>{getDayName(entry.entry_date)}</td>
-                    <td>{formatShortDate(entry.entry_date)}</td>
+                    <td>
+                      {formatShortDate(entry.entry_date)}
+                      {isInvoiced && <span style={{ marginLeft: 4, fontSize: 9, padding: '1px 4px', borderRadius: 3, background: '#dcfce7', color: '#166534', fontWeight: 600 }}>INVOICED</span>}
+                    </td>
                     <td>
                       {outsideMonth ? <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span> : (
                       <input
@@ -1121,7 +1136,7 @@ export default function Timesheets() {
                         value={entry.start_time}
                         onChange={(e) => handleEntryChange(idx, 'start_time', e.target.value)}
                         onBlur={() => handleTimeBlur(idx, 'start_time')}
-                        disabled={!canEdit}
+                        disabled={entryDisabled}
                         placeholder="7:00"
                       />
                       )}
@@ -1134,7 +1149,7 @@ export default function Timesheets() {
                         value={entry.end_time}
                         onChange={(e) => handleEntryChange(idx, 'end_time', e.target.value)}
                         onBlur={() => handleTimeBlur(idx, 'end_time')}
-                        disabled={!canEdit}
+                        disabled={entryDisabled}
                         placeholder="15:30"
                       />
                       )}
@@ -1149,7 +1164,7 @@ export default function Timesheets() {
                         max="4"
                         value={entry.lunch_break || ''}
                         onChange={(e) => handleEntryChange(idx, 'lunch_break', e.target.value)}
-                        disabled={!canEdit}
+                        disabled={entryDisabled}
                         placeholder="0"
                         style={{ width: 55 }}
                       />
@@ -1165,7 +1180,7 @@ export default function Timesheets() {
                         max="9"
                         value={entry.shift}
                         onChange={(e) => handleEntryChange(idx, 'shift', parseInt(e.target.value) || 1)}
-                        disabled={!canEdit}
+                        disabled={entryDisabled}
                         style={{ width: 50 }}
                       />
                       )}
@@ -1176,7 +1191,7 @@ export default function Timesheets() {
                         className="form-input"
                         value={entry.description}
                         onChange={(e) => handleEntryChange(idx, 'description', e.target.value)}
-                        disabled={!canEdit}
+                        disabled={entryDisabled}
                         placeholder="Work description..."
                         style={{ fontSize: 13 }}
                       />
@@ -1184,7 +1199,7 @@ export default function Timesheets() {
                     </td>
                     {canEdit && (
                       <td>
-                        {!outsideMonth && entry.hours > 0 && (
+                        {!outsideMonth && !isInvoiced && entry.hours > 0 && (
                           <button
                             className="btn btn-secondary btn-sm"
                             onClick={() => handleClearEntry(idx)}
@@ -1212,6 +1227,8 @@ export default function Timesheets() {
         <div className="timesheet-mobile">
           {entries.map((entry, idx) => {
             const outsideMobile = isOutsideBillingMonth(entry.entry_date);
+            const isInvoicedMobile = !!entry.invoice_id;
+            const mobileDisabled = !canEdit || isInvoicedMobile;
             if (outsideMobile) {
               return (
                 <div key={entry.id} className="timesheet-day-card" style={{ opacity: 0.4, background: '#f8fafc' }}>
@@ -1226,15 +1243,18 @@ export default function Timesheets() {
               );
             }
             return (
-            <div key={entry.id} className={`timesheet-day-card ${entry.hours > 0 ? 'has-hours' : ''}`}>
+            <div key={entry.id} className={`timesheet-day-card ${entry.hours > 0 ? 'has-hours' : ''}`} style={isInvoicedMobile ? { background: '#f0fdf4', borderColor: '#bbf7d0' } : undefined}>
               <div className="timesheet-day-header">
                 <div>
                   <div className="timesheet-day-name">{getDayName(entry.entry_date)}</div>
-                  <div className="timesheet-day-date">{formatShortDate(entry.entry_date)}</div>
+                  <div className="timesheet-day-date">
+                    {formatShortDate(entry.entry_date)}
+                    {isInvoicedMobile && <span style={{ marginLeft: 4, fontSize: 9, padding: '1px 4px', borderRadius: 3, background: '#dcfce7', color: '#166534', fontWeight: 600 }}>INVOICED</span>}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div className="timesheet-day-hours">{(entry.hours || 0).toFixed(2)} hrs</div>
-                  {canEdit && entry.hours > 0 && (
+                  {canEdit && !isInvoicedMobile && entry.hours > 0 && (
                     <button
                       className="btn btn-secondary btn-sm"
                       onClick={() => handleClearEntry(idx)}
@@ -1256,7 +1276,7 @@ export default function Timesheets() {
                     value={entry.start_time}
                     onChange={(e) => handleEntryChange(idx, 'start_time', e.target.value)}
                     onBlur={() => handleTimeBlur(idx, 'start_time')}
-                    disabled={!canEdit}
+                    disabled={mobileDisabled}
                     placeholder="7:00"
                   />
                 </div>
@@ -1269,7 +1289,7 @@ export default function Timesheets() {
                     value={entry.end_time}
                     onChange={(e) => handleEntryChange(idx, 'end_time', e.target.value)}
                     onBlur={() => handleTimeBlur(idx, 'end_time')}
-                    disabled={!canEdit}
+                    disabled={mobileDisabled}
                     placeholder="15:30"
                   />
                 </div>
@@ -1284,7 +1304,7 @@ export default function Timesheets() {
                     max="4"
                     value={entry.lunch_break || ''}
                     onChange={(e) => handleEntryChange(idx, 'lunch_break', e.target.value)}
-                    disabled={!canEdit}
+                    disabled={mobileDisabled}
                     placeholder="0"
                     style={{ width: 60 }}
                   />
@@ -1297,7 +1317,7 @@ export default function Timesheets() {
                   className="timesheet-desc-input"
                   value={entry.description}
                   onChange={(e) => handleEntryChange(idx, 'description', e.target.value)}
-                  disabled={!canEdit}
+                  disabled={mobileDisabled}
                   placeholder="What did you work on?"
                 />
               </div>

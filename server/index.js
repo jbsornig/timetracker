@@ -849,11 +849,21 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
   const ts = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
   if (!ts) return res.status(404).json({ error: 'Not found' });
   if (req.user.role !== 'admin' && ts.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
-  if (ts.status === 'approved') return res.status(400).json({ error: 'Cannot edit approved timesheet' });
+  if (ts.status === 'approved' && req.user.role !== 'admin') return res.status(400).json({ error: 'Cannot edit approved timesheet' });
+
+  // For admin editing approved timesheets, identify invoiced entries to skip
+  const invoicedEntryIds = new Set();
+  if (ts.status === 'approved' && req.user.role === 'admin') {
+    const rows = db.prepare('SELECT id FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id IS NOT NULL').all(req.params.id);
+    rows.forEach(r => invoicedEntryIds.add(r.id));
+  }
 
   const update = db.prepare('UPDATE timesheet_entries SET start_time=?, end_time=?, hours=?, description=?, shift=?, lunch_break=? WHERE id=?');
   const txn = db.transaction(() => {
     for (const e of entries) {
+      // Skip invoiced entries — they're locked
+      if (invoicedEntryIds.has(e.id)) continue;
+
       let hours = 0;
       const lunchBreak = parseFloat(e.lunch_break) || 0;
       if (e.start_time && e.end_time) {
@@ -1001,8 +1011,8 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.status = 'approved'
     AND (
-      (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ?)
-      OR (p.project_type = 'fixed_price' AND (
+      (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL)
+      OR (p.project_type = 'fixed_price' AND ts.invoice_id IS NULL AND (
         ts.week_ending BETWEEN ? AND ?
         OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
       ))
@@ -1074,7 +1084,14 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
     };
   });
 
-  res.json(results);
+  // Filter out projects with no billable data available
+  // For fixed_monthly: must have actual hours to invoice (not just a monthly rate)
+  const filtered = results.filter(r => {
+    if (r.project_type === 'fixed_monthly') return r.total_hours > 0;
+    if (r.project_type === 'fixed_price') return r.fixed_amount > 0;
+    return r.estimated_amount > 0 || r.total_hours > 0;
+  });
+  res.json(filtered);
 });
 
 app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
@@ -1106,7 +1123,26 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   // Get line items from approved timesheets in the period
   // For hourly: find timesheets that have any entry_date in the period
   // For fixed price: use week_ending or period_end
+  // When viewing an invoice, prefer entries stamped with this invoice_id;
+  // fall back to date-range query for invoices created before stamping was added
   const timesheets = db.prepare(`
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+    WHERE ts.project_id = ? AND ts.status = 'approved'
+    AND (
+      (p.project_type NOT IN ('fixed_price') AND te.invoice_id = ?)
+      OR (p.project_type = 'fixed_price' AND ts.invoice_id = ?)
+    )
+    ORDER BY ts.week_ending
+  `).all(invoice.project_id, req.params.id, req.params.id);
+
+  // If no stamped entries found, fall back to date-range query (legacy invoices)
+  const useLegacy = timesheets.length === 0;
+  const timesheetsToUse = useLegacy ? db.prepare(`
     SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
@@ -1122,7 +1158,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
       ))
     )
     ORDER BY ts.week_ending
-  `).all(invoice.project_id, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end);
+  `).all(invoice.project_id, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end) : timesheets;
 
   const lineItems = [];
   const timesheetDetails = [];
@@ -1137,7 +1173,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     totalEngineerPayments = engineerTotals?.total || 0;
   }
 
-  for (const ts of timesheets) {
+  for (const ts of timesheetsToUse) {
     if (isFixedPrice) {
       // Fixed price: calculate engineer's claimed amount
       let engineerAmt = ts.amount || 0;
@@ -1168,8 +1204,11 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
       }
     } else if (isFixedMonthly) {
       // Fixed monthly: show hours worked but bill the fixed monthly amount per engineer
-      const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
-        .all(ts.id, invoice.period_start, invoice.period_end);
+      const entries = useLegacy
+        ? db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+            .all(ts.id, invoice.period_start, invoice.period_end)
+        : db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ? ORDER BY entry_date')
+            .all(ts.id, req.params.id);
       const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
       if (hrs > 0) {
         // Check if we already have a line item for this engineer (aggregate hours, keep one monthly bill)
@@ -1205,8 +1244,11 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
       }
     } else {
       // Hourly: calculate from entries within the invoice period only
-      const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
-        .all(ts.id, invoice.period_start, invoice.period_end);
+      const entries = useLegacy
+        ? db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+            .all(ts.id, invoice.period_start, invoice.period_end)
+        : db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ? ORDER BY entry_date')
+            .all(ts.id, req.params.id);
       const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
       if (hrs > 0) {
         lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
@@ -1255,6 +1297,10 @@ app.delete('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
+  // Un-stamp timesheet entries and timesheets before deleting
+  db.prepare('UPDATE timesheet_entries SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
+  db.prepare('UPDATE timesheets SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
+
   db.prepare('DELETE FROM invoices WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });
@@ -1297,8 +1343,8 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.project_id = ? AND ts.status = 'approved'
       AND (
-        (p.project_type NOT IN ('fixed_price') AND te.entry_date BETWEEN ? AND ?)
-        OR (p.project_type = 'fixed_price' AND (
+        (p.project_type NOT IN ('fixed_price') AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL)
+        OR (p.project_type = 'fixed_price' AND ts.invoice_id IS NULL AND (
           ts.week_ending BETWEEN ? AND ?
           OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
         ))
@@ -1369,7 +1415,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         }
       } else if (isFixedMonthly) {
         // Fixed monthly: show hours but bill the fixed monthly amount per engineer
-        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? AND invoice_id IS NULL ORDER BY entry_date')
           .all(ts.id, period_start, period_end);
         const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
         total_hours += hrs;
@@ -1407,7 +1453,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         }
       } else {
         // Hourly: calculate from entries within the invoice period only
-        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
+        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? AND invoice_id IS NULL ORDER BY entry_date')
           .all(ts.id, period_start, period_end);
         const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
         const amt = hrs * (ts.bill_rate || 0);
@@ -1460,6 +1506,13 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     console.log('Line items:', lineItems.length);
     console.log('=== END DEBUG ===');
 
+    // Check for billable data before creating invoice
+    if (lineItems.length === 0 || total_amount <= 0) {
+      return res.status(400).json({
+        error: 'No billable time or services found for this date range. All timesheets in this period may have already been invoiced.'
+      });
+    }
+
     // Check for duplicate invoice: same project + overlapping period that isn't voided
     const existingInvoice = db.prepare(`
       SELECT id, invoice_number, period_start, period_end, status
@@ -1495,6 +1548,22 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('next_invoice_number', ?)").run(String(nextNum + 1));
 
     const result = db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes);
+    const invoiceId = result.lastInsertRowid;
+
+    // Stamp timesheet entries and timesheets as invoiced to prevent double-billing
+    if (isFixedPrice) {
+      // Fixed price: stamp the timesheets themselves
+      const stampTimesheet = db.prepare('UPDATE timesheets SET invoice_id = ? WHERE id = ?');
+      for (const td of timesheetDetails) {
+        stampTimesheet.run(invoiceId, td.id);
+      }
+    } else {
+      // Hourly / Fixed monthly: stamp individual timesheet entries
+      const stampEntries = db.prepare('UPDATE timesheet_entries SET invoice_id = ? WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? AND invoice_id IS NULL');
+      for (const td of timesheetDetails) {
+        stampEntries.run(invoiceId, td.id, period_start, period_end);
+      }
+    }
 
     // Get company settings
     const settingsRows = db.prepare('SELECT key, value FROM settings').all();
@@ -1503,7 +1572,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       settings[row.key] = row.value;
     }
 
-    res.json({ id: result.lastInsertRowid, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
+    res.json({ id: invoiceId, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
   } catch (err) {
     console.error('Invoice generation error:', err);
     res.status(500).json({ error: err.message });
@@ -1636,6 +1705,11 @@ app.put('/api/invoices/:id/void', auth, adminOnly, (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
   db.prepare('UPDATE invoices SET status = ?, voided_date = ? WHERE id = ?').run('voided', today, req.params.id);
+
+  // Un-stamp timesheet entries and timesheets so they can be re-invoiced
+  db.prepare('UPDATE timesheet_entries SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
+  db.prepare('UPDATE timesheets SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
+
   res.json({ success: true });
 });
 

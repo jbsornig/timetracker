@@ -520,6 +520,60 @@ function initSchema() {
     db.exec("ALTER TABLE engineer_payments ADD COLUMN cleared_payroll_period TEXT");
     console.log('✅ Migration: Added cleared_payroll_period column to engineer_payments');
   } catch (e) { /* column already exists */ }
+
+  // Add invoice_id to timesheet_entries for tracking which entries have been invoiced
+  try {
+    db.exec("ALTER TABLE timesheet_entries ADD COLUMN invoice_id INTEGER REFERENCES invoices(id)");
+    console.log('✅ Migration: Added invoice_id column to timesheet_entries');
+  } catch (e) { /* column already exists */ }
+
+  // Add invoice_id to timesheets for fixed-price project invoice tracking
+  try {
+    db.exec("ALTER TABLE timesheets ADD COLUMN invoice_id INTEGER REFERENCES invoices(id)");
+    console.log('✅ Migration: Added invoice_id column to timesheets');
+  } catch (e) { /* column already exists */ }
+
+  // One-time backfill: stamp existing timesheet entries/timesheets with their invoice_id
+  const hasAnyStamps = db.prepare('SELECT COUNT(*) as cnt FROM timesheet_entries WHERE invoice_id IS NOT NULL').get();
+  if (hasAnyStamps.cnt === 0) {
+    console.log('🔄 Running one-time invoice backfill...');
+    const invoices = db.prepare(`
+      SELECT i.id, i.project_id, i.period_start, i.period_end, p.project_type
+      FROM invoices i
+      JOIN projects p ON p.id = i.project_id
+      WHERE i.voided_date IS NULL
+      ORDER BY i.period_start
+    `).all();
+
+    let entryCount = 0;
+    let tsCount = 0;
+
+    const backfillTxn = db.transaction(() => {
+      for (const inv of invoices) {
+        if (inv.project_type === 'fixed_price') {
+          const result = db.prepare(`
+            UPDATE timesheets SET invoice_id = ?
+            WHERE project_id = ? AND status = 'approved' AND invoice_id IS NULL
+            AND (week_ending BETWEEN ? AND ? OR (period_end IS NOT NULL AND period_end BETWEEN ? AND ?))
+          `).run(inv.id, inv.project_id, inv.period_start, inv.period_end, inv.period_start, inv.period_end);
+          tsCount += result.changes;
+        } else {
+          const result = db.prepare(`
+            UPDATE timesheet_entries SET invoice_id = ?
+            WHERE timesheet_id IN (
+              SELECT ts.id FROM timesheets ts
+              WHERE ts.project_id = ? AND ts.status = 'approved'
+            )
+            AND entry_date BETWEEN ? AND ? AND invoice_id IS NULL
+          `).run(inv.id, inv.project_id, inv.period_start, inv.period_end);
+          entryCount += result.changes;
+        }
+      }
+    });
+
+    backfillTxn();
+    console.log(`✅ Backfill complete: ${entryCount} entries stamped, ${tsCount} timesheets stamped`);
+  }
 }
 
 function replaceDatabase(newDbPath) {

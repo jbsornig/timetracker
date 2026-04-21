@@ -1106,6 +1106,7 @@ export default function Invoices() {
                   <SortHeader field="invoice_number">Invoice #</SortHeader>
                   <SortHeader field="customer_name">Customer / Project</SortHeader>
                   <SortHeader field="created_at">Date</SortHeader>
+                  <th>Hours</th>
                   <SortHeader field="total_amount">Total</SortHeader>
                   <th>Paid</th>
                   <SortHeader field="balance">Balance</SortHeader>
@@ -1133,6 +1134,9 @@ export default function Invoices() {
                       </td>
                       <td style={{ fontSize: 13 }}>
                         {invoiceDate}
+                      </td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#64748b' }}>
+                        {inv.total_hours > 0 ? inv.total_hours.toFixed(2) : '—'}
                       </td>
                       <td style={{ fontFamily: 'DM Mono, monospace' }}>
                         {formatCurrency(inv.total_amount)}
