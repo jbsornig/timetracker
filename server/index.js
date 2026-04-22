@@ -3130,6 +3130,78 @@ app.get('/api/reports/overdue-invoices', auth, adminOnly, (req, res) => {
   res.json(results);
 });
 
+// ─── HISTORICAL IMPORT ───────────────────────────────────────────────────────
+
+app.post('/api/import/historical', auth, adminOnly, (req, res) => {
+  const { payments, invoices, projects } = req.body;
+  const db = getDb();
+  const results = { payments_imported: 0, invoices_imported: 0, projects_created: 0, errors: [] };
+
+  try {
+    const txn = db.transaction(() => {
+      // Create historical projects if provided
+      const projectIdMap = {};
+      if (projects && projects.length > 0) {
+        const insertProject = db.prepare(
+          "INSERT INTO projects (customer_id, name, po_number, po_amount, status, project_type, description) VALUES (?, ?, ?, ?, 'closed', 'hourly', ?)"
+        );
+        const insertEP = db.prepare(
+          'INSERT INTO engineer_projects (user_id, project_id, pay_rate, bill_rate) VALUES (?, ?, ?, ?)'
+        );
+        for (const p of projects) {
+          const r = insertProject.run(p.customer_id, p.name, p.po_number, p.po_amount || 0, p.description || 'Historical project');
+          projectIdMap[p.po_number] = r.lastInsertRowid;
+          if (p.user_id && p.pay_rate !== undefined) {
+            insertEP.run(p.user_id, r.lastInsertRowid, p.pay_rate, p.bill_rate || 0);
+          }
+          results.projects_created++;
+        }
+      }
+
+      // Import payments
+      if (payments && payments.length > 0) {
+        const insertPayment = db.prepare(
+          'INSERT INTO engineer_payments (user_id, amount, payment_date, payment_type, period_start, period_end, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        for (const p of payments) {
+          insertPayment.run(p.user_id, p.amount, p.payment_date, p.payment_type || 'payroll', p.period_start, p.period_end, p.payment_method || 'ACH', p.notes);
+          results.payments_imported++;
+        }
+      }
+
+      // Import invoices
+      if (invoices && invoices.length > 0) {
+        const insertInvoice = db.prepare(
+          "INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, status, notes) VALUES (?, ?, ?, ?, ?, ?, 'paid', ?)"
+        );
+        // Get next HIST number
+        const lastHist = db.prepare("SELECT invoice_number FROM invoices WHERE invoice_number LIKE 'HIST-%' ORDER BY id DESC LIMIT 1").get();
+        let histNum = 1000;
+        if (lastHist) {
+          const n = parseInt(lastHist.invoice_number.replace('HIST-', ''));
+          if (n >= histNum) histNum = n + 1;
+        }
+
+        for (const inv of invoices) {
+          const projectId = inv.project_id === 'MAP' ? projectIdMap[inv.po_number] : inv.project_id;
+          if (!projectId) {
+            results.errors.push('No project for PO ' + inv.po_number);
+            continue;
+          }
+          const invoiceNumber = 'HIST-' + histNum;
+          histNum++;
+          insertInvoice.run(projectId, invoiceNumber, inv.period_start, inv.period_end, inv.hours || 0, inv.amount, inv.notes);
+          results.invoices_imported++;
+        }
+      }
+    });
+    txn();
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── IMPORT BANKING INFO ──────────────────────────────────────────────────────
 
 // Import banking info from CSV data
