@@ -1576,7 +1576,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       settings[row.key] = row.value;
     }
 
-    res.json({ id: invoiceId, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
+    res.json({ id: invoiceId, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, include_timesheets: project.include_timesheets, project_name: project.name, customer_name: project.customer_name, customer_address: project.customer_address, supplier_number: project.supplier_number, payment_terms: project.payment_terms, contact_name: project.contact_name, po_number: project.po_number, location: project.location, project_type: project.project_type });
   } catch (err) {
     console.error('Invoice generation error:', err);
     res.status(500).json({ error: err.message });
