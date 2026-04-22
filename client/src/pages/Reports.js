@@ -387,7 +387,7 @@ export default function Reports() {
   const payrollByEngineer = payrollData.reduce((acc, row) => {
     const key = row.engineer_name;
     if (!acc[key]) {
-      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, user_id: row.user_id, total_hours: 0, gross_pay: 0, total_pay: 0, holiday_hours: 0, holiday_pay: 0, advance_deduction: 0 };
+      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, user_id: row.user_id, total_hours: 0, gross_pay: 0, total_pay: 0, holiday_hours: 0, holiday_pay: 0, advance_deduction: 0, pay_delay_months: row.pay_delay_months || 0, pay_period_label: row.pay_period_label || null };
     }
     if (row.is_holiday_pay) {
       acc[key].holiday_hours += row.total_hours || 0;
@@ -775,7 +775,14 @@ export default function Reports() {
                     <tbody>
                       {payrollSummary.map((row, idx) => (
                         <tr key={idx}>
-                          <td><strong>{row.engineer_name}</strong></td>
+                          <td>
+                            <strong>{row.engineer_name}</strong>
+                            {row.pay_delay_months > 0 && (
+                              <div style={{ fontSize: 10, color: '#1e40af', marginTop: 2 }}>
+                                {row.pay_period_label}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.engineer_id || '-'}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>{(row.total_hours || 0).toFixed(2)}</td>
                           {payrollHolidays.length > 0 && (

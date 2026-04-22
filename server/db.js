@@ -336,6 +336,12 @@ function initSchema() {
     console.log('✅ Migration: Added bank_pct_2 column to users');
   }
 
+  // Add pay delay column for engineers paid one month behind
+  if (!userCols.find(c => c.name === 'pay_delay_months')) {
+    db.exec('ALTER TABLE users ADD COLUMN pay_delay_months INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added pay_delay_months column to users');
+  }
+
   // Add fixed price project columns
   const projectCols3 = db.prepare("PRAGMA table_info(projects)").all();
   if (!projectCols3.find(c => c.name === 'project_type')) {

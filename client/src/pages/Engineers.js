@@ -7,7 +7,8 @@ const emptyUser = {
   holiday_pay_eligible: false, holiday_pay_rate: '',
   bank_routing: '', bank_account: '', bank_account_type: 'checking',
   bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
-  bank_pct_1: 100, bank_pct_2: 0
+  bank_pct_1: 100, bank_pct_2: 0,
+  pay_delay_months: 0
 };
 
 export default function Engineers() {
@@ -68,6 +69,7 @@ export default function Engineers() {
       bank_account_type_2: user.bank_account_type_2 || 'checking',
       bank_pct_1: user.bank_pct_1 ?? 100,
       bank_pct_2: user.bank_pct_2 ?? 0,
+      pay_delay_months: user.pay_delay_months || 0,
     });
     setError('');
     setModal('edit');
@@ -120,6 +122,7 @@ export default function Engineers() {
         bank_account_type_2: form.role === 'engineer' ? form.bank_account_type_2 : null,
         bank_pct_1: form.role === 'engineer' ? (parseInt(form.bank_pct_1) || 100) : 100,
         bank_pct_2: form.role === 'engineer' ? (parseInt(form.bank_pct_2) || 0) : 0,
+        pay_delay_months: form.role === 'engineer' ? (parseInt(form.pay_delay_months) || 0) : 0,
       };
       // Only include banking info if provided (don't overwrite with empty)
       if (form.bank_routing) body.bank_routing = form.bank_routing;
@@ -240,7 +243,14 @@ export default function Engineers() {
               <tbody>
                 {engineers.map((eng) => (
                   <tr key={eng.id}>
-                    <td><strong>{eng.name}</strong></td>
+                    <td>
+                      <strong>{eng.name}</strong>
+                      {eng.pay_delay_months > 0 && (
+                        <span style={{ marginLeft: 6, fontSize: 10, background: '#dbeafe', color: '#1e40af', padding: '1px 5px', borderRadius: 4 }}>
+                          {eng.pay_delay_months}mo delay
+                        </span>
+                      )}
+                    </td>
                     <td>{eng.email}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{eng.engineer_id || '—'}</td>
                     <td>
@@ -393,6 +403,22 @@ export default function Engineers() {
                       <div className="form-hint">Rate paid per holiday hour</div>
                     </div>
                   )}
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Pay Schedule</div>
+                  <div className="form-group">
+                    <label className="form-label">Pay Delay</label>
+                    <select
+                      className="form-input"
+                      value={form.pay_delay_months}
+                      onChange={(e) => setForm({ ...form, pay_delay_months: parseInt(e.target.value) })}
+                    >
+                      <option value={0}>Paid current month (no delay)</option>
+                      <option value={1}>Paid 1 month behind</option>
+                      <option value={2}>Paid 2 months behind</option>
+                    </select>
+                    <div className="form-hint">Engineers paid behind will show previous month's work in payroll</div>
+                  </div>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
                   <div style={{ fontWeight: 600, marginBottom: 12 }}>Direct Deposit / ACH</div>

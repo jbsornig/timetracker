@@ -440,7 +440,7 @@ app.delete('/api/holidays/:id', auth, adminOnly, (req, res) => {
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
+  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
   // Mask bank account numbers for display (show last 4 only)
   const masked = users.map(u => ({
     ...u,
@@ -455,17 +455,17 @@ app.get('/api/users', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/users', auth, adminOnly, (req, res) => {
-  const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate,
+  const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
           bank_routing, bank_account, bank_account_type,
           bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2 } = req.body;
   const db = getDb();
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare(`INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate,
+    const result = db.prepare(`INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
       bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         name, email, hash, role || 'engineer', engineer_id || null,
-        holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
+        holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, parseInt(pay_delay_months) || 0,
         bank_routing || null, bank_account || null, bank_account_type || 'checking',
         bank_routing_2 || null, bank_account_2 || null, bank_account_type_2 || 'checking',
         bank_pct_1 ?? 100, bank_pct_2 ?? 0
@@ -479,7 +479,8 @@ app.post('/api/users', auth, adminOnly, (req, res) => {
 app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   const { name, email, role, engineer_id, password, holiday_pay_eligible, holiday_pay_rate,
           bank_routing, bank_account, bank_account_type,
-          bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2 } = req.body;
+          bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2,
+          pay_delay_months } = req.body;
   const db = getDb();
 
   // Get current user to preserve banking info if not provided (masked fields)
@@ -496,7 +497,8 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
 
   const updateFields = `name=?, email=?, role=?, engineer_id=?, holiday_pay_eligible=?, holiday_pay_rate=?,
     bank_routing=?, bank_account=?, bank_account_type=?,
-    bank_routing_2=?, bank_account_2=?, bank_account_type_2=?, bank_pct_1=?, bank_pct_2=?`;
+    bank_routing_2=?, bank_account_2=?, bank_account_type_2=?, bank_pct_1=?, bank_pct_2=?,
+    pay_delay_months=?`;
 
   if (password) {
     const hash = bcrypt.hashSync(password, 10);
@@ -504,6 +506,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
       name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,
+      pay_delay_months || 0,
       hash, req.params.id
     );
   } else {
@@ -511,6 +514,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
       name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,
+      pay_delay_months || 0,
       req.params.id
     );
   }
@@ -2284,70 +2288,128 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   const { period_start, period_end } = req.query;
   const db = getDb();
 
-  // Get hourly timesheet payroll data
-  const hourlyData = db.prepare(`
-    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
-           u.holiday_pay_eligible, u.holiday_pay_rate,
-           SUM(te.hours) as total_hours,
-           ep.pay_rate,
-           SUM(te.hours) * ep.pay_rate as total_pay,
-           ep.bill_rate,
-           SUM(te.hours) * ep.bill_rate as total_billed,
-           p.name as project_name, p.po_number,
-           'hourly' as pay_type
-    FROM timesheet_entries te
-    JOIN timesheets ts ON ts.id = te.timesheet_id
-    JOIN users u ON u.id = ts.user_id
-    JOIN projects p ON p.id = ts.project_id
-    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type = 'hourly'
-      AND te.entry_date BETWEEN ? AND ?
-    GROUP BY u.id, p.id
-    ORDER BY u.name, p.name
-  `).all(period_start, period_end);
+  // Helper: get full month range shifted back by N months
+  // e.g. if period is April 1-30 and months=1, returns { start: '2026-03-01', end: '2026-03-31' }
+  function getShiftedMonthRange(periodStart, months) {
+    const d = new Date(periodStart + 'T00:00:00');
+    d.setMonth(d.getMonth() - months);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0); // day 0 of next month = last day of this month
+    return {
+      start: firstDay.toISOString().slice(0, 10),
+      end: lastDay.toISOString().slice(0, 10)
+    };
+  }
 
-  // Get fixed monthly project payroll data
-  const fixedMonthlyData = db.prepare(`
-    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
-           u.holiday_pay_eligible, u.holiday_pay_rate,
-           SUM(te.hours) as total_hours,
-           ep.monthly_pay as pay_rate,
-           ep.monthly_pay as total_pay,
-           ep.monthly_bill as bill_rate,
-           ep.monthly_bill as total_billed,
-           p.name as project_name, p.po_number,
-           'fixed_monthly' as pay_type
-    FROM timesheet_entries te
-    JOIN timesheets ts ON ts.id = te.timesheet_id
-    JOIN users u ON u.id = ts.user_id
-    JOIN projects p ON p.id = ts.project_id
-    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type = 'fixed_monthly'
-      AND te.entry_date BETWEEN ? AND ?
-    GROUP BY u.id, p.id
-    ORDER BY u.name, p.name
-  `).all(period_start, period_end);
+  // Get delayed engineers so we can query their shifted date range
+  const delayedUsers = db.prepare('SELECT id, pay_delay_months FROM users WHERE pay_delay_months > 0').all();
+  const delayMap = {};
+  for (const u of delayedUsers) delayMap[u.id] = u.pay_delay_months;
+  const delayedUserIds = delayedUsers.map(u => u.id);
 
-  // Get fixed price project payroll data
-  const fixedPriceData = db.prepare(`
-    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
-           u.holiday_pay_eligible, u.holiday_pay_rate,
-           0 as total_hours,
-           0 as pay_rate,
-           ts.amount as total_pay,
-           0 as bill_rate,
-           ts.amount as total_billed,
-           p.name as project_name, p.po_number,
-           'fixed_price' as pay_type,
-           ts.percentage
-    FROM timesheets ts
-    JOIN users u ON u.id = ts.user_id
-    JOIN projects p ON p.id = ts.project_id
-    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type = 'fixed_price'
-      AND ts.week_ending BETWEEN ? AND ?
-    ORDER BY u.name, p.name
-  `).all(period_start, period_end);
+  // Build queries: normal engineers use period as-is, delayed engineers use full previous month
+  function getPayrollData(queryFn, normalStart, normalEnd) {
+    // Get data for non-delayed engineers
+    const normalData = queryFn(normalStart, normalEnd, delayedUserIds, true);
+    // Get data for each delay group
+    const delayGroups = {};
+    for (const u of delayedUsers) {
+      if (!delayGroups[u.pay_delay_months]) delayGroups[u.pay_delay_months] = [];
+      delayGroups[u.pay_delay_months].push(u.id);
+    }
+    let delayedData = [];
+    for (const [months, userIds] of Object.entries(delayGroups)) {
+      const { start, end } = getShiftedMonthRange(normalStart, parseInt(months));
+      delayedData = delayedData.concat(queryFn(start, end, userIds, false));
+    }
+    return [...normalData, ...delayedData];
+  }
+
+  // Hourly query function
+  function hourlyQuery(start, end, userIds, excludeIds) {
+    const idFilter = userIds.length > 0
+      ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
+      : '';
+    return db.prepare(`
+      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+             u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
+             SUM(te.hours) as total_hours,
+             ep.pay_rate,
+             SUM(te.hours) * ep.pay_rate as total_pay,
+             ep.bill_rate,
+             SUM(te.hours) * ep.bill_rate as total_billed,
+             p.name as project_name, p.po_number,
+             'hourly' as pay_type
+      FROM timesheet_entries te
+      JOIN timesheets ts ON ts.id = te.timesheet_id
+      JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.status = 'approved' AND p.project_type = 'hourly'
+        AND te.entry_date BETWEEN ? AND ? ${idFilter}
+      GROUP BY u.id, p.id
+      ORDER BY u.name, p.name
+    `).all(start, end);
+  }
+
+  // Fixed monthly query function
+  function fixedMonthlyQuery(start, end, userIds, excludeIds) {
+    const idFilter = userIds.length > 0
+      ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
+      : '';
+    return db.prepare(`
+      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+             u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
+             SUM(te.hours) as total_hours,
+             ep.monthly_pay as pay_rate,
+             ep.monthly_pay as total_pay,
+             ep.monthly_bill as bill_rate,
+             ep.monthly_bill as total_billed,
+             p.name as project_name, p.po_number,
+             'fixed_monthly' as pay_type
+      FROM timesheet_entries te
+      JOIN timesheets ts ON ts.id = te.timesheet_id
+      JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.status = 'approved' AND p.project_type = 'fixed_monthly'
+        AND te.entry_date BETWEEN ? AND ? ${idFilter}
+      GROUP BY u.id, p.id
+      ORDER BY u.name, p.name
+    `).all(start, end);
+  }
+
+  // Fixed price query function
+  function fixedPriceQuery(start, end, userIds, excludeIds) {
+    const idFilter = userIds.length > 0
+      ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
+      : '';
+    return db.prepare(`
+      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+             u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
+             0 as total_hours,
+             0 as pay_rate,
+             ts.amount as total_pay,
+             0 as bill_rate,
+             ts.amount as total_billed,
+             p.name as project_name, p.po_number,
+             'fixed_price' as pay_type,
+             ts.percentage
+      FROM timesheets ts
+      JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.status = 'approved' AND p.project_type = 'fixed_price'
+        AND ts.week_ending BETWEEN ? AND ? ${idFilter}
+      ORDER BY u.name, p.name
+    `).all(start, end);
+  }
+
+  const hourlyData = getPayrollData(hourlyQuery, period_start, period_end);
+  const fixedMonthlyData = getPayrollData(fixedMonthlyQuery, period_start, period_end);
+  const fixedPriceData = getPayrollData(fixedPriceQuery, period_start, period_end);
 
   const timesheetData = [...hourlyData, ...fixedMonthlyData, ...fixedPriceData];
 
@@ -2406,6 +2468,16 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     ORDER BY ep.payment_date
   `).all();
 
+  // Add pay_period_label for delayed engineers
+  for (const d of data) {
+    if (d.pay_delay_months > 0) {
+      const { start, end } = getShiftedMonthRange(period_start, d.pay_delay_months);
+      d.pay_period_start = start;
+      d.pay_period_end = end;
+      d.pay_period_label = `Delayed ${d.pay_delay_months}mo (work from ${start} to ${end})`;
+    }
+  }
+
   res.json({ data, holidays, unclearedAdvances });
 });
 
@@ -2436,56 +2508,104 @@ function achExportHandler(req, res) {
     return res.status(400).json({ error: 'Chase ACH account not configured in settings' });
   }
 
+  // Helper: get full month range shifted back by N months
+  function getShiftedMonthRange(periodStart, months) {
+    const d = new Date(periodStart + 'T00:00:00');
+    d.setMonth(d.getMonth() - months);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    return {
+      start: firstDay.toISOString().slice(0, 10),
+      end: lastDay.toISOString().slice(0, 10)
+    };
+  }
+
+  // Get delayed engineers
+  const delayedUsers = db.prepare('SELECT id, pay_delay_months FROM users WHERE pay_delay_months > 0').all();
+  const delayedUserIds = delayedUsers.map(u => u.id);
+  const delayGroups = {};
+  for (const u of delayedUsers) {
+    if (!delayGroups[u.pay_delay_months]) delayGroups[u.pay_delay_months] = [];
+    delayGroups[u.pay_delay_months].push(u.id);
+  }
+
+  function runWithDelay(queryFn) {
+    const normalData = queryFn(period_start, period_end, delayedUserIds, true);
+    let delayedData = [];
+    for (const [months, userIds] of Object.entries(delayGroups)) {
+      const { start, end } = getShiftedMonthRange(period_start, parseInt(months));
+      delayedData = delayedData.concat(queryFn(start, end, userIds, false));
+    }
+    return [...normalData, ...delayedData];
+  }
+
   // Get hourly payroll data grouped by engineer (with split deposit info)
-  const hourlyPayroll = db.prepare(`
-    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
-           u.bank_routing, u.bank_account, u.bank_account_type,
-           u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
-           u.bank_pct_1, u.bank_pct_2,
-           SUM(te.hours * ep.pay_rate) as total_pay
-    FROM timesheet_entries te
-    JOIN timesheets ts ON ts.id = te.timesheet_id
-    JOIN users u ON u.id = ts.user_id
-    JOIN projects p ON p.id = ts.project_id
-    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type = 'hourly'
-      AND te.entry_date BETWEEN ? AND ?
-    GROUP BY u.id
-    ORDER BY u.name
-  `).all(period_start, period_end);
+  const hourlyPayroll = runWithDelay((start, end, userIds, excludeIds) => {
+    const idFilter = userIds.length > 0
+      ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
+      : '';
+    return db.prepare(`
+      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+             u.bank_routing, u.bank_account, u.bank_account_type,
+             u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
+             u.bank_pct_1, u.bank_pct_2,
+             SUM(te.hours * ep.pay_rate) as total_pay
+      FROM timesheet_entries te
+      JOIN timesheets ts ON ts.id = te.timesheet_id
+      JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.status = 'approved' AND p.project_type = 'hourly'
+        AND te.entry_date BETWEEN ? AND ? ${idFilter}
+      GROUP BY u.id
+      ORDER BY u.name
+    `).all(start, end);
+  });
 
   // Get fixed monthly payroll data grouped by engineer
-  const fixedMonthlyPayroll = db.prepare(`
-    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
-           u.bank_routing, u.bank_account, u.bank_account_type,
-           u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
-           u.bank_pct_1, u.bank_pct_2,
-           SUM(ep.monthly_pay) as total_pay
-    FROM timesheet_entries te
-    JOIN timesheets ts ON ts.id = te.timesheet_id
-    JOIN users u ON u.id = ts.user_id
-    JOIN projects p ON p.id = ts.project_id
-    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type = 'fixed_monthly'
-      AND te.entry_date BETWEEN ? AND ?
-    GROUP BY u.id
-    ORDER BY u.name
-  `).all(period_start, period_end);
+  const fixedMonthlyPayroll = runWithDelay((start, end, userIds, excludeIds) => {
+    const idFilter = userIds.length > 0
+      ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
+      : '';
+    return db.prepare(`
+      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+             u.bank_routing, u.bank_account, u.bank_account_type,
+             u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
+             u.bank_pct_1, u.bank_pct_2,
+             SUM(ep.monthly_pay) as total_pay
+      FROM timesheet_entries te
+      JOIN timesheets ts ON ts.id = te.timesheet_id
+      JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.status = 'approved' AND p.project_type = 'fixed_monthly'
+        AND te.entry_date BETWEEN ? AND ? ${idFilter}
+      GROUP BY u.id
+      ORDER BY u.name
+    `).all(start, end);
+  });
 
   // Get fixed price payroll data grouped by engineer
-  const fixedPricePayroll = db.prepare(`
-    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
-           u.bank_routing, u.bank_account, u.bank_account_type,
-           u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
-           u.bank_pct_1, u.bank_pct_2,
-           SUM(ts.amount) as total_pay
-    FROM timesheets ts
-    JOIN users u ON u.id = ts.user_id
-    JOIN projects p ON p.id = ts.project_id
-    WHERE ts.status = 'approved' AND p.project_type = 'fixed_price'
-      AND ts.week_ending BETWEEN ? AND ?
-    GROUP BY u.id
-  `).all(period_start, period_end);
+  const fixedPricePayroll = runWithDelay((start, end, userIds, excludeIds) => {
+    const idFilter = userIds.length > 0
+      ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
+      : '';
+    return db.prepare(`
+      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+             u.bank_routing, u.bank_account, u.bank_account_type,
+             u.bank_routing_2, u.bank_account_2, u.bank_account_type_2,
+             u.bank_pct_1, u.bank_pct_2,
+             SUM(ts.amount) as total_pay
+      FROM timesheets ts
+      JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
+      WHERE ts.status = 'approved' AND p.project_type = 'fixed_price'
+        AND ts.week_ending BETWEEN ? AND ? ${idFilter}
+      GROUP BY u.id
+    `).all(start, end);
+  });
 
   // Merge fixed monthly and fixed price pay into hourly payroll
   const payrollData = [...hourlyPayroll];
