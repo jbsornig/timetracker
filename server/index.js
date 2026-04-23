@@ -646,7 +646,10 @@ app.get('/api/projects', auth, (req, res) => {
         COALESCE((SELECT SUM(te2.hours * ep2.bill_rate) FROM timesheet_entries te2
                   JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
                   LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
-                  WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated
+                  WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated,
+        -- Fixed price: total claimed via timesheets
+        COALESCE((SELECT SUM(ts3.amount) FROM timesheets ts3
+                  WHERE ts3.project_id = p.id AND ts3.status IN ('draft', 'submitted', 'approved')), 0) as amount_claimed
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
@@ -793,8 +796,21 @@ app.post('/api/timesheets', auth, (req, res) => {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  // Block timesheets against fully-used projects (PO balance exhausted by billed hours)
-  if (project.po_amount > 0) {
+  // Block timesheets against fully-used projects
+  if (project.project_type === 'fixed_price') {
+    // Fixed price: check if total_cost has been fully claimed via timesheets
+    if (project.total_cost > 0) {
+      const claimed = db.prepare(`
+        SELECT COALESCE(SUM(ts.amount), 0) as total
+        FROM timesheets ts
+        WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved')
+      `).get(project_id);
+      if (claimed.total >= project.total_cost) {
+        return res.status(400).json({ error: 'This project has been fully claimed. No remaining budget.' });
+      }
+    }
+  } else if (project.po_amount > 0) {
+    // Hourly/fixed monthly: check hours * bill_rate against PO amount
     const billed = db.prepare(`
       SELECT COALESCE(SUM(te.hours * ep.bill_rate), 0) as total
       FROM timesheet_entries te

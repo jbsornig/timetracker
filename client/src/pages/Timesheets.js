@@ -1859,9 +1859,11 @@ export default function Timesheets() {
                 >
                   <option value="">Select a project...</option>
                   {projects.map((p) => {
-                    const used = p.amount_allocated || p.amount_invoiced || 0;
-                    const fullyUsed = p.po_amount > 0 && used >= p.po_amount;
-                    const typeLabel = p.project_type === 'fixed_price' ? '[Fixed]' : p.requires_daily_logs === 0 ? '[Monthly]' : '';
+                    const isFixed = p.project_type === 'fixed_price';
+                    const budget = isFixed ? (p.total_cost || 0) : (p.po_amount || 0);
+                    const used = isFixed ? (p.amount_claimed || 0) : (p.amount_allocated || p.amount_invoiced || 0);
+                    const fullyUsed = budget > 0 && used >= budget;
+                    const typeLabel = isFixed ? '[Fixed]' : p.requires_daily_logs === 0 ? '[Monthly]' : '';
                     return (
                       <option key={p.id} value={p.id} disabled={fullyUsed}>
                         {p.name} ({p.customer_name}) {typeLabel}{fullyUsed ? ' — FULLY USED' : ''}
@@ -1871,13 +1873,16 @@ export default function Timesheets() {
                 </select>
                 {(() => {
                   const sel = projects.find(p => String(p.id) === String(newForm.project_id));
-                  if (sel && sel.po_amount > 0) {
-                    const used = sel.amount_allocated || sel.amount_invoiced || 0;
-                    const remaining = sel.po_amount - used;
-                    const pct = (used / sel.po_amount * 100).toFixed(0);
+                  if (!sel) return null;
+                  const isFixed = sel.project_type === 'fixed_price';
+                  const budget = isFixed ? (sel.total_cost || 0) : (sel.po_amount || 0);
+                  const used = isFixed ? (sel.amount_claimed || 0) : (sel.amount_allocated || sel.amount_invoiced || 0);
+                  if (budget > 0) {
+                    const remaining = budget - used;
+                    const pct = (used / budget * 100).toFixed(0);
                     return (
-                      <div className="form-hint" style={{ color: remaining < sel.po_amount * 0.1 ? '#dc2626' : '#64748b' }}>
-                        PO Balance: ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })} remaining ({pct}% used)
+                      <div className="form-hint" style={{ color: remaining < budget * 0.1 ? '#dc2626' : '#64748b' }}>
+                        {isFixed ? 'Project' : 'PO'} Balance: ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })} remaining ({pct}% used)
                       </div>
                     );
                   }
