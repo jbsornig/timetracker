@@ -177,7 +177,21 @@ export default function Dashboard({ setPage }) {
                       <td>{p.customer_name}</td>
                       <td style={{ minWidth: 140 }}>
                         {p.project_type === 'fixed_price' ? (
-                          <span style={{ color: '#64748b', fontSize: 13 }}>Fixed Price</span>
+                          (() => {
+                            const remaining = (p.total_cost || 0) - (p.amount_claimed || 0);
+                            return p.total_cost ? (
+                              <div>
+                                <div style={{ fontSize: 15, fontWeight: 600, color: remaining <= 0 ? '#ef4444' : '#10b981' }}>
+                                  {remaining >= 0 ? `$${remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `($${Math.abs(remaining).toLocaleString('en-US', { minimumFractionDigits: 2 })})`}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                                  ${(p.amount_claimed || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} of ${p.total_cost.toLocaleString('en-US', { minimumFractionDigits: 2 })} used
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ color: '#64748b', fontSize: 13 }}>Fixed Price</span>
+                            );
+                          })()
                         ) : p.budgeted_hours ? (
                           <div>
                             <div style={{ fontSize: 15, fontWeight: 600, color: hoursRemaining < 0 ? '#ef4444' : '#10b981' }}>
