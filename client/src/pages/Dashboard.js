@@ -245,7 +245,7 @@ export default function Dashboard({ setPage }) {
               <thead><tr><th>Week Ending</th><th>Project</th><th>Hours</th><th>Amount</th><th>Status</th></tr></thead>
               <tbody>
                 {timesheets.slice(0, 5).map(t => {
-                  const amount = (t.total_hours || 0) * (t.pay_rate || 0);
+                  const amount = t.project_type === 'fixed_price' ? (t.amount || 0) : (t.total_hours || 0) * (t.pay_rate || 0);
                   return (
                     <tr key={t.id}>
                       <td>{new Date(t.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
