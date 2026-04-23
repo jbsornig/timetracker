@@ -638,7 +638,15 @@ app.get('/api/projects', auth, (req, res) => {
           WHEN p.project_type = 'fixed_price' THEN NULL
           WHEN ep.bill_rate > 0 THEN ROUND(p.po_amount / ep.bill_rate, 1)
           ELSE NULL
-        END as budgeted_hours
+        END as budgeted_hours,
+        -- Amount already invoiced (non-voided)
+        COALESCE((SELECT SUM(i.total_amount) FROM invoices i
+                  WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_invoiced,
+        -- Amount allocated (all hours * bill rate, including draft/submitted/approved)
+        COALESCE((SELECT SUM(te2.hours * ep2.bill_rate) FROM timesheet_entries te2
+                  JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
+                  LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
+                  WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
@@ -780,9 +788,29 @@ app.post('/api/timesheets', auth, (req, res) => {
   const db = getDb();
 
   // Check project type and settings
-  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs FROM projects WHERE id = ?').get(project_id);
+  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs, po_amount, status FROM projects WHERE id = ?').get(project_id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
+  }
+
+  // Block timesheets against fully-used projects (PO balance exhausted by billed hours)
+  if (project.po_amount > 0) {
+    const billed = db.prepare(`
+      SELECT COALESCE(SUM(te.hours * ep.bill_rate), 0) as total
+      FROM timesheet_entries te
+      JOIN timesheets ts ON ts.id = te.timesheet_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved')
+    `).get(project_id);
+    const remaining = project.po_amount - (billed.total || 0);
+    if (remaining <= 0) {
+      return res.status(400).json({ error: 'This project has no remaining PO balance. All funds have been allocated.' });
+    }
+  }
+
+  // Block timesheets against closed projects
+  if (project.status === 'closed') {
+    return res.status(400).json({ error: 'This project is closed and cannot accept new timesheets.' });
   }
 
   const isMonthly = project.project_type !== 'fixed_price' && project.requires_daily_logs === 0;

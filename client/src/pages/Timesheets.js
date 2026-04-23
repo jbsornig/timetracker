@@ -1858,12 +1858,31 @@ export default function Timesheets() {
                   onChange={(e) => setNewForm({ ...newForm, project_id: e.target.value })}
                 >
                   <option value="">Select a project...</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.customer_name}) {p.project_type === 'fixed_price' ? '[Fixed]' : p.requires_daily_logs === 0 ? '[Monthly]' : ''}
-                    </option>
-                  ))}
+                  {projects.map((p) => {
+                    const used = p.amount_allocated || p.amount_invoiced || 0;
+                    const fullyUsed = p.po_amount > 0 && used >= p.po_amount;
+                    const typeLabel = p.project_type === 'fixed_price' ? '[Fixed]' : p.requires_daily_logs === 0 ? '[Monthly]' : '';
+                    return (
+                      <option key={p.id} value={p.id} disabled={fullyUsed}>
+                        {p.name} ({p.customer_name}) {typeLabel}{fullyUsed ? ' — FULLY USED' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+                {(() => {
+                  const sel = projects.find(p => String(p.id) === String(newForm.project_id));
+                  if (sel && sel.po_amount > 0) {
+                    const used = sel.amount_allocated || sel.amount_invoiced || 0;
+                    const remaining = sel.po_amount - used;
+                    const pct = (used / sel.po_amount * 100).toFixed(0);
+                    return (
+                      <div className="form-hint" style={{ color: remaining < sel.po_amount * 0.1 ? '#dc2626' : '#64748b' }}>
+                        PO Balance: ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })} remaining ({pct}% used)
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               {isFixedPrice ? (
