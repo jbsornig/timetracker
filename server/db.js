@@ -357,6 +357,20 @@ function initSchema() {
     console.log('✅ Migration: Added requires_daily_logs column to projects');
   }
 
+  // Add fixed price billing method columns
+  if (!projectCols3.find(c => c.name === 'billing_method')) {
+    db.exec("ALTER TABLE projects ADD COLUMN billing_method TEXT DEFAULT 'percentage'");
+    console.log('✅ Migration: Added billing_method column to projects');
+  }
+  if (!projectCols3.find(c => c.name === 'monthly_engineer_pay')) {
+    db.exec('ALTER TABLE projects ADD COLUMN monthly_engineer_pay REAL DEFAULT 0');
+    console.log('✅ Migration: Added monthly_engineer_pay column to projects');
+  }
+  if (!projectCols3.find(c => c.name === 'monthly_invoice_amount')) {
+    db.exec('ALTER TABLE projects ADD COLUMN monthly_invoice_amount REAL DEFAULT 0');
+    console.log('✅ Migration: Added monthly_invoice_amount column to projects');
+  }
+
   // Add total_payment column to engineer_projects for fixed price projects
   const epCols = db.prepare("PRAGMA table_info(engineer_projects)").all();
   if (!epCols.find(c => c.name === 'total_payment')) {

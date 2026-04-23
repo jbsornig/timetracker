@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '' };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -75,6 +75,9 @@ export default function Projects() {
       project_type: project.project_type || 'hourly',
       total_cost: project.total_cost || '',
       requires_daily_logs: project.requires_daily_logs !== 0,
+      billing_method: project.billing_method || 'percentage',
+      monthly_engineer_pay: project.monthly_engineer_pay || '',
+      monthly_invoice_amount: project.monthly_invoice_amount || '',
     });
     setError('');
     if (project.customer_id) {
@@ -114,6 +117,8 @@ export default function Projects() {
         contact_id: form.contact_id || null,
         po_amount: form.po_amount ? parseFloat(form.po_amount) : 0,
         total_cost: form.total_cost ? parseFloat(form.total_cost) : 0,
+        monthly_engineer_pay: form.monthly_engineer_pay ? parseFloat(form.monthly_engineer_pay) : 0,
+        monthly_invoice_amount: form.monthly_invoice_amount ? parseFloat(form.monthly_invoice_amount) : 0,
       };
       if (modal === 'add') {
         await apiFetch('/projects', { method: 'POST', body });
@@ -476,6 +481,49 @@ export default function Projects() {
                 </div>
               </div>
             </div>
+            {form.project_type === 'fixed_price' && (
+              <div style={{ background: '#f0f9ff', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, marginBottom: 12 }}>Billing Method</div>
+                <div className="form-group">
+                  <select
+                    className="form-select"
+                    value={form.billing_method}
+                    onChange={(e) => setForm({ ...form, billing_method: e.target.value })}
+                  >
+                    <option value="percentage">Percentage-based (engineer enters %)</option>
+                    <option value="monthly_installment">Monthly Installment (fixed monthly amounts)</option>
+                  </select>
+                </div>
+                {form.billing_method === 'monthly_installment' && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Monthly Engineer Pay ($)</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        step="0.01"
+                        value={form.monthly_engineer_pay}
+                        onChange={(e) => setForm({ ...form, monthly_engineer_pay: e.target.value })}
+                        placeholder="0.00"
+                      />
+                      <div className="form-hint">Amount paid to engineer each month</div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Monthly Invoice Amount ($)</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        step="0.01"
+                        value={form.monthly_invoice_amount}
+                        onChange={(e) => setForm({ ...form, monthly_invoice_amount: e.target.value })}
+                        placeholder="0.00"
+                      />
+                      <div className="form-hint">Amount billed to customer each month</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Location</label>

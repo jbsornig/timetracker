@@ -515,6 +515,7 @@ export default function Timesheets() {
     e.preventDefault();
     const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
     const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+    const isMonthlyInstallment = isFixedPrice && selectedProject?.billing_method === 'monthly_installment';
     const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
 
     if (!newForm.project_id) {
@@ -522,7 +523,12 @@ export default function Timesheets() {
       return;
     }
 
-    if (isFixedPrice) {
+    if (isFixedPrice && isMonthlyInstallment) {
+      if (!newForm.period_start || !newForm.period_end) {
+        setError('Period start and end are required');
+        return;
+      }
+    } else if (isFixedPrice) {
       if (!newForm.period_start || !newForm.period_end || !newForm.percentage) {
         setError('Period start, end, and percentage are required for fixed price projects');
         return;
@@ -553,7 +559,9 @@ export default function Timesheets() {
     setError('');
     try {
       let body;
-      if (isFixedPrice) {
+      if (isFixedPrice && isMonthlyInstallment) {
+        body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end };
+      } else if (isFixedPrice) {
         body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end, percentage: parseInt(newForm.percentage) };
       } else if (isMonthly) {
         body = {
@@ -1482,6 +1490,8 @@ export default function Timesheets() {
                 {sortedTimesheets.map((ts) => {
                   const isFixedPrice = ts.project_type === 'fixed_price';
                   const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
+                  const proj = projects.find(p => p.id === ts.project_id);
+                  const isInstallment = isFixedPrice && proj?.billing_method === 'monthly_installment';
                   const getBadgeClass = () => {
                     if (isFixedPrice) return 'badge-fixed';
                     if (isMonthly) return 'badge-submitted';
@@ -1531,7 +1541,12 @@ export default function Timesheets() {
                           <>
                             ${(ts.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             <br />
-                            <span style={{ fontSize: 11, color: '#64748b' }}>{ts.percentage}%</span>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>
+                              {isInstallment
+                                ? `$${(ts.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} of $${(proj?.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                                : `${ts.percentage}%`
+                              }
+                            </span>
                           </>
                         ) : (
                           <>{(ts.total_hours || 0).toFixed(2)} hrs</>
@@ -1614,6 +1629,8 @@ export default function Timesheets() {
           sortedTimesheets.map((ts) => {
             const isFixedPrice = ts.project_type === 'fixed_price';
             const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
+            const mProj = projects.find(p => p.id === ts.project_id);
+            const mIsInstallment = isFixedPrice && mProj?.billing_method === 'monthly_installment';
             const canOpen = !isFixedPrice && !isMonthly;
             const getBadgeClass = () => {
               if (isFixedPrice) return 'badge-fixed';
@@ -1666,7 +1683,11 @@ export default function Timesheets() {
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                      {isFixedPrice ? `${ts.percentage}%` : 'hours'}
+                      {isFixedPrice
+                        ? (mIsInstallment
+                          ? `of $${(mProj?.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
+                          : `${ts.percentage}%`)
+                        : 'hours'}
                     </div>
                     <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
@@ -1825,9 +1846,11 @@ export default function Timesheets() {
       {modal === 'new' && (() => {
         const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
         const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+        const isMonthlyInstallment = isFixedPrice && selectedProject?.billing_method === 'monthly_installment';
         const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
         const totalPayment = selectedProject?.total_payment || 0;
-        const calculatedAmount = isFixedPrice && newForm.percentage ? (parseInt(newForm.percentage) / 100) * totalPayment : 0;
+        const monthlyPay = selectedProject?.monthly_engineer_pay || 0;
+        const calculatedAmount = isFixedPrice && !isMonthlyInstallment && newForm.percentage ? (parseInt(newForm.percentage) / 100) * totalPayment : 0;
 
         const getModalTitle = () => {
           if (isFixedPrice) return 'New Fixed Price Invoice';
@@ -1893,9 +1916,14 @@ export default function Timesheets() {
               {isFixedPrice ? (
                 <>
                   <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>Fixed Price Project</div>
+                    <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>
+                      Fixed Price Project {isMonthlyInstallment ? '(Monthly Installment)' : ''}
+                    </div>
                     <div style={{ fontSize: 13, color: '#64748b' }}>
-                      Your total payment for this project: <strong>${totalPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                      {isMonthlyInstallment
+                        ? <>Monthly payment: <strong>${monthlyPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong></>
+                        : <>Your total payment for this project: <strong>${totalPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong></>
+                      }
                     </div>
                   </div>
                   <div className="form-row">
@@ -1918,45 +1946,58 @@ export default function Timesheets() {
                       />
                     </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Percentage to Invoice *</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <input
-                        className="form-input"
-                        type="number"
-                        min="1"
-                        max="100"
-                        step="1"
-                        value={newForm.percentage}
-                        onChange={(e) => setNewForm({ ...newForm, percentage: e.target.value })}
-                        placeholder="Enter percentage (1-100)"
-                        style={{ width: 150 }}
-                      />
-                      <span style={{ color: '#64748b' }}>%</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      {[10, 25, 50, 75, 100].map(pct => (
-                        <button
-                          key={pct}
-                          type="button"
-                          className={`btn btn-sm ${String(newForm.percentage) === String(pct) ? 'btn-primary' : 'btn-secondary'}`}
-                          onClick={() => setNewForm({ ...newForm, percentage: String(pct) })}
-                        >
-                          {pct}%
-                        </button>
-                      ))}
-                    </div>
-                    <div className="form-hint">Select what percentage of your total payment to invoice</div>
-                  </div>
-                  {newForm.percentage && (
+                  {isMonthlyInstallment ? (
                     <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, marginTop: 12 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>
-                        Invoice Amount: ${calculatedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        Amount: ${monthlyPay.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </div>
                       <div style={{ fontSize: 12, color: '#64748b' }}>
-                        {newForm.percentage}% of ${totalPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        Fixed monthly installment
                       </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="form-group">
+                        <label className="form-label">Percentage to Invoice *</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <input
+                            className="form-input"
+                            type="number"
+                            min="1"
+                            max="100"
+                            step="1"
+                            value={newForm.percentage}
+                            onChange={(e) => setNewForm({ ...newForm, percentage: e.target.value })}
+                            placeholder="Enter percentage (1-100)"
+                            style={{ width: 150 }}
+                          />
+                          <span style={{ color: '#64748b' }}>%</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          {[10, 25, 50, 75, 100].map(pct => (
+                            <button
+                              key={pct}
+                              type="button"
+                              className={`btn btn-sm ${String(newForm.percentage) === String(pct) ? 'btn-primary' : 'btn-secondary'}`}
+                              onClick={() => setNewForm({ ...newForm, percentage: String(pct) })}
+                            >
+                              {pct}%
+                            </button>
+                          ))}
+                        </div>
+                        <div className="form-hint">Select what percentage of your total payment to invoice</div>
+                      </div>
+                      {newForm.percentage && (
+                        <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, marginTop: 12 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>
+                            Invoice Amount: ${calculatedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </div>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>
+                            {newForm.percentage}% of ${totalPayment.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               ) : isMonthly ? (

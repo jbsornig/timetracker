@@ -662,16 +662,16 @@ app.get('/api/projects', auth, (req, res) => {
 });
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0);
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount } = req.body;
   const db = getDb();
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -791,7 +791,7 @@ app.post('/api/timesheets', auth, (req, res) => {
   const db = getDb();
 
   // Check project type and settings
-  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs, po_amount, status FROM projects WHERE id = ?').get(project_id);
+  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs, po_amount, status, billing_method, monthly_engineer_pay, monthly_invoice_amount FROM projects WHERE id = ?').get(project_id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -833,18 +833,31 @@ app.post('/api/timesheets', auth, (req, res) => {
 
   try {
     if (project.project_type === 'fixed_price') {
-      // Fixed price: use date range and percentage instead of weekly entries
-      if (!period_start || !period_end || !percentage) {
-        return res.status(400).json({ error: 'Period start, end, and percentage are required for fixed price projects' });
+      if (project.billing_method === 'monthly_installment') {
+        // Monthly installment: engineer picks a month, amount is pre-defined
+        if (!period_start || !period_end) {
+          return res.status(400).json({ error: 'Period start and end are required' });
+        }
+        const amount = project.monthly_engineer_pay || 0;
+        if (amount <= 0) {
+          return res.status(400).json({ error: 'Monthly engineer pay has not been configured for this project' });
+        }
+        const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, percentage, amount) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user_id, project_id, period_end, period_start, period_end, 0, amount);
+        res.json({ id: result.lastInsertRowid });
+      } else {
+        // Percentage-based: use date range and percentage
+        if (!period_start || !period_end || !percentage) {
+          return res.status(400).json({ error: 'Period start, end, and percentage are required for fixed price projects' });
+        }
+        // Get engineer's total_payment for this project
+        const ep = db.prepare('SELECT total_payment FROM engineer_projects WHERE user_id = ? AND project_id = ?').get(user_id, project_id);
+        const totalPayment = ep?.total_payment || 0;
+        // Calculate amount based on percentage of total_payment
+        const amount = (percentage / 100) * totalPayment;
+        // For fixed price, week_ending can be same as period_end
+        const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, percentage, amount) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user_id, project_id, period_end, period_start, period_end, percentage, amount);
+        res.json({ id: result.lastInsertRowid });
       }
-      // Get engineer's total_payment for this project
-      const ep = db.prepare('SELECT total_payment FROM engineer_projects WHERE user_id = ? AND project_id = ?').get(user_id, project_id);
-      const totalPayment = ep?.total_payment || 0;
-      // Calculate amount based on percentage of total_payment
-      const amount = (percentage / 100) * totalPayment;
-      // For fixed price, week_ending can be same as period_end
-      const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, percentage, amount) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user_id, project_id, period_end, period_start, period_end, percentage, amount);
-      res.json({ id: result.lastInsertRowid });
     } else if (isMonthly) {
       // Monthly hours: simple total without daily breakdown
       if (!period_start || !period_end || !monthly_hours) {
@@ -1530,24 +1543,32 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     }
 
     // For fixed price projects, calculate customer invoice based on project total cost
-    if (isFixedPrice && totalEngineerPayments > 0) {
-      // What percentage of total engineer budget is being claimed?
-      const percentageClaimed = totalEngineerAmountClaimed / totalEngineerPayments;
-      // Apply that percentage to the project's total cost for customer invoice
-      total_amount = percentageClaimed * (project.total_cost || 0);
-      console.log('Engineer amount claimed:', totalEngineerAmountClaimed);
-      console.log('Percentage of engineer budget:', (percentageClaimed * 100).toFixed(1) + '%');
-      console.log('Project total cost:', project.total_cost);
-      console.log('Customer invoice amount:', total_amount);
+    if (isFixedPrice) {
+      if (project.billing_method === 'monthly_installment' && project.monthly_invoice_amount > 0) {
+        // Monthly installment: invoice the fixed monthly amount
+        total_amount = project.monthly_invoice_amount;
+        lineItems.forEach(item => {
+          if (item.is_fixed_price) {
+            item.amount = project.monthly_invoice_amount;
+          }
+        });
+      } else if (totalEngineerPayments > 0) {
+        // Percentage-based: calculate from engineer budget ratio
+        const percentageClaimed = totalEngineerAmountClaimed / totalEngineerPayments;
+        total_amount = percentageClaimed * (project.total_cost || 0);
+        console.log('Engineer amount claimed:', totalEngineerAmountClaimed);
+        console.log('Percentage of engineer budget:', (percentageClaimed * 100).toFixed(1) + '%');
+        console.log('Project total cost:', project.total_cost);
+        console.log('Customer invoice amount:', total_amount);
 
-      // Update line items to show customer amount (proportional)
-      lineItems.forEach(item => {
-        if (item.is_fixed_price) {
-          // Calculate this engineer's portion of the customer invoice
-          const engineerPortion = item.engineer_amount / totalEngineerAmountClaimed;
-          item.amount = engineerPortion * total_amount;
-        }
-      });
+        // Update line items to show customer amount (proportional)
+        lineItems.forEach(item => {
+          if (item.is_fixed_price) {
+            const engineerPortion = item.engineer_amount / totalEngineerAmountClaimed;
+            item.amount = engineerPortion * total_amount;
+          }
+        });
+      }
     }
 
     console.log('Final totals - hours:', total_hours, 'amount:', total_amount);
