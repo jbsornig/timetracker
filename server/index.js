@@ -2907,38 +2907,6 @@ function achExportHandler(req, res) {
     ].join(','));
   });
 
-  // Auto-record engineer payments when ACH is generated (skip duplicates)
-  const existingCheck = db.prepare(
-    'SELECT id FROM engineer_payments WHERE user_id = ? AND payment_type = ? AND period_start = ? AND period_end = ?'
-  );
-  const insertPayment = db.prepare(
-    'INSERT INTO engineer_payments (user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  );
-  const achRef = `ACH_${fileDate}`;
-  for (const payment of validPayments) {
-    const existing = existingCheck.get(payment.user_id, 'payroll', period_start, period_end);
-    if (!existing) {
-      insertPayment.run(
-        payment.user_id, payment.total_pay, delivery_date,
-        'payroll', period_start, period_end,
-        achRef, 'ACH', `ACH payroll for ${period_start} to ${period_end}`
-      );
-    }
-  }
-
-  // Mark advances as cleared for ALL engineers in this payroll run (including $0 net pay)
-  const clearAdvance = db.prepare(
-    "UPDATE engineer_payments SET cleared = 1, cleared_payroll_period = ? WHERE id = ?"
-  );
-  const payrollPeriod = `${period_start} to ${period_end}`;
-  for (const payment of payrollData) {
-    if (payment.advance_ids && payment.advance_ids.length > 0) {
-      for (const advId of payment.advance_ids) {
-        clearAdvance.run(payrollPeriod, advId);
-      }
-    }
-  }
-
   // Return CSV
   const csv = rows.join('\n');
   res.setHeader('Content-Type', 'text/csv');
@@ -3462,6 +3430,22 @@ app.put('/api/engineer-payments/:id/clear', auth, adminOnly, (req, res) => {
   const { cleared, cleared_payroll_period } = req.body;
   db.prepare('UPDATE engineer_payments SET cleared = ?, cleared_payroll_period = ? WHERE id = ?')
     .run(cleared ? 1 : 0, cleared ? (cleared_payroll_period || null) : null, req.params.id);
+  res.json({ success: true });
+});
+
+// Update an engineer payment
+app.put('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const payment = db.prepare('SELECT * FROM engineer_payments WHERE id = ?').get(req.params.id);
+  if (!payment) return res.status(404).json({ error: 'Payment not found' });
+  const { amount, payment_date, payment_type, payment_method, reference_number, notes, period_start, period_end } = req.body;
+  db.prepare(
+    'UPDATE engineer_payments SET amount = ?, payment_date = ?, payment_type = ?, payment_method = ?, reference_number = ?, notes = ?, period_start = ?, period_end = ? WHERE id = ?'
+  ).run(
+    amount ?? payment.amount, payment_date ?? payment.payment_date, payment_type ?? payment.payment_type,
+    payment_method ?? payment.payment_method, reference_number ?? payment.reference_number, notes ?? payment.notes,
+    period_start ?? payment.period_start, period_end ?? payment.period_end, req.params.id
+  );
   res.json({ success: true });
 });
 

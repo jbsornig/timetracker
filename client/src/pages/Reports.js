@@ -77,12 +77,15 @@ export default function Reports() {
   const [achModal, setAchModal] = useState(false);
   const [achDeliveryDate, setAchDeliveryDate] = useState('');
   const [achSelections, setAchSelections] = useState({});
+  const [paidSelections, setPaidSelections] = useState({});
+  const [markingPaid, setMarkingPaid] = useState(false);
 
   // Engineer payments state
   const [engPayments, setEngPayments] = useState([]);
   const [engPayFilter, setEngPayFilter] = useState({ user_id: '', period_start: '', period_end: '', payment_type: '' });
   const [engPayForm, setEngPayForm] = useState({ user_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], payment_type: 'advance', period_start: '', period_end: '', reference_number: '', payment_method: '', notes: '' });
   const [engPaySaving, setEngPaySaving] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
   const [engineers, setEngineers] = useState([]);
   const [taxYear, setTaxYear] = useState(new Date().getFullYear().toString());
   const [summary1099, setSummary1099] = useState([]);
@@ -255,6 +258,32 @@ export default function Reports() {
     }
   };
 
+  const handleSaveEditPayment = async () => {
+    if (!editingPayment) return;
+    try {
+      setEngPaySaving(true);
+      await apiFetch(`/engineer-payments/${editingPayment.id}`, {
+        method: 'PUT',
+        body: {
+          amount: parseFloat(editingPayment.amount),
+          payment_date: editingPayment.payment_date,
+          payment_type: editingPayment.payment_type,
+          payment_method: editingPayment.payment_method || null,
+          reference_number: editingPayment.reference_number || null,
+          notes: editingPayment.notes || null,
+          period_start: editingPayment.period_start || null,
+          period_end: editingPayment.period_end || null
+        }
+      });
+      setEditingPayment(null);
+      loadEngPayments();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setEngPaySaving(false);
+    }
+  };
+
   const load1099Summary = async () => {
     setLoading(true);
     try {
@@ -364,6 +393,41 @@ export default function Reports() {
       setAchModal(false);
     } catch (e) {
       alert('ACH Export Error: ' + e.message);
+    }
+  };
+
+  const handleMarkAsPaid = async () => {
+    const selected = payrollSummary.filter(r => paidSelections[r.engineer_name]);
+    if (selected.length === 0) {
+      alert('Please select at least one engineer to mark as paid.');
+      return;
+    }
+    const names = selected.map(r => r.engineer_name).join(', ');
+    if (!window.confirm(`Record payments for ${selected.length} engineer(s)?\n\n${names}`)) return;
+    try {
+      setMarkingPaid(true);
+      for (const row of selected) {
+        await apiFetch('/engineer-payments', {
+          method: 'POST',
+          body: {
+            user_id: row.user_id,
+            amount: row.total_pay,
+            payment_date: new Date().toISOString().split('T')[0],
+            payment_type: 'payroll',
+            period_start: dateRange.period_start,
+            period_end: dateRange.period_end,
+            payment_method: 'ACH',
+            reference_number: null,
+            notes: `Payroll for ${dateRange.period_start} to ${dateRange.period_end}`
+          }
+        });
+      }
+      alert(`${selected.length} payment(s) recorded successfully.`);
+      setPaidSelections({});
+    } catch (e) {
+      alert('Error recording payments: ' + e.message);
+    } finally {
+      setMarkingPaid(false);
     }
   };
 
@@ -763,6 +827,16 @@ export default function Reports() {
                   <table>
                     <thead>
                       <tr>
+                        <th className="no-print" style={{ width: 30 }}>
+                          <input type="checkbox"
+                            checked={payrollSummary.length > 0 && payrollSummary.filter(r => r.total_pay > 0).every(r => paidSelections[r.engineer_name])}
+                            onChange={(e) => {
+                              const next = {};
+                              if (e.target.checked) payrollSummary.forEach(r => { if (r.total_pay > 0) next[r.engineer_name] = true; });
+                              setPaidSelections(next);
+                            }}
+                          />
+                        </th>
                         <th>Engineer</th>
                         <th>Engineer ID</th>
                         <th>Work Hours</th>
@@ -775,6 +849,13 @@ export default function Reports() {
                     <tbody>
                       {payrollSummary.map((row, idx) => (
                         <tr key={idx}>
+                          <td className="no-print">
+                            <input type="checkbox"
+                              checked={!!paidSelections[row.engineer_name]}
+                              disabled={row.total_pay <= 0}
+                              onChange={(e) => setPaidSelections({ ...paidSelections, [row.engineer_name]: e.target.checked })}
+                            />
+                          </td>
                           <td>
                             <strong>{row.engineer_name}</strong>
                             {row.pay_delay_months > 0 && (
@@ -802,6 +883,7 @@ export default function Reports() {
                     </tbody>
                     <tfoot>
                       <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                        <td className="no-print"></td>
                         <td colSpan={2}>Totals</td>
                         <td style={{ fontFamily: 'DM Mono, monospace' }}>{payrollTotals.hours.toFixed(2)}</td>
                         {payrollHolidays.length > 0 && <td style={{ fontFamily: 'DM Mono, monospace' }}>{payrollTotals.holidayHours.toFixed(2)}</td>}
@@ -812,6 +894,18 @@ export default function Reports() {
                     </tfoot>
                   </table>
                 </div>
+                {Object.values(paidSelections).some(v => v) && (
+                  <div className="no-print" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleMarkAsPaid}
+                      disabled={markingPaid}
+                    >
+                      {markingPaid ? 'Recording...' : `Mark ${Object.values(paidSelections).filter(v => v).length} Selected as Paid`}
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => setPaidSelections({})}>Clear Selection</button>
+                  </div>
+                )}
               </div>
 
               {/* Detailed Breakdown */}
@@ -1500,38 +1594,76 @@ export default function Reports() {
                       </tr>
                     </thead>
                     <tbody>
-                      {engPayments.map(p => (
-                        <tr key={p.id}>
-                          <td>{formatDate(p.payment_date)}</td>
-                          <td>{p.engineer_name}</td>
-                          <td>
-                            <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: p.payment_type === 'payroll' ? '#dbeafe' : p.payment_type === 'advance' ? '#fef3c7' : '#f3e8ff', color: p.payment_type === 'payroll' ? '#1e40af' : p.payment_type === 'advance' ? '#92400e' : '#6b21a8' }}>{p.payment_type}</span>
-                            {p.payment_type === 'advance' && (
-                              <span
-                                style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: 'pointer', background: p.cleared ? '#dcfce7' : '#fef2f2', color: p.cleared ? '#166534' : '#991b1b' }}
-                                title={p.cleared ? `Cleared: ${p.cleared_payroll_period || ''}. Click to unmark.` : 'Uncleared — will be deducted from next payroll. Click to mark cleared.'}
-                                onClick={async () => {
-                                  try {
-                                    await apiFetch(`/engineer-payments/${p.id}/clear`, {
-                                      method: 'PUT',
-                                      body: { cleared: !p.cleared, cleared_payroll_period: !p.cleared ? 'Manual' : null }
-                                    });
-                                    loadEngPayments();
-                                  } catch (e) { alert('Error: ' + e.message); }
-                                }}
-                              >
-                                {p.cleared ? `Cleared${p.cleared_payroll_period ? ': ' + p.cleared_payroll_period : ''}` : 'Uncleared'}
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(p.amount)}</td>
-                          <td>{p.payment_method || '—'}</td>
-                          <td style={{ fontSize: 11 }}>{p.reference_number || '—'}</td>
-                          <td style={{ fontSize: 11 }}>{p.period_start && p.period_end ? `${formatDate(p.period_start)} - ${formatDate(p.period_end)}` : '—'}</td>
-                          <td style={{ fontSize: 11, color: '#64748b' }}>{p.notes || ''}</td>
-                          <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteEngPayment(p.id)}>Del</button></td>
-                        </tr>
-                      ))}
+                      {engPayments.map(p => {
+                        const isEditing = editingPayment && editingPayment.id === p.id;
+                        return isEditing ? (
+                          <tr key={p.id} style={{ background: '#eff6ff' }}>
+                            <td><input className="form-input" type="date" value={editingPayment.payment_date} onChange={(e) => setEditingPayment({ ...editingPayment, payment_date: e.target.value })} style={{ width: 130, fontSize: 11 }} /></td>
+                            <td>{p.engineer_name}</td>
+                            <td>
+                              <select className="form-select" value={editingPayment.payment_type} onChange={(e) => setEditingPayment({ ...editingPayment, payment_type: e.target.value })} style={{ width: 110, fontSize: 11 }}>
+                                <option value="payroll">Payroll</option>
+                                <option value="advance">Advance</option>
+                                <option value="bonus">Bonus</option>
+                                <option value="reimbursement">Reimbursement</option>
+                                <option value="adjustment">Adjustment</option>
+                              </select>
+                            </td>
+                            <td><input className="form-input" type="number" step="0.01" value={editingPayment.amount} onChange={(e) => setEditingPayment({ ...editingPayment, amount: e.target.value })} style={{ width: 100, fontSize: 11, fontFamily: 'DM Mono, monospace' }} /></td>
+                            <td>
+                              <select className="form-select" value={editingPayment.payment_method || ''} onChange={(e) => setEditingPayment({ ...editingPayment, payment_method: e.target.value })} style={{ width: 80, fontSize: 11 }}>
+                                <option value="">—</option>
+                                <option value="ACH">ACH</option>
+                                <option value="Check">Check</option>
+                                <option value="Cash">Cash</option>
+                                <option value="Zelle">Zelle</option>
+                                <option value="Other">Other</option>
+                              </select>
+                            </td>
+                            <td><input className="form-input" value={editingPayment.reference_number || ''} onChange={(e) => setEditingPayment({ ...editingPayment, reference_number: e.target.value })} style={{ width: 100, fontSize: 11 }} /></td>
+                            <td style={{ fontSize: 11 }}>{p.period_start && p.period_end ? `${formatDate(p.period_start)} - ${formatDate(p.period_end)}` : '—'}</td>
+                            <td><input className="form-input" value={editingPayment.notes || ''} onChange={(e) => setEditingPayment({ ...editingPayment, notes: e.target.value })} style={{ width: 140, fontSize: 11 }} /></td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <button className="btn btn-primary btn-sm" onClick={handleSaveEditPayment} disabled={engPaySaving} style={{ marginRight: 4 }}>Save</button>
+                              <button className="btn btn-secondary btn-sm" onClick={() => setEditingPayment(null)}>Cancel</button>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={p.id}>
+                            <td>{formatDate(p.payment_date)}</td>
+                            <td>{p.engineer_name}</td>
+                            <td>
+                              <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: p.payment_type === 'payroll' ? '#dbeafe' : p.payment_type === 'advance' ? '#fef3c7' : '#f3e8ff', color: p.payment_type === 'payroll' ? '#1e40af' : p.payment_type === 'advance' ? '#92400e' : '#6b21a8' }}>{p.payment_type}</span>
+                              {p.payment_type === 'advance' && (
+                                <span
+                                  style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: 'pointer', background: p.cleared ? '#dcfce7' : '#fef2f2', color: p.cleared ? '#166534' : '#991b1b' }}
+                                  title={p.cleared ? `Cleared: ${p.cleared_payroll_period || ''}. Click to unmark.` : 'Uncleared — will be deducted from next payroll. Click to mark cleared.'}
+                                  onClick={async () => {
+                                    try {
+                                      await apiFetch(`/engineer-payments/${p.id}/clear`, {
+                                        method: 'PUT',
+                                        body: { cleared: !p.cleared, cleared_payroll_period: !p.cleared ? 'Manual' : null }
+                                      });
+                                      loadEngPayments();
+                                    } catch (e) { alert('Error: ' + e.message); }
+                                  }}
+                                >
+                                  {p.cleared ? `Cleared${p.cleared_payroll_period ? ': ' + p.cleared_payroll_period : ''}` : 'Uncleared'}
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(p.amount)}</td>
+                            <td>{p.payment_method || '—'}</td>
+                            <td style={{ fontSize: 11 }}>{p.reference_number || '—'}</td>
+                            <td style={{ fontSize: 11 }}>{p.period_start && p.period_end ? `${formatDate(p.period_start)} - ${formatDate(p.period_end)}` : '—'}</td>
+                            <td style={{ fontSize: 11, color: '#64748b' }}>{p.notes || ''}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <button className="btn btn-secondary btn-sm" onClick={() => setEditingPayment({ ...p })} style={{ marginRight: 4 }}>Edit</button>
+                              <button className="btn btn-danger btn-sm" onClick={() => handleDeleteEngPayment(p.id)}>Del</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
