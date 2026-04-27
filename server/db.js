@@ -363,6 +363,10 @@ function initSchema() {
     db.exec("ALTER TABLE users ADD COLUMN start_date TEXT DEFAULT ''");
     console.log('✅ Migration: Added start_date column to users');
   }
+  if (!userCols.find(c => c.name === 'phone')) {
+    db.exec("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''");
+    console.log('✅ Migration: Added phone column to users');
+  }
 
   // Add fixed price project columns
   const projectCols3 = db.prepare("PRAGMA table_info(projects)").all();

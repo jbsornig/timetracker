@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import { useAuth } from '../contexts/AuthContext';
+
+function formatPhone(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
 
 export default function Account() {
   const { user } = useAuth();
@@ -9,9 +16,50 @@ export default function Account() {
     new_password: '',
     confirm_password: '',
   });
+  const [profileForm, setProfileForm] = useState({
+    address: '', city: '', state: '', zip: '', phone: ''
+  });
   const [saving, setSaving] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      const data = await apiFetch('/me');
+      setProfileForm({
+        address: data.address || '',
+        city: data.city || '',
+        state: data.state || '',
+        zip: data.zip || '',
+        phone: data.phone ? formatPhone(data.phone) : '',
+      });
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleProfileSave = async (e) => {
+    e.preventDefault();
+    setProfileError('');
+    setProfileSuccess('');
+    setSavingProfile(true);
+    try {
+      await apiFetch('/me/profile', { method: 'PUT', body: profileForm });
+      setProfileSuccess('Profile updated successfully!');
+      setTimeout(() => setProfileSuccess(''), 3000);
+    } catch (e) {
+      setProfileError(e.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -71,6 +119,73 @@ export default function Account() {
             <span className={`badge badge-${user?.role}`}>{user?.role}</span>
           </div>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-title">My Information</div>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+          Keep your contact information up to date.
+        </p>
+
+        {profileError && <div className="alert alert-error">{profileError}</div>}
+        {profileSuccess && <div className="alert alert-success">{profileSuccess}</div>}
+
+        <form onSubmit={handleProfileSave}>
+          <div className="form-group">
+            <label className="form-label">Cell Phone</label>
+            <input
+              className="form-input"
+              value={profileForm.phone}
+              onChange={(e) => setProfileForm({ ...profileForm, phone: formatPhone(e.target.value) })}
+              placeholder="(555) 123-4567"
+              style={{ maxWidth: 250 }}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Street Address</label>
+            <input
+              className="form-input"
+              value={profileForm.address}
+              onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })}
+              placeholder="123 Main St"
+              style={{ maxWidth: 400 }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 12, maxWidth: 400 }}>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label className="form-label">City</label>
+              <input
+                className="form-input"
+                value={profileForm.city}
+                onChange={(e) => setProfileForm({ ...profileForm, city: e.target.value })}
+                placeholder="Detroit"
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label className="form-label">State</label>
+              <input
+                className="form-input"
+                value={profileForm.state}
+                onChange={(e) => setProfileForm({ ...profileForm, state: e.target.value })}
+                placeholder="MI"
+                maxLength={2}
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label className="form-label">Zip</label>
+              <input
+                className="form-input"
+                value={profileForm.zip}
+                onChange={(e) => setProfileForm({ ...profileForm, zip: e.target.value })}
+                placeholder="48201"
+                maxLength={10}
+              />
+            </div>
+          </div>
+          <button className="btn btn-primary" type="submit" disabled={savingProfile}>
+            {savingProfile ? 'Saving...' : 'Update Information'}
+          </button>
+        </form>
       </div>
 
       <div className="card">

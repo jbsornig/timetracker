@@ -2,10 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
+function formatPhone(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 const emptyUser = {
   name: '', email: '', password: '', engineer_id: '', role: 'engineer',
   holiday_pay_eligible: false, holiday_pay_rate: '',
-  address: '', city: '', state: '', zip: '', start_date: '',
+  address: '', city: '', state: '', zip: '', start_date: '', phone: '',
   bank_routing: '', bank_account: '', bank_account_type: 'checking',
   bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
   bank_pct_1: 100, bank_pct_2: 0,
@@ -76,6 +83,7 @@ export default function Engineers() {
       state: user.state || '',
       zip: user.zip || '',
       start_date: user.start_date || '',
+      phone: user.phone ? formatPhone(user.phone) : '',
     });
     setError('');
     setModal('edit');
@@ -134,6 +142,7 @@ export default function Engineers() {
         state: form.state || '',
         zip: form.zip || '',
         start_date: form.start_date || '',
+        phone: form.phone || '',
       };
       // Only include banking info if provided (don't overwrite with empty)
       if (form.bank_routing) body.bank_routing = form.bank_routing;
@@ -387,7 +396,11 @@ export default function Engineers() {
                   <div className="form-hint">Optional identifier for timesheets</div>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Address & Start Date</div>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Contact, Address & Start Date</div>
+                  <div className="form-group">
+                    <label className="form-label">Cell Phone</label>
+                    <input className="form-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })} placeholder="(555) 123-4567" />
+                  </div>
                   <div className="form-group">
                     <label className="form-label">Street Address</label>
                     <input className="form-input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="123 Main St" />
