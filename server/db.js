@@ -342,6 +342,28 @@ function initSchema() {
     console.log('✅ Migration: Added pay_delay_months column to users');
   }
 
+  // Add address and start date columns for users
+  if (!userCols.find(c => c.name === 'address')) {
+    db.exec("ALTER TABLE users ADD COLUMN address TEXT DEFAULT ''");
+    console.log('✅ Migration: Added address column to users');
+  }
+  if (!userCols.find(c => c.name === 'city')) {
+    db.exec("ALTER TABLE users ADD COLUMN city TEXT DEFAULT ''");
+    console.log('✅ Migration: Added city column to users');
+  }
+  if (!userCols.find(c => c.name === 'state')) {
+    db.exec("ALTER TABLE users ADD COLUMN state TEXT DEFAULT ''");
+    console.log('✅ Migration: Added state column to users');
+  }
+  if (!userCols.find(c => c.name === 'zip')) {
+    db.exec("ALTER TABLE users ADD COLUMN zip TEXT DEFAULT ''");
+    console.log('✅ Migration: Added zip column to users');
+  }
+  if (!userCols.find(c => c.name === 'start_date')) {
+    db.exec("ALTER TABLE users ADD COLUMN start_date TEXT DEFAULT ''");
+    console.log('✅ Migration: Added start_date column to users');
+  }
+
   // Add fixed price project columns
   const projectCols3 = db.prepare("PRAGMA table_info(projects)").all();
   if (!projectCols3.find(c => c.name === 'project_type')) {

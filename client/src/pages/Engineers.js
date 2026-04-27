@@ -5,6 +5,7 @@ import Modal from '../components/Modal';
 const emptyUser = {
   name: '', email: '', password: '', engineer_id: '', role: 'engineer',
   holiday_pay_eligible: false, holiday_pay_rate: '',
+  address: '', city: '', state: '', zip: '', start_date: '',
   bank_routing: '', bank_account: '', bank_account_type: 'checking',
   bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
   bank_pct_1: 100, bank_pct_2: 0,
@@ -70,6 +71,11 @@ export default function Engineers() {
       bank_pct_1: user.bank_pct_1 ?? 100,
       bank_pct_2: user.bank_pct_2 ?? 0,
       pay_delay_months: user.pay_delay_months || 0,
+      address: user.address || '',
+      city: user.city || '',
+      state: user.state || '',
+      zip: user.zip || '',
+      start_date: user.start_date || '',
     });
     setError('');
     setModal('edit');
@@ -123,6 +129,11 @@ export default function Engineers() {
         bank_pct_1: form.role === 'engineer' ? (parseInt(form.bank_pct_1) || 100) : 100,
         bank_pct_2: form.role === 'engineer' ? (parseInt(form.bank_pct_2) || 0) : 0,
         pay_delay_months: form.role === 'engineer' ? (parseInt(form.pay_delay_months) || 0) : 0,
+        address: form.address || '',
+        city: form.city || '',
+        state: form.state || '',
+        zip: form.zip || '',
+        start_date: form.start_date || '',
       };
       // Only include banking info if provided (don't overwrite with empty)
       if (form.bank_routing) body.bank_routing = form.bank_routing;
@@ -374,6 +385,32 @@ export default function Engineers() {
                     placeholder="ENG-001"
                   />
                   <div className="form-hint">Optional identifier for timesheets</div>
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Address & Start Date</div>
+                  <div className="form-group">
+                    <label className="form-label">Street Address</label>
+                    <input className="form-input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="123 Main St" />
+                  </div>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <div className="form-group" style={{ flex: 2 }}>
+                      <label className="form-label">City</label>
+                      <input className="form-input" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Detroit" />
+                    </div>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">State</label>
+                      <input className="form-input" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="MI" maxLength={2} />
+                    </div>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Zip</label>
+                      <input className="form-input" value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} placeholder="48201" maxLength={10} />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Start Date</label>
+                    <input className="form-input" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+                    <div className="form-hint">Date the engineer started working for you</div>
+                  </div>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
                   <div style={{ fontWeight: 600, marginBottom: 12 }}>Holiday Pay Settings</div>
