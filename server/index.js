@@ -125,6 +125,16 @@ app.get('/api/me', auth, (req, res) => {
 app.put('/api/me/profile', auth, (req, res) => {
   const { address, city, state, zip, phone } = req.body;
   const db = getDb();
+  const current = db.prepare('SELECT address, city, state, zip, phone FROM users WHERE id = ?').get(req.user.id);
+  const fields = { address, city, state, zip, phone };
+  const logChange = db.prepare('INSERT INTO user_profile_history (user_id, changed_by, field_name, old_value, new_value) VALUES (?, ?, ?, ?, ?)');
+  for (const [field, newVal] of Object.entries(fields)) {
+    const oldVal = current[field] || '';
+    const nv = newVal || '';
+    if (oldVal !== nv) {
+      logChange.run(req.user.id, 'self', field, oldVal, nv);
+    }
+  }
   db.prepare('UPDATE users SET address=?, city=?, state=?, zip=?, phone=? WHERE id=?')
     .run(address || '', city || '', state || '', zip || '', phone || '', req.user.id);
   res.json({ success: true });
@@ -496,8 +506,19 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
           pay_delay_months } = req.body;
   const db = getDb();
 
-  // Get current user to preserve banking info if not provided (masked fields)
-  const current = db.prepare('SELECT bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2 FROM users WHERE id = ?').get(req.params.id);
+  // Get current user to preserve banking info and log profile changes
+  const current = db.prepare('SELECT bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, address, city, state, zip, phone, start_date FROM users WHERE id = ?').get(req.params.id);
+
+  // Log profile field changes
+  const profileFields = { address, city, state, zip, phone, start_date };
+  const logChange = db.prepare('INSERT INTO user_profile_history (user_id, changed_by, field_name, old_value, new_value) VALUES (?, ?, ?, ?, ?)');
+  for (const [field, newVal] of Object.entries(profileFields)) {
+    const oldVal = current?.[field] || '';
+    const nv = newVal || '';
+    if (oldVal !== nv) {
+      logChange.run(req.params.id, 'admin', field, oldVal, nv);
+    }
+  }
 
   const finalRouting = bank_routing || current?.bank_routing || null;
   const finalAccount = bank_account || current?.bank_account || null;
@@ -535,6 +556,15 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
     );
   }
   res.json({ success: true });
+});
+
+// Profile change history for a user (admin only)
+app.get('/api/users/:id/profile-history', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const history = db.prepare(
+    'SELECT * FROM user_profile_history WHERE user_id = ? ORDER BY changed_at DESC'
+  ).all(req.params.id);
+  res.json(history);
 });
 
 app.delete('/api/users/:id', auth, adminOnly, (req, res) => {
@@ -3394,6 +3424,65 @@ app.post('/api/import/banking', auth, adminOnly, (req, res) => {
     console.error('Import error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── DASHBOARD MESSAGES ──────────────────────────────────────────────────────
+
+// Get messages for current user (global + targeted to them, excluding dismissed and expired)
+app.get('/api/dashboard-messages', auth, (req, res) => {
+  const db = getDb();
+  const messages = db.prepare(`
+    SELECT dm.*, u.name as created_by_name
+    FROM dashboard_messages dm
+    JOIN users u ON u.id = dm.created_by
+    WHERE (dm.target_type = 'all' OR dm.target_user_id = ?)
+      AND (dm.expires_at IS NULL OR dm.expires_at >= date('now'))
+      AND dm.id NOT IN (SELECT message_id FROM dashboard_message_dismissals WHERE user_id = ?)
+    ORDER BY dm.created_at DESC
+  `).all(req.user.id, req.user.id);
+  res.json(messages);
+});
+
+// Admin: list all messages
+app.get('/api/dashboard-messages/all', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const messages = db.prepare(`
+    SELECT dm.*, u.name as created_by_name,
+           CASE WHEN dm.target_user_id IS NOT NULL THEN tu.name ELSE NULL END as target_user_name,
+           (SELECT COUNT(*) FROM dashboard_message_dismissals WHERE message_id = dm.id) as dismiss_count
+    FROM dashboard_messages dm
+    JOIN users u ON u.id = dm.created_by
+    LEFT JOIN users tu ON tu.id = dm.target_user_id
+    ORDER BY dm.created_at DESC
+  `).all();
+  res.json(messages);
+});
+
+// Admin: create a message
+app.post('/api/dashboard-messages', auth, adminOnly, (req, res) => {
+  const { message, target_type, target_user_id, priority, expires_at } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
+  const db = getDb();
+  const result = db.prepare(
+    'INSERT INTO dashboard_messages (message, target_type, target_user_id, priority, expires_at, created_by) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(message.trim(), target_type || 'all', target_user_id || null, priority || 'info', expires_at || null, req.user.id);
+  res.json({ success: true, id: result.lastInsertRowid });
+});
+
+// Admin: delete a message
+app.delete('/api/dashboard-messages/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM dashboard_messages WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Dismiss a message (any user)
+app.post('/api/dashboard-messages/:id/dismiss', auth, (req, res) => {
+  const db = getDb();
+  try {
+    db.prepare('INSERT INTO dashboard_message_dismissals (message_id, user_id) VALUES (?, ?)').run(req.params.id, req.user.id);
+  } catch (e) { /* already dismissed */ }
+  res.json({ success: true });
 });
 
 // ─── ENGINEER PAYMENTS ────────────────────────────────────────────────────────

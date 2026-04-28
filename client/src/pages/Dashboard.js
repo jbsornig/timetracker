@@ -8,6 +8,7 @@ export default function Dashboard({ setPage }) {
   const [timesheets, setTimesheets] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [earnings, setEarnings] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -17,8 +18,16 @@ export default function Dashboard({ setPage }) {
       apiFetch('/timesheets'),
       user.role === 'admin' ? apiFetch('/reports/project-budget') : Promise.resolve([]),
       user.role !== 'admin' ? apiFetch(`/reports/my-earnings?year=${year}`) : Promise.resolve(null),
-    ]).then(([p, t, b, e]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setLoading(false); }).catch(() => setLoading(false));
+      apiFetch('/dashboard-messages'),
+    ]).then(([p, t, b, e, m]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setLoading(false); }).catch(() => setLoading(false));
   }, [user]);
+
+  const dismissMessage = async (id) => {
+    try {
+      await apiFetch(`/dashboard-messages/${id}/dismiss`, { method: 'POST' });
+      setMessages(messages.filter(m => m.id !== id));
+    } catch (e) { /* ignore */ }
+  };
 
   if (loading) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading…</div>;
 
@@ -123,6 +132,41 @@ export default function Dashboard({ setPage }) {
         </div>
         <button className="btn btn-primary" onClick={() => { localStorage.setItem('openNewTimesheet', 'true'); setPage('timesheets'); }}>+ New Timesheet</button>
       </div>
+
+      {messages.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <style>{`
+            @keyframes urgentPulse {
+              0%, 100% { background-color: #fef2f2; border-color: #fecaca; }
+              50% { background-color: #fee2e2; border-color: #f87171; }
+            }
+          `}</style>
+          {messages.map(m => (
+            <div key={m.id} style={{
+              padding: '12px 16px', marginBottom: 8, borderRadius: 8,
+              display: 'flex', alignItems: 'flex-start', gap: 12,
+              background: m.priority === 'urgent' ? '#fef2f2' : '#eff6ff',
+              border: `1px solid ${m.priority === 'urgent' ? '#fecaca' : '#bfdbfe'}`,
+              animation: m.priority === 'urgent' ? 'urgentPulse 2s ease-in-out infinite' : 'none',
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: m.priority === 'urgent' ? '#991b1b' : '#1e40af', marginBottom: 2 }}>
+                  {m.priority === 'urgent' ? '⚠ ACTION REQUIRED' : 'Notice'}
+                </div>
+                <div style={{ fontSize: 14, color: '#1e293b' }}>{m.message}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                  {new Date(m.created_at + 'Z').toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
+                </div>
+              </div>
+              <button
+                onClick={() => dismissMessage(m.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, padding: '0 4px', lineHeight: 1 }}
+                title="Dismiss"
+              >&times;</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="stat-grid">
         <div className="stat-card accent">

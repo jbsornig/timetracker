@@ -30,6 +30,8 @@ export default function Engineers() {
   const [saving, setSaving] = useState(false);
   const [selectedEngineer, setSelectedEngineer] = useState(null);
   const [engineerProjects, setEngineerProjects] = useState([]);
+  const [profileHistory, setProfileHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -86,6 +88,8 @@ export default function Engineers() {
       phone: user.phone ? formatPhone(user.phone) : '',
     });
     setError('');
+    setProfileHistory([]);
+    setShowHistory(false);
     setModal('edit');
   };
 
@@ -614,6 +618,57 @@ export default function Engineers() {
                   </div>
                 </div>
               </>
+            )}
+            {modal === 'edit' && (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={async () => {
+                    if (!showHistory) {
+                      try {
+                        const data = await apiFetch(`/users/${form.id}/profile-history`);
+                        setProfileHistory(data);
+                      } catch (e) { setProfileHistory([]); }
+                    }
+                    setShowHistory(!showHistory);
+                  }}
+                >
+                  {showHistory ? 'Hide' : 'Show'} Profile Change History
+                </button>
+                {showHistory && (
+                  <div style={{ marginTop: 12 }}>
+                    {profileHistory.length === 0 ? (
+                      <div style={{ color: '#94a3b8', fontSize: 13, fontStyle: 'italic' }}>No profile changes recorded.</div>
+                    ) : (
+                      <div className="table-wrap">
+                        <table style={{ fontSize: 12 }}>
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Field</th>
+                              <th>Old Value</th>
+                              <th>New Value</th>
+                              <th>Changed By</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {profileHistory.map(h => (
+                              <tr key={h.id}>
+                                <td style={{ whiteSpace: 'nowrap' }}>{new Date(h.changed_at + 'Z').toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                                <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>{h.field_name}</td>
+                                <td style={{ color: h.old_value ? '#64748b' : '#94a3b8' }}>{h.old_value || '(empty)'}</td>
+                                <td style={{ color: h.new_value ? '#1e40af' : '#dc2626', fontWeight: 500 }}>{h.new_value || '(cleared)'}</td>
+                                <td><span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: h.changed_by === 'admin' ? '#dbeafe' : '#fef3c7', color: h.changed_by === 'admin' ? '#1e40af' : '#92400e' }}>{h.changed_by}</span></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </form>
         </Modal>

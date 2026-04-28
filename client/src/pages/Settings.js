@@ -68,11 +68,17 @@ export default function Settings() {
   const [holidaySaving, setHolidaySaving] = useState(false);
   const [holidayYear, setHolidayYear] = useState(new Date().getFullYear().toString());
   const [serverBackups, setServerBackups] = useState([]);
+  const [dashMessages, setDashMessages] = useState([]);
+  const [msgForm, setMsgForm] = useState({ message: '', target_type: 'all', target_user_id: '', priority: 'info', expires_at: '' });
+  const [msgSaving, setMsgSaving] = useState(false);
+  const [engineers, setEngineers] = useState([]);
 
   useEffect(() => {
     loadSettings();
     loadHolidays();
     loadServerBackups();
+    loadDashMessages();
+    loadEngineers();
   }, []);
 
   const loadServerBackups = async () => {
@@ -81,6 +87,54 @@ export default function Settings() {
       setServerBackups(list);
     } catch (e) {
       // Backups list may not be available
+    }
+  };
+
+  const loadDashMessages = async () => {
+    try {
+      const data = await apiFetch('/dashboard-messages/all');
+      setDashMessages(data);
+    } catch (e) { /* ignore */ }
+  };
+
+  const loadEngineers = async () => {
+    try {
+      const data = await apiFetch('/users');
+      setEngineers(data.filter(u => u.role === 'engineer'));
+    } catch (e) { /* ignore */ }
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!msgForm.message.trim()) return;
+    setMsgSaving(true);
+    try {
+      await apiFetch('/dashboard-messages', {
+        method: 'POST',
+        body: {
+          message: msgForm.message,
+          target_type: msgForm.target_type,
+          target_user_id: msgForm.target_type === 'user' ? parseInt(msgForm.target_user_id) : null,
+          priority: msgForm.priority,
+          expires_at: msgForm.expires_at || null,
+        }
+      });
+      setMsgForm({ message: '', target_type: 'all', target_user_id: '', priority: 'info', expires_at: '' });
+      loadDashMessages();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setMsgSaving(false);
+    }
+  };
+
+  const handleDeleteMessage = async (id) => {
+    if (!window.confirm('Delete this message?')) return;
+    try {
+      await apiFetch(`/dashboard-messages/${id}`, { method: 'DELETE' });
+      loadDashMessages();
+    } catch (e) {
+      alert('Error: ' + e.message);
     }
   };
 
@@ -729,6 +783,101 @@ export default function Settings() {
           Columns: VendorName, VendorNickname, BankAccountType, BankRoutingNumber, BankAccountNumber<br />
           For split deposits, include percentage in VendorName (e.g., "John Smith 70 percent")
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 20 }}>
+        <div className="card-title">Dashboard Messages</div>
+        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+          Send messages to engineer dashboards. Messages appear as banners until dismissed.
+        </p>
+
+        <form onSubmit={handleSendMessage} style={{ marginBottom: 20 }}>
+          <div className="form-group">
+            <label className="form-label">Message *</label>
+            <textarea
+              className="form-input"
+              rows={3}
+              value={msgForm.message}
+              onChange={(e) => setMsgForm({ ...msgForm, message: e.target.value })}
+              placeholder="Please update your address and phone number in My Account..."
+              style={{ resize: 'vertical' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="form-group">
+              <label className="form-label">Send To</label>
+              <select className="form-select" value={msgForm.target_type} onChange={(e) => setMsgForm({ ...msgForm, target_type: e.target.value, target_user_id: '' })} style={{ width: 180 }}>
+                <option value="all">All Engineers</option>
+                <option value="user">Specific Engineer</option>
+              </select>
+            </div>
+            {msgForm.target_type === 'user' && (
+              <div className="form-group">
+                <label className="form-label">Engineer</label>
+                <select className="form-select" value={msgForm.target_user_id} onChange={(e) => setMsgForm({ ...msgForm, target_user_id: e.target.value })} style={{ width: 200 }}>
+                  <option value="">Select...</option>
+                  {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Priority</label>
+              <select className="form-select" value={msgForm.priority} onChange={(e) => setMsgForm({ ...msgForm, priority: e.target.value })} style={{ width: 140 }}>
+                <option value="info">Info</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Expires</label>
+              <input className="form-input" type="date" value={msgForm.expires_at} onChange={(e) => setMsgForm({ ...msgForm, expires_at: e.target.value })} style={{ width: 160 }} />
+              <div className="form-hint">Optional — leave blank for no expiration</div>
+            </div>
+            <button className="btn btn-primary" type="submit" disabled={msgSaving || !msgForm.message.trim() || (msgForm.target_type === 'user' && !msgForm.target_user_id)}>
+              {msgSaving ? 'Sending...' : 'Send Message'}
+            </button>
+          </div>
+        </form>
+
+        {dashMessages.length > 0 && (
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>Active Messages</div>
+            <div className="table-wrap">
+              <table style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Message</th>
+                    <th>Target</th>
+                    <th>Priority</th>
+                    <th>Expires</th>
+                    <th>Dismissed</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dashMessages.map(m => (
+                    <tr key={m.id}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{new Date(m.created_at + 'Z').toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                      <td style={{ maxWidth: 300 }}>{m.message}</td>
+                      <td>
+                        {m.target_type === 'all'
+                          ? <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, background: '#dbeafe', color: '#1e40af' }}>ALL</span>
+                          : <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, background: '#fef3c7', color: '#92400e' }}>{m.target_user_name}</span>
+                        }
+                      </td>
+                      <td>
+                        <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: m.priority === 'urgent' ? '#fef2f2' : '#f0fdf4', color: m.priority === 'urgent' ? '#991b1b' : '#166534' }}>{m.priority}</span>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{m.expires_at || '—'}</td>
+                      <td style={{ textAlign: 'center' }}>{m.dismiss_count}</td>
+                      <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteMessage(m.id)}>Del</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ marginTop: 20 }}>

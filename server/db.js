@@ -620,6 +620,49 @@ function initSchema() {
     backfillTxn();
     console.log(`✅ Backfill complete: ${entryCount} entries stamped, ${tsCount} timesheets stamped`);
   }
+
+  // Dashboard messages table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dashboard_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_type TEXT NOT NULL DEFAULT 'all',
+      target_user_id INTEGER,
+      message TEXT NOT NULL,
+      priority TEXT NOT NULL DEFAULT 'info',
+      expires_at DATE,
+      created_by INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (target_user_id) REFERENCES users(id),
+      FOREIGN KEY (created_by) REFERENCES users(id)
+    )
+  `);
+
+  // Track dismissed messages per user
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dashboard_message_dismissals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      dismissed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (message_id) REFERENCES dashboard_messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(message_id, user_id)
+    )
+  `);
+
+  // Profile change history table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_profile_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      changed_by TEXT NOT NULL,
+      field_name TEXT NOT NULL,
+      old_value TEXT,
+      new_value TEXT,
+      changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
 }
 
 function replaceDatabase(newDbPath) {
