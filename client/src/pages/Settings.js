@@ -72,6 +72,8 @@ export default function Settings() {
   const [msgForm, setMsgForm] = useState({ message: '', target_type: 'all', target_user_id: '', priority: 'info', expires_at: '' });
   const [msgSaving, setMsgSaving] = useState(false);
   const [engineers, setEngineers] = useState([]);
+  const [dismissalDetails, setDismissalDetails] = useState(null);
+  const [dismissalMsgId, setDismissalMsgId] = useState(null);
 
   useEffect(() => {
     loadSettings();
@@ -856,7 +858,8 @@ export default function Settings() {
                 </thead>
                 <tbody>
                   {dashMessages.map(m => (
-                    <tr key={m.id}>
+                  <React.Fragment key={m.id}>
+                    <tr>
                       <td style={{ whiteSpace: 'nowrap' }}>{new Date(m.created_at + 'Z').toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}</td>
                       <td style={{ maxWidth: 300 }}>{m.message}</td>
                       <td>
@@ -869,9 +872,36 @@ export default function Settings() {
                         <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', background: m.priority === 'urgent' ? '#fef2f2' : '#f0fdf4', color: m.priority === 'urgent' ? '#991b1b' : '#166534' }}>{m.priority}</span>
                       </td>
                       <td style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{m.expires_at || '—'}</td>
-                      <td style={{ textAlign: 'center' }}>{m.dismiss_count}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {m.dismiss_count > 0 ? (
+                          <span
+                            style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}
+                            onClick={async () => {
+                              if (dismissalMsgId === m.id) { setDismissalDetails(null); setDismissalMsgId(null); return; }
+                              try {
+                                const data = await apiFetch(`/dashboard-messages/${m.id}/dismissals`);
+                                setDismissalDetails(data);
+                                setDismissalMsgId(m.id);
+                              } catch (e) { /* ignore */ }
+                            }}
+                          >{m.dismiss_count}</span>
+                        ) : '0'}
+                      </td>
                       <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteMessage(m.id)}>Del</button></td>
                     </tr>
+                    {dismissalMsgId === m.id && dismissalDetails && (
+                      <tr>
+                        <td colSpan={7} style={{ background: '#f8fafc', padding: '8px 16px' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Dismissed by:</div>
+                          {dismissalDetails.map((d, i) => (
+                            <div key={i} style={{ fontSize: 12, color: '#475569' }}>
+                              {d.engineer_name} — {new Date(d.dismissed_at + 'Z').toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                   ))}
                 </tbody>
               </table>

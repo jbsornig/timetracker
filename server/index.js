@@ -3476,6 +3476,19 @@ app.delete('/api/dashboard-messages/:id', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// Get who dismissed a specific message (admin only)
+app.get('/api/dashboard-messages/:id/dismissals', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const dismissals = db.prepare(`
+    SELECT d.dismissed_at, u.name as engineer_name
+    FROM dashboard_message_dismissals d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.message_id = ?
+    ORDER BY d.dismissed_at DESC
+  `).all(req.params.id);
+  res.json(dismissals);
+});
+
 // Dismiss a message (any user)
 app.post('/api/dashboard-messages/:id/dismiss', auth, (req, res) => {
   const db = getDb();
