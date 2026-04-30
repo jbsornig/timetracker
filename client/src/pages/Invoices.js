@@ -85,14 +85,27 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
     <div>
       {/* Month selector */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <label style={{ fontWeight: 600, fontSize: 14 }}>Month:</label>
-        <input
-          type="month"
-          value={submissionMonth}
-          onChange={(e) => setSubmissionMonth(e.target.value)}
-          className="form-input"
-          style={{ width: 180 }}
-        />
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            const [y, m] = submissionMonth.split('-').map(Number);
+            const prev = new Date(y, m - 2, 1);
+            setSubmissionMonth(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`);
+          }}
+          style={{ fontSize: 18, padding: '4px 12px', lineHeight: 1 }}
+        >&larr;</button>
+        <span style={{ fontWeight: 600, fontSize: 16, minWidth: 160, textAlign: 'center' }}>
+          {new Date(submissionMonth + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+        </span>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            const [y, m] = submissionMonth.split('-').map(Number);
+            const next = new Date(y, m, 1);
+            setSubmissionMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`);
+          }}
+          style={{ fontSize: 18, padding: '4px 12px', lineHeight: 1 }}
+        >&rarr;</button>
         {submissionStatus && (
           <span style={{ fontSize: 13, color: '#64748b' }}>
             {totalSubmitted} / {totalExpected} submissions received
