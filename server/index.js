@@ -1460,7 +1460,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
     const assignments = db.prepare(`
       SELECT ep.user_id, ep.project_id, u.name as engineer_name,
              p.name as project_name, p.project_type, p.requires_daily_logs,
-             c.name as customer_name
+             p.include_timesheets, c.name as customer_name
       FROM engineer_projects ep
       JOIN users u ON u.id = ep.user_id
       JOIN projects p ON p.id = ep.project_id
@@ -1470,7 +1470,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
     `).all();
 
     // Get weekly timesheets matching week-ending Sundays
-    // Any project with requires_daily_logs != 0 (includes hourly AND fixed_monthly that require timesheets)
+    // For projects with include_timesheets = 1 (requires timesheets)
     // Only count hours from entry_dates within the selected month
     const weeklyTimesheets = weeks.length > 0 ? db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
@@ -1480,14 +1480,15 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND COALESCE(p.requires_daily_logs, 1) = 1
+        AND COALESCE(p.include_timesheets, 1) = 1
         AND ts.week_ending IN (${weeks.map(() => '?').join(',')})
       GROUP BY ts.id
     `).all(monthStart, monthEnd, ...weeks) : [];
 
-    // Get non-weekly timesheets (monthly submissions only)
-    // Projects with requires_daily_logs = 0 — engineer submits total hours/amount for the month
-    // Match by: period overlap OR week_ending within the month (fallback for older data)
+    // Get non-weekly timesheets (projects that don't require timesheets)
+    // These are fixed-price or monthly projects where include_timesheets = 0
+    // Engineer submits total hours/amount for the period
+    // Match by: period overlap OR week_ending within the month (fallback)
     const nonWeeklyTimesheets = db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
              ts.period_start, ts.period_end, ts.amount, ts.percentage,
@@ -1496,7 +1497,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND COALESCE(p.requires_daily_logs, 1) = 0
+        AND COALESCE(p.include_timesheets, 1) = 0
         AND (
           (ts.period_start IS NOT NULL AND ts.period_start <= ? AND ts.period_end >= ?)
           OR (ts.period_start IS NULL AND ts.week_ending >= ? AND ts.week_ending <= ?)
@@ -1516,6 +1517,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
           project_name: a.project_name,
           project_type: a.project_type,
           requires_daily_logs: a.requires_daily_logs,
+          include_timesheets: a.include_timesheets,
           customer_name: a.customer_name,
           weeks: {},
         };

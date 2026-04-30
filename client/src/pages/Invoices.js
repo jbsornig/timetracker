@@ -72,8 +72,8 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
   const monthLabel = submissionStatus ? new Date(submissionStatus.month + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
 
   // Separate weekly vs monthly engineers
-  const weeklyEngineers = (submissionStatus?.engineers || []).filter(e => e.requires_daily_logs !== 0);
-  const monthlyEngineers = (submissionStatus?.engineers || []).filter(e => e.requires_daily_logs === 0);
+  const weeklyEngineers = (submissionStatus?.engineers || []).filter(e => e.include_timesheets !== 0);
+  const monthlyEngineers = (submissionStatus?.engineers || []).filter(e => e.include_timesheets === 0);
   const weeks = submissionStatus?.weeks || [];
 
   // Count stats
@@ -107,7 +107,7 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
           {/* Weekly timesheet engineers */}
           {weeklyEngineers.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Weekly Timesheet Engineers</div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Requires Timesheets</div>
               <div className="table-wrap">
                 <table style={{ fontSize: 12 }}>
                   <thead>
@@ -177,10 +177,10 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
             </div>
           )}
 
-          {/* Monthly / Fixed-price engineers */}
+          {/* Does not require timesheets */}
           {monthlyEngineers.length > 0 && (
             <div className="card">
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Monthly / Fixed-Price Engineers</div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Does Not Require Timesheets</div>
               <div className="table-wrap">
                 <table style={{ fontSize: 12 }}>
                   <thead>
