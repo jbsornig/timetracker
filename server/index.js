@@ -1459,7 +1459,8 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
     // Get all active engineer-project assignments with project info
     const assignments = db.prepare(`
       SELECT ep.user_id, ep.project_id, u.name as engineer_name,
-             p.name as project_name, p.project_type, c.name as customer_name
+             p.name as project_name, p.project_type, p.requires_daily_logs,
+             c.name as customer_name
       FROM engineer_projects ep
       JOIN users u ON u.id = ep.user_id
       JOIN projects p ON p.id = ep.project_id
@@ -1468,7 +1469,8 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       ORDER BY u.name, p.name
     `).all();
 
-    // Get hourly timesheets matching week-ending Sundays
+    // Get weekly hourly timesheets matching week-ending Sundays
+    // These are hourly projects with requires_daily_logs = 1 (traditional weekly timesheets)
     // Only count hours from entry_dates within the selected month
     const hourlyTimesheets = weeks.length > 0 ? db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
@@ -1478,14 +1480,15 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND p.project_type = 'hourly'
+        AND p.project_type = 'hourly' AND p.requires_daily_logs = 1
         AND ts.week_ending IN (${weeks.map(() => '?').join(',')})
       GROUP BY ts.id
     `).all(monthStart, monthEnd, ...weeks) : [];
 
-    // Get non-hourly (fixed_price, fixed_monthly) timesheets whose period overlaps the month
-    // These use period_start/period_end and week_ending = period_end (not a Sunday)
-    const nonHourlyTimesheets = db.prepare(`
+    // Get non-weekly timesheets whose period overlaps the month
+    // This includes: fixed_price, fixed_monthly, AND hourly projects with requires_daily_logs=0
+    // All of these use period_start/period_end with week_ending = period_end (not a Sunday)
+    const nonWeeklyTimesheets = db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
              ts.period_start, ts.period_end, ts.amount, ts.percentage,
              COALESCE(SUM(te.hours), 0) as total_hours
@@ -1493,7 +1496,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND p.project_type != 'hourly'
+        AND (p.project_type != 'hourly' OR p.requires_daily_logs = 0)
         AND ts.period_start <= ? AND ts.period_end >= ?
       GROUP BY ts.id
     `).all(monthEnd, monthStart);
@@ -1509,6 +1512,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
           engineer_name: a.engineer_name,
           project_name: a.project_name,
           project_type: a.project_type,
+          requires_daily_logs: a.requires_daily_logs,
           customer_name: a.customer_name,
           weeks: {},
         };
@@ -1531,8 +1535,8 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       };
     }
 
-    // Map non-hourly timesheets — use period_start as key (for display purposes)
-    for (const ts of nonHourlyTimesheets) {
+    // Map non-weekly timesheets — use period_start as key (for display purposes)
+    for (const ts of nonWeeklyTimesheets) {
       const key = `${ts.user_id}-${ts.project_id}`;
       if (!engineers[key]) continue;
       // Use a synthetic key based on period

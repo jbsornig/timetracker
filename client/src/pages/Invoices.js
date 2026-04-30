@@ -72,8 +72,8 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
   const monthLabel = submissionStatus ? new Date(submissionStatus.month + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
 
   // Separate weekly vs monthly engineers
-  const weeklyEngineers = (submissionStatus?.engineers || []).filter(e => e.project_type === 'hourly');
-  const monthlyEngineers = (submissionStatus?.engineers || []).filter(e => e.project_type !== 'hourly');
+  const weeklyEngineers = (submissionStatus?.engineers || []).filter(e => e.project_type === 'hourly' && e.requires_daily_logs === 1);
+  const monthlyEngineers = (submissionStatus?.engineers || []).filter(e => e.project_type !== 'hourly' || e.requires_daily_logs === 0);
   const weeks = submissionStatus?.weeks || [];
 
   // Count stats
