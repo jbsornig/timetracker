@@ -1424,24 +1424,35 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
     const [year, mon] = month.split('-').map(Number);
     const monthStart = `${month}-01`;
     const monthEnd = new Date(year, mon, 0).toISOString().split('T')[0]; // last day of month
+    const lastDayNum = new Date(year, mon, 0).getDate();
 
-    // Calculate week-ending Sundays that fall within or overlap this month
+    // Calculate ALL week-ending Sundays where Mon-Sat of that week has at least
+    // one day in the selected month. Week = Mon after prev Sunday through Sunday.
     const weeks = [];
     const firstDay = new Date(year, mon - 1, 1);
-    // Find the first Sunday on or after the 1st
+    const lastDay = new Date(year, mon - 1, lastDayNum);
+
+    // Start from the Sunday before or on the first day of month, go forward
     let sunday = new Date(firstDay);
-    sunday.setDate(sunday.getDate() + ((7 - sunday.getDay()) % 7));
-    // Also include the Sunday before the month if it's within the first week
-    const prevSunday = new Date(sunday);
-    prevSunday.setDate(prevSunday.getDate() - 7);
-    // If prevSunday's week overlaps the month (Mon after prevSunday is in the month)
-    const monAfterPrev = new Date(prevSunday);
-    monAfterPrev.setDate(monAfterPrev.getDate() + 1);
-    if (monAfterPrev >= firstDay) {
-      weeks.push(prevSunday.toISOString().split('T')[0]);
-    }
-    while (sunday <= new Date(year, mon - 1, new Date(year, mon, 0).getDate())) {
-      weeks.push(sunday.toISOString().split('T')[0]);
+    // Back up to previous Sunday
+    sunday.setDate(sunday.getDate() - sunday.getDay());
+    // Now iterate forward — include this Sunday if Mon-Sat of its week overlaps the month
+    while (true) {
+      // The week for this Sunday: Mon (sunday+1) through next Sunday (sunday+7)
+      // But we consider Mon-Sat = sunday-6 through sunday (the week ENDING on this Sunday)
+      // Actually week ending Sunday means: Mon = sunday-6 ... Sun = sunday
+      const weekMon = new Date(sunday);
+      weekMon.setDate(weekMon.getDate() - 6);
+      const weekSat = new Date(sunday);
+      weekSat.setDate(weekSat.getDate() - 1);
+
+      // Does Mon-Sat overlap with the month?
+      if (weekSat >= firstDay && weekMon <= lastDay) {
+        weeks.push(sunday.toISOString().split('T')[0]);
+      }
+
+      // Stop once we've passed the end of month
+      if (weekMon > lastDay) break;
       sunday.setDate(sunday.getDate() + 7);
     }
 
@@ -1457,17 +1468,19 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       ORDER BY u.name, p.name
     `).all();
 
-    // Get all timesheets for these engineers in this month (submitted or approved)
+    // Get all timesheets for these engineers covering these weeks (submitted or approved)
+    // Also get hours ONLY for entry_dates within the selected month
     const timesheets = db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
              ts.period_start, ts.period_end, ts.amount,
-             COALESCE(SUM(te.hours), 0) as total_hours
+             COALESCE(SUM(te.hours), 0) as total_hours,
+             COALESCE(SUM(CASE WHEN te.entry_date >= ? AND te.entry_date <= ? THEN te.hours ELSE 0 END), 0) as month_hours
       FROM timesheets ts
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND ts.week_ending >= ? AND ts.week_ending <= ?
+        AND ts.week_ending IN (${weeks.map(() => '?').join(',')})
       GROUP BY ts.id
-    `).all(weeks.length > 0 ? weeks[0] : monthStart, monthEnd);
+    `).all(monthStart, monthEnd, ...weeks);
 
     // Build the status grid
     const engineers = {};
@@ -1486,15 +1499,17 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       }
     }
 
-    // Map timesheets to their week slots
+    // Map timesheets to their week slots — only count if they have hours in-month
     for (const ts of timesheets) {
       const key = `${ts.user_id}-${ts.project_id}`;
       if (!engineers[key]) continue;
+      // Skip if timesheet exists but has no hours for days in this month
+      if (ts.month_hours <= 0 && ts.amount <= 0) continue;
       const weekKey = ts.week_ending;
       engineers[key].weeks[weekKey] = {
         id: ts.id,
         status: ts.status,
-        total_hours: ts.total_hours,
+        total_hours: ts.month_hours,
         amount: ts.amount,
         period_start: ts.period_start,
         period_end: ts.period_end,
