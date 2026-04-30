@@ -1480,14 +1480,14 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND p.project_type = 'hourly' AND p.requires_daily_logs = 1
+        AND p.project_type = 'hourly' AND COALESCE(p.requires_daily_logs, 1) = 1
         AND ts.week_ending IN (${weeks.map(() => '?').join(',')})
       GROUP BY ts.id
     `).all(monthStart, monthEnd, ...weeks) : [];
 
     // Get non-weekly timesheets whose period overlaps the month
     // This includes: fixed_price, fixed_monthly, AND hourly projects with requires_daily_logs=0
-    // All of these use period_start/period_end with week_ending = period_end (not a Sunday)
+    // Match by: period overlap OR week_ending within the month (fallback for older data)
     const nonWeeklyTimesheets = db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
              ts.period_start, ts.period_end, ts.amount, ts.percentage,
@@ -1496,10 +1496,13 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND (p.project_type != 'hourly' OR p.requires_daily_logs = 0)
-        AND ts.period_start <= ? AND ts.period_end >= ?
+        AND (p.project_type != 'hourly' OR COALESCE(p.requires_daily_logs, 1) = 0)
+        AND (
+          (ts.period_start IS NOT NULL AND ts.period_start <= ? AND ts.period_end >= ?)
+          OR (ts.period_start IS NULL AND ts.week_ending >= ? AND ts.week_ending <= ?)
+        )
       GROUP BY ts.id
-    `).all(monthEnd, monthStart);
+    `).all(monthEnd, monthStart, monthStart, monthEnd);
 
     // Build the status grid
     const engineers = {};
