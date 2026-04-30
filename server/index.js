@@ -1468,19 +1468,35 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       ORDER BY u.name, p.name
     `).all();
 
-    // Get all timesheets for these engineers covering these weeks (submitted or approved)
-    // Also get hours ONLY for entry_dates within the selected month
-    const timesheets = db.prepare(`
+    // Get hourly timesheets matching week-ending Sundays
+    // Only count hours from entry_dates within the selected month
+    const hourlyTimesheets = weeks.length > 0 ? db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
              ts.period_start, ts.period_end, ts.amount,
-             COALESCE(SUM(te.hours), 0) as total_hours,
              COALESCE(SUM(CASE WHEN te.entry_date >= ? AND te.entry_date <= ? THEN te.hours ELSE 0 END), 0) as month_hours
       FROM timesheets ts
+      JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
+        AND p.project_type = 'hourly'
         AND ts.week_ending IN (${weeks.map(() => '?').join(',')})
       GROUP BY ts.id
-    `).all(monthStart, monthEnd, ...weeks);
+    `).all(monthStart, monthEnd, ...weeks) : [];
+
+    // Get non-hourly (fixed_price, fixed_monthly) timesheets whose period overlaps the month
+    // These use period_start/period_end and week_ending = period_end (not a Sunday)
+    const nonHourlyTimesheets = db.prepare(`
+      SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
+             ts.period_start, ts.period_end, ts.amount, ts.percentage,
+             COALESCE(SUM(te.hours), 0) as total_hours
+      FROM timesheets ts
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+      WHERE ts.status IN ('submitted', 'approved')
+        AND p.project_type != 'hourly'
+        AND ts.period_start <= ? AND ts.period_end >= ?
+      GROUP BY ts.id
+    `).all(monthEnd, monthStart);
 
     // Build the status grid
     const engineers = {};
@@ -1499,18 +1515,34 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       }
     }
 
-    // Map timesheets to their week slots — only count if they have hours in-month
-    for (const ts of timesheets) {
+    // Map hourly timesheets to their week slots
+    for (const ts of hourlyTimesheets) {
       const key = `${ts.user_id}-${ts.project_id}`;
       if (!engineers[key]) continue;
       // Skip if timesheet exists but has no hours for days in this month
-      if (ts.month_hours <= 0 && ts.amount <= 0) continue;
-      const weekKey = ts.week_ending;
-      engineers[key].weeks[weekKey] = {
+      if (ts.month_hours <= 0) continue;
+      engineers[key].weeks[ts.week_ending] = {
         id: ts.id,
         status: ts.status,
         total_hours: ts.month_hours,
         amount: ts.amount,
+        period_start: ts.period_start,
+        period_end: ts.period_end,
+      };
+    }
+
+    // Map non-hourly timesheets — use period_start as key (for display purposes)
+    for (const ts of nonHourlyTimesheets) {
+      const key = `${ts.user_id}-${ts.project_id}`;
+      if (!engineers[key]) continue;
+      // Use a synthetic key based on period
+      const slotKey = ts.period_start || ts.week_ending;
+      engineers[key].weeks[slotKey] = {
+        id: ts.id,
+        status: ts.status,
+        total_hours: ts.total_hours,
+        amount: ts.amount,
+        percentage: ts.percentage,
         period_start: ts.period_start,
         period_end: ts.period_end,
       };

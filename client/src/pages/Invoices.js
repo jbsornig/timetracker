@@ -198,6 +198,7 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
                       const hasSubmission = submissions.length > 0;
                       const totalHours = submissions.reduce((s, ts) => s + (ts.total_hours || 0), 0);
                       const totalAmount = submissions.reduce((s, ts) => s + (ts.amount || 0), 0);
+                      const allApproved = hasSubmission && submissions.every(ts => ts.status === 'approved');
                       return (
                         <tr key={`${eng.user_id}-${eng.project_id}`} style={{ background: hasSubmission ? '#f0f9ff' : undefined }}>
                           <td style={{ fontWeight: 500 }}>{eng.engineer_name}</td>
@@ -207,8 +208,9 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
                             {hasSubmission ? (
                               <span style={{
                                 padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
-                                background: '#dbeafe', color: '#1d4ed8',
-                              }}>Submitted</span>
+                                background: allApproved ? '#dbeafe' : '#fef3c7',
+                                color: allApproved ? '#1d4ed8' : '#92400e',
+                              }}>{allApproved ? 'Approved' : 'Submitted'}</span>
                             ) : (
                               <span style={{
                                 padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
