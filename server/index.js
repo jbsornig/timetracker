@@ -1469,10 +1469,10 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       ORDER BY u.name, p.name
     `).all();
 
-    // Get weekly hourly timesheets matching week-ending Sundays
-    // These are hourly projects with requires_daily_logs = 1 (traditional weekly timesheets)
+    // Get weekly timesheets matching week-ending Sundays
+    // Any project with requires_daily_logs != 0 (includes hourly AND fixed_monthly that require timesheets)
     // Only count hours from entry_dates within the selected month
-    const hourlyTimesheets = weeks.length > 0 ? db.prepare(`
+    const weeklyTimesheets = weeks.length > 0 ? db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
              ts.period_start, ts.period_end, ts.amount,
              COALESCE(SUM(CASE WHEN te.entry_date >= ? AND te.entry_date <= ? THEN te.hours ELSE 0 END), 0) as month_hours
@@ -1480,13 +1480,13 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND p.project_type = 'hourly' AND COALESCE(p.requires_daily_logs, 1) = 1
+        AND COALESCE(p.requires_daily_logs, 1) = 1
         AND ts.week_ending IN (${weeks.map(() => '?').join(',')})
       GROUP BY ts.id
     `).all(monthStart, monthEnd, ...weeks) : [];
 
-    // Get non-weekly timesheets whose period overlaps the month
-    // This includes: fixed_price, fixed_monthly, AND hourly projects with requires_daily_logs=0
+    // Get non-weekly timesheets (monthly submissions only)
+    // Projects with requires_daily_logs = 0 — engineer submits total hours/amount for the month
     // Match by: period overlap OR week_ending within the month (fallback for older data)
     const nonWeeklyTimesheets = db.prepare(`
       SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
@@ -1496,7 +1496,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.status IN ('submitted', 'approved')
-        AND (p.project_type != 'hourly' OR COALESCE(p.requires_daily_logs, 1) = 0)
+        AND COALESCE(p.requires_daily_logs, 1) = 0
         AND (
           (ts.period_start IS NOT NULL AND ts.period_start <= ? AND ts.period_end >= ?)
           OR (ts.period_start IS NULL AND ts.week_ending >= ? AND ts.week_ending <= ?)
@@ -1522,8 +1522,8 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
       }
     }
 
-    // Map hourly timesheets to their week slots
-    for (const ts of hourlyTimesheets) {
+    // Map weekly timesheets to their week slots
+    for (const ts of weeklyTimesheets) {
       const key = `${ts.user_id}-${ts.project_id}`;
       if (!engineers[key]) continue;
       // Skip if timesheet exists but has no hours for days in this month
