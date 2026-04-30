@@ -66,6 +66,182 @@ function getDueDate(invoiceDate, paymentTerms = 'Net 30') {
 const emptyPayment = { amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: '', reference_number: '', notes: '' };
 const PAYMENT_METHODS = ['Check', 'ACH/Wire', 'Credit Card', 'Cash', 'Other'];
 
+function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionStatus, loadingStatus }) {
+  if (loadingStatus) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading submission status...</div>;
+
+  const monthLabel = submissionStatus ? new Date(submissionStatus.month + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
+
+  // Separate weekly vs monthly engineers
+  const weeklyEngineers = (submissionStatus?.engineers || []).filter(e => e.project_type === 'hourly');
+  const monthlyEngineers = (submissionStatus?.engineers || []).filter(e => e.project_type !== 'hourly');
+  const weeks = submissionStatus?.weeks || [];
+
+  // Count stats
+  const totalExpected = weeklyEngineers.length * weeks.length + monthlyEngineers.length;
+  const totalSubmitted = weeklyEngineers.reduce((sum, eng) => sum + Object.keys(eng.weeks).length, 0)
+    + monthlyEngineers.filter(eng => Object.keys(eng.weeks).length > 0).length;
+
+  return (
+    <div>
+      {/* Month selector */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <label style={{ fontWeight: 600, fontSize: 14 }}>Month:</label>
+        <input
+          type="month"
+          value={submissionMonth}
+          onChange={(e) => setSubmissionMonth(e.target.value)}
+          className="form-input"
+          style={{ width: 180 }}
+        />
+        {submissionStatus && (
+          <span style={{ fontSize: 13, color: '#64748b' }}>
+            {totalSubmitted} / {totalExpected} submissions received
+          </span>
+        )}
+      </div>
+
+      {!submissionStatus ? (
+        <div className="empty-state"><p>Select a month to view submission status.</p></div>
+      ) : (
+        <>
+          {/* Weekly timesheet engineers */}
+          {weeklyEngineers.length > 0 && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Weekly Timesheet Engineers</div>
+              <div className="table-wrap">
+                <table style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ position: 'sticky', left: 0, background: '#f8fafc', zIndex: 1 }}>Engineer</th>
+                      <th>Project</th>
+                      {weeks.map(w => (
+                        <th key={w} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          {new Date(w + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {weeklyEngineers.map(eng => {
+                      const allSubmitted = weeks.every(w => eng.weeks[w]);
+                      return (
+                        <tr key={`${eng.user_id}-${eng.project_id}`} style={{ background: allSubmitted ? '#f0f9ff' : undefined }}>
+                          <td style={{ position: 'sticky', left: 0, background: allSubmitted ? '#f0f9ff' : '#fff', zIndex: 1, fontWeight: 500 }}>
+                            {eng.engineer_name}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 11 }}>{eng.project_name}</td>
+                          {weeks.map(w => {
+                            const ts = eng.weeks[w];
+                            if (ts) {
+                              return (
+                                <td key={w} style={{ textAlign: 'center' }}>
+                                  <span
+                                    title={`${ts.status} - ${ts.total_hours}h`}
+                                    style={{
+                                      display: 'inline-block',
+                                      padding: '2px 6px',
+                                      borderRadius: 4,
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      background: ts.status === 'approved' ? '#dbeafe' : '#fef3c7',
+                                      color: ts.status === 'approved' ? '#1d4ed8' : '#92400e',
+                                    }}
+                                  >
+                                    {ts.total_hours}h
+                                  </span>
+                                </td>
+                              );
+                            }
+                            return (
+                              <td key={w} style={{ textAlign: 'center' }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  background: '#fef9c3',
+                                  color: '#854d0e',
+                                }}>
+                                  Missing
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Monthly / Fixed-price engineers */}
+          {monthlyEngineers.length > 0 && (
+            <div className="card">
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Monthly / Fixed-Price Engineers</div>
+              <div className="table-wrap">
+                <table style={{ fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Engineer</th>
+                      <th>Project</th>
+                      <th>Type</th>
+                      <th style={{ textAlign: 'center' }}>Status</th>
+                      <th style={{ textAlign: 'right' }}>Amount / Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyEngineers.map(eng => {
+                      const submissions = Object.values(eng.weeks);
+                      const hasSubmission = submissions.length > 0;
+                      const totalHours = submissions.reduce((s, ts) => s + (ts.total_hours || 0), 0);
+                      const totalAmount = submissions.reduce((s, ts) => s + (ts.amount || 0), 0);
+                      return (
+                        <tr key={`${eng.user_id}-${eng.project_id}`} style={{ background: hasSubmission ? '#f0f9ff' : undefined }}>
+                          <td style={{ fontWeight: 500 }}>{eng.engineer_name}</td>
+                          <td style={{ color: '#64748b', fontSize: 11 }}>{eng.project_name}</td>
+                          <td style={{ fontSize: 11, textTransform: 'capitalize' }}>{eng.project_type.replace('_', ' ')}</td>
+                          <td style={{ textAlign: 'center' }}>
+                            {hasSubmission ? (
+                              <span style={{
+                                padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+                                background: '#dbeafe', color: '#1d4ed8',
+                              }}>Submitted</span>
+                            ) : (
+                              <span style={{
+                                padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+                                background: '#fef9c3', color: '#854d0e',
+                              }}>Missing</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>
+                            {hasSubmission ? (
+                              totalAmount > 0 ? formatCurrency(totalAmount) : `${totalHours}h`
+                            ) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {weeklyEngineers.length === 0 && monthlyEngineers.length === 0 && (
+            <div className="empty-state">
+              <h3>No active engineer assignments</h3>
+              <p>No engineers are assigned to active projects for this period.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -88,6 +264,15 @@ export default function Invoices() {
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
   const [emailingId, setEmailingId] = useState(null);
+  const [activeTab, setActiveTab] = useState('invoices');
+  const [submissionStatus, setSubmissionStatus] = useState(null);
+  const [submissionMonth, setSubmissionMonth] = useState(() => {
+    const now = new Date();
+    // Default to previous month
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [loadingStatus, setLoadingStatus] = useState(false);
 
   // Batch invoice generator state
   const [batchPeriod, setBatchPeriod] = useState(() => {
@@ -144,6 +329,24 @@ export default function Invoices() {
       setLoading(false);
     }
   };
+
+  const loadSubmissionStatus = async (month) => {
+    setLoadingStatus(true);
+    try {
+      const data = await apiFetch(`/submission-status?month=${month}`);
+      setSubmissionStatus(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'status') {
+      loadSubmissionStatus(submissionMonth);
+    }
+  }, [activeTab, submissionMonth]);
 
   const openGenerate = () => {
     setGenerateForm({ project_id: '', ...getDefaultDates(), notes: '' });
@@ -621,6 +824,44 @@ export default function Invoices() {
         <button className="btn btn-primary" onClick={openGenerate}>+ Generate Invoice</button>
       </div>
 
+      {/* Tabs */}
+      <div className="no-print" style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid #e2e8f0' }}>
+        <button
+          onClick={() => setActiveTab('invoices')}
+          style={{
+            padding: '10px 20px', border: 'none', background: 'none', cursor: 'pointer',
+            fontWeight: 600, fontSize: 14,
+            borderBottom: activeTab === 'invoices' ? '2px solid #2563eb' : '2px solid transparent',
+            color: activeTab === 'invoices' ? '#2563eb' : '#64748b',
+            marginBottom: -2,
+          }}
+        >
+          Invoices
+        </button>
+        <button
+          onClick={() => setActiveTab('status')}
+          style={{
+            padding: '10px 20px', border: 'none', background: 'none', cursor: 'pointer',
+            fontWeight: 600, fontSize: 14,
+            borderBottom: activeTab === 'status' ? '2px solid #2563eb' : '2px solid transparent',
+            color: activeTab === 'status' ? '#2563eb' : '#64748b',
+            marginBottom: -2,
+          }}
+        >
+          Submission Status
+        </button>
+      </div>
+
+      {activeTab === 'status' && (
+        <SubmissionStatusTab
+          submissionMonth={submissionMonth}
+          setSubmissionMonth={setSubmissionMonth}
+          submissionStatus={submissionStatus}
+          loadingStatus={loadingStatus}
+        />
+      )}
+
+      {activeTab === 'invoices' && <>
       {/* Outstanding Balances Summary */}
       <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
         <div className="card" style={{ marginBottom: 0 }}>
@@ -1187,6 +1428,7 @@ export default function Invoices() {
           </div>
         )}
       </div>
+      </>}
 
       {modal === 'generate' && (
         <Modal

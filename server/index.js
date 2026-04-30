@@ -1412,6 +1412,108 @@ app.delete('/api/invoices/:id', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// ─── SUBMISSION STATUS (for pre-invoicing check) ─────────────────────────────
+app.get('/api/submission-status', auth, adminOnly, (req, res) => {
+  try {
+    const db = getDb();
+    const { month } = req.query; // format: YYYY-MM
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      return res.status(400).json({ error: 'month parameter required (YYYY-MM)' });
+    }
+
+    const [year, mon] = month.split('-').map(Number);
+    const monthStart = `${month}-01`;
+    const monthEnd = new Date(year, mon, 0).toISOString().split('T')[0]; // last day of month
+
+    // Calculate week-ending Sundays that fall within or overlap this month
+    const weeks = [];
+    const firstDay = new Date(year, mon - 1, 1);
+    // Find the first Sunday on or after the 1st
+    let sunday = new Date(firstDay);
+    sunday.setDate(sunday.getDate() + ((7 - sunday.getDay()) % 7));
+    // Also include the Sunday before the month if it's within the first week
+    const prevSunday = new Date(sunday);
+    prevSunday.setDate(prevSunday.getDate() - 7);
+    // If prevSunday's week overlaps the month (Mon after prevSunday is in the month)
+    const monAfterPrev = new Date(prevSunday);
+    monAfterPrev.setDate(monAfterPrev.getDate() + 1);
+    if (monAfterPrev >= firstDay) {
+      weeks.push(prevSunday.toISOString().split('T')[0]);
+    }
+    while (sunday <= new Date(year, mon - 1, new Date(year, mon, 0).getDate())) {
+      weeks.push(sunday.toISOString().split('T')[0]);
+      sunday.setDate(sunday.getDate() + 7);
+    }
+
+    // Get all active engineer-project assignments with project info
+    const assignments = db.prepare(`
+      SELECT ep.user_id, ep.project_id, u.name as engineer_name,
+             p.name as project_name, p.project_type, c.name as customer_name
+      FROM engineer_projects ep
+      JOIN users u ON u.id = ep.user_id
+      JOIN projects p ON p.id = ep.project_id
+      JOIN customers c ON c.id = p.customer_id
+      WHERE p.status = 'active'
+      ORDER BY u.name, p.name
+    `).all();
+
+    // Get all timesheets for these engineers in this month (submitted or approved)
+    const timesheets = db.prepare(`
+      SELECT ts.id, ts.user_id, ts.project_id, ts.week_ending, ts.status,
+             ts.period_start, ts.period_end, ts.amount,
+             COALESCE(SUM(te.hours), 0) as total_hours
+      FROM timesheets ts
+      LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+      WHERE ts.status IN ('submitted', 'approved')
+        AND ts.week_ending >= ? AND ts.week_ending <= ?
+      GROUP BY ts.id
+    `).all(weeks.length > 0 ? weeks[0] : monthStart, monthEnd);
+
+    // Build the status grid
+    const engineers = {};
+    for (const a of assignments) {
+      const key = `${a.user_id}-${a.project_id}`;
+      if (!engineers[key]) {
+        engineers[key] = {
+          user_id: a.user_id,
+          project_id: a.project_id,
+          engineer_name: a.engineer_name,
+          project_name: a.project_name,
+          project_type: a.project_type,
+          customer_name: a.customer_name,
+          weeks: {},
+        };
+      }
+    }
+
+    // Map timesheets to their week slots
+    for (const ts of timesheets) {
+      const key = `${ts.user_id}-${ts.project_id}`;
+      if (!engineers[key]) continue;
+      const weekKey = ts.week_ending;
+      engineers[key].weeks[weekKey] = {
+        id: ts.id,
+        status: ts.status,
+        total_hours: ts.total_hours,
+        amount: ts.amount,
+        period_start: ts.period_start,
+        period_end: ts.period_end,
+      };
+    }
+
+    res.json({
+      month,
+      monthStart,
+      monthEnd,
+      weeks,
+      engineers: Object.values(engineers),
+    });
+  } catch (err) {
+    console.error('Error fetching submission status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
   try {
     const { project_id, period_start, period_end, notes } = req.body;
