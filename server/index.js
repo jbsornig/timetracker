@@ -2034,7 +2034,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
            p.include_timesheets,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
-           c.ap_email, c.email as customer_email,
+           c.ap_email, c.email as customer_email, c.currency_symbol,
            cc.name as contact_name, cc.email as contact_email
     FROM invoices i
     JOIN projects p ON p.id = i.project_id
@@ -2109,8 +2109,11 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     }
   }
 
+  // Currency symbol for this customer
+  const cs = invoice.currency_symbol || '$';
+
   // Helper functions
-  const formatCurrency = (amt) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amt || 0);
+  const formatCurrency = (amt) => `${cs}${(amt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
     const d = new Date(dateStr.split('T')[0] + 'T00:00:00');
@@ -2155,16 +2158,16 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       <td style="border: 1px solid #ccc; padding: 8px;">${item.hours.toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.rate.toFixed(2)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${item.rate.toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
   `).join('');
   const totalHoursRow = hasHours && lineItems.length > 1 ? `
     <tr style="border-top: 2px solid #000; font-weight: bold;">
       <td style="border: 1px solid #ccc; padding: 8px;">${lineItems.reduce((s, i) => s + (i.hours || 0), 0).toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;" colspan="4">Total Hours</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${lineItems.reduce((s, i) => s + (i.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${lineItems.reduce((s, i) => s + (i.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
   ` : '';
   const lineItemsHtml = lineItems.length > 0 ? lineItemRows + totalHoursRow : `
@@ -2174,7 +2177,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${periodRange}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">—</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">$${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
   `;
 
@@ -2244,9 +2247,9 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       <!-- Totals -->
       <div style="display: flex; justify-content: flex-end;">
         <table style="border-collapse: collapse; min-width: 200px;">
-          <tr><td style="padding: 4px 12px; text-align: right;">Subtotal</td><td style="padding: 4px 12px; text-align: right; font-weight: bold;">$${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
-          <tr><td style="padding: 4px 12px; text-align: right;">Sales tax</td><td style="padding: 4px 12px; text-align: right;">$0.00</td></tr>
-          <tr style="border-top: 2px solid #000;"><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">Total</td><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">$${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
+          <tr><td style="padding: 4px 12px; text-align: right;">Subtotal</td><td style="padding: 4px 12px; text-align: right; font-weight: bold;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
+          <tr><td style="padding: 4px 12px; text-align: right;">Sales tax</td><td style="padding: 4px 12px; text-align: right;">${cs}0.00</td></tr>
+          <tr style="border-top: 2px solid #000;"><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">Total</td><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
         </table>
       </div>
     </div>
@@ -2331,7 +2334,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
             </div>
             <div style="width: 160px; text-align: center;">
               <div style="font-weight: bold; font-size: 9pt; margin-bottom: 1px;">Daily Time Report</div>
-              <div style="font-size: 5pt;">Mon shift 1 - Sun shift 3<br/>${isFixedMonthlyTs ? 'Fixed Monthly' : `$${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A</div>
+              <div style="font-size: 5pt;">Mon shift 1 - Sun shift 3<br/>${isFixedMonthlyTs ? 'Fixed Monthly' : `${cs}${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A</div>
             </div>
             <div style="width: 180px; font-size: 5pt; line-height: 1.1;">
               <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Week Ending:</span><strong>${weekEnding}</strong></div>
@@ -2391,10 +2394,10 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
             </div>
             <div style="width: 50%; border: 1px solid #000;">
               <div style="background: #f5f5f5; text-align: center; font-weight: bold; border-bottom: 1px solid #000; padding: 0 1px; font-size: 5pt;">Expenses</div>
-              <div style="padding: 0 2px; font-size: 5pt;">Air: $0 | Car: $0 | Meals: $0 | Parking: $0 | Misc: $0</div>
-              <div style="text-align: right; padding: 0 2px; font-size: 5pt;"><strong>Exp Subtotal:</strong> $0.00</div>
-              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">${isFixedMonthlyTs ? `Fixed Monthly | Hours: ${totalST.toFixed(1)}` : `Rate: $${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(1)}`}</div>
-              <div style="text-align: right; padding: 1px 2px; font-weight: bold; font-size: 6pt;">Total: $${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+              <div style="padding: 0 2px; font-size: 5pt;">Air: ${cs}0 | Car: ${cs}0 | Meals: ${cs}0 | Parking: ${cs}0 | Misc: ${cs}0</div>
+              <div style="text-align: right; padding: 0 2px; font-size: 5pt;"><strong>Exp Subtotal:</strong> ${cs}0.00</div>
+              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">${isFixedMonthlyTs ? `Fixed Monthly | Hours: ${totalST.toFixed(1)}` : `Rate: ${cs}${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(1)}`}</div>
+              <div style="text-align: right; padding: 1px 2px; font-weight: bold; font-size: 6pt;">Total: ${cs}${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
             </div>
           </div>
         </div>
