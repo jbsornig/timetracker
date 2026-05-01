@@ -641,16 +641,12 @@ app.get('/api/projects', auth, (req, res) => {
   const db = getDb();
   let projects;
   if (req.user.role === 'admin') {
-    // For admin, compute amount_billed differently for hourly vs fixed price
+    // For admin, compute amount_billed from actual invoices (what was billed to customer)
     projects = db.prepare(`
       SELECT p.*, c.name as customer_name, cc.name as contact_name,
         COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN 0 ELSE te.hours END), 0) as hours_used,
-        COALESCE(
-          CASE WHEN p.project_type = 'fixed_price'
-            THEN (SELECT COALESCE(SUM(ts2.amount), 0) FROM timesheets ts2 WHERE ts2.project_id = p.id AND ts2.status = 'approved')
-            ELSE SUM(te.hours * ep.bill_rate)
-          END, 0
-        ) as amount_billed
+        COALESCE((SELECT SUM(i.total_amount) FROM invoices i
+          WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
@@ -3260,8 +3256,10 @@ app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
   const data = db.prepare(`
     SELECT p.id, p.name as project_name, p.po_number, p.po_amount, c.name as customer_name,
            COALESCE(SUM(te.hours), 0) as total_hours,
-           COALESCE(SUM(te.hours * ep.bill_rate), 0) as amount_billed,
-           p.po_amount - COALESCE(SUM(te.hours * ep.bill_rate), 0) as remaining
+           COALESCE((SELECT SUM(i.total_amount) FROM invoices i
+             WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed,
+           p.po_amount - COALESCE((SELECT SUM(i.total_amount) FROM invoices i
+             WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as remaining
     FROM projects p
     JOIN customers c ON c.id = p.customer_id
     LEFT JOIN timesheets ts ON ts.project_id = p.id AND ts.status = 'approved'
@@ -3284,10 +3282,8 @@ app.get('/api/reports/contract-hours', auth, adminOnly, (req, res) => {
            COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
                      JOIN timesheets ts ON ts.id = te.timesheet_id
                      WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as hours_billed,
-           COALESCE((SELECT SUM(te.hours * ep2.bill_rate) FROM timesheet_entries te
-                     JOIN timesheets ts ON ts.id = te.timesheet_id
-                     JOIN engineer_projects ep2 ON ep2.project_id = p.id AND ep2.user_id = ts.user_id
-                     WHERE ts.project_id = p.id AND ts.status = 'approved'), 0) as amount_billed
+           COALESCE((SELECT SUM(i.total_amount) FROM invoices i
+                     WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed
     FROM projects p
     JOIN customers c ON c.id = p.customer_id
     WHERE p.status = 'active' AND p.project_type = 'hourly'
