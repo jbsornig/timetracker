@@ -2116,7 +2116,8 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const formatCurrency = (amt) => `${cs}${(amt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
-    const d = new Date(dateStr.split('T')[0] + 'T00:00:00');
+    const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.split(' ')[0];
+    const d = new Date(datePart + 'T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   };
   const formatTime = (time) => {
