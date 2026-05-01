@@ -79,6 +79,7 @@ export default function Reports() {
   const [achSelections, setAchSelections] = useState({});
   const [paidSelections, setPaidSelections] = useState({});
   const [markingPaid, setMarkingPaid] = useState(false);
+  const [paidForPeriod, setPaidForPeriod] = useState([]);
 
   // Engineer payments state
   const [engPayments, setEngPayments] = useState([]);
@@ -143,6 +144,7 @@ export default function Reports() {
       setPayrollData(response.data || []);
       setPayrollHolidays(response.holidays || []);
       setUnclearedAdvances(response.unclearedAdvances || []);
+      setPaidForPeriod(response.paidForPeriod || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -480,6 +482,9 @@ export default function Reports() {
   }
 
   const payrollSummary = Object.values(payrollByEngineer);
+
+  // Set of user_ids already paid for this period
+  const alreadyPaidUserIds = new Set(paidForPeriod.map(p => p.user_id));
 
   const hasAnyAdvances = unclearedAdvances.length > 0;
   const totalAdvanceDeductions = payrollSummary.reduce((s, r) => s + r.advance_deduction, 0);
@@ -838,10 +843,10 @@ export default function Reports() {
                       <tr>
                         <th className="no-print" style={{ width: 30 }}>
                           <input type="checkbox"
-                            checked={payrollSummary.length > 0 && payrollSummary.filter(r => r.total_pay > 0).every(r => paidSelections[r.engineer_name])}
+                            checked={payrollSummary.length > 0 && payrollSummary.filter(r => r.total_pay > 0 && !alreadyPaidUserIds.has(r.user_id)).every(r => paidSelections[r.engineer_name])}
                             onChange={(e) => {
                               const next = {};
-                              if (e.target.checked) payrollSummary.forEach(r => { if (r.total_pay > 0) next[r.engineer_name] = true; });
+                              if (e.target.checked) payrollSummary.forEach(r => { if (r.total_pay > 0 && !alreadyPaidUserIds.has(r.user_id)) next[r.engineer_name] = true; });
                               setPaidSelections(next);
                             }}
                           />
@@ -856,17 +861,22 @@ export default function Reports() {
                       </tr>
                     </thead>
                     <tbody>
-                      {payrollSummary.map((row, idx) => (
-                        <tr key={idx}>
+                      {payrollSummary.map((row, idx) => {
+                        const isPaid = alreadyPaidUserIds.has(row.user_id);
+                        return (
+                        <tr key={idx} style={isPaid ? { opacity: 0.5 } : undefined}>
                           <td className="no-print">
                             <input type="checkbox"
                               checked={!!paidSelections[row.engineer_name]}
-                              disabled={row.total_pay <= 0}
+                              disabled={row.total_pay <= 0 || isPaid}
                               onChange={(e) => setPaidSelections({ ...paidSelections, [row.engineer_name]: e.target.checked })}
                             />
                           </td>
                           <td>
                             <strong>{row.engineer_name}</strong>
+                            {isPaid && (
+                              <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>PAID</span>
+                            )}
                             {row.pay_delay_months > 0 && (
                               <div style={{ fontSize: 10, color: '#1e40af', marginTop: 2 }}>
                                 {row.pay_period_label}
@@ -888,7 +898,8 @@ export default function Reports() {
                           )}
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, textAlign: 'right', color: '#16a34a' }}>{formatCurrency(row.total_pay)}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>

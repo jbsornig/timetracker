@@ -2692,6 +2692,14 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     ORDER BY ep.payment_date
   `).all();
 
+  // Check which engineers have already been paid for this period
+  const paidForPeriod = db.prepare(`
+    SELECT user_id, amount, payment_date
+    FROM engineer_payments
+    WHERE payment_type = 'payroll'
+      AND period_start = ? AND period_end = ?
+  `).all(period_start, period_end);
+
   // Add pay_period_label for delayed engineers
   for (const d of data) {
     if (d.pay_delay_months > 0) {
@@ -2702,7 +2710,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     }
   }
 
-  res.json({ data, holidays, unclearedAdvances });
+  res.json({ data, holidays, unclearedAdvances, paidForPeriod });
 });
 
 // ACH Export - Generate Chase CSV file for payroll (supports GET for backward compat and POST with overrides)
