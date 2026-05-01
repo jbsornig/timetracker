@@ -296,10 +296,6 @@ app.post('/api/test-email', auth, adminOnly, async (req, res) => {
     return res.status(400).json({ error: 'Email settings not fully configured. Please fill in all email fields and save settings first.' });
   }
 
-  console.log('=== TEST EMAIL ===');
-  console.log('From:', settings.smtp_email);
-  console.log('To:', settings.admin_notification_email);
-
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -309,10 +305,7 @@ app.post('/api/test-email', auth, adminOnly, async (req, res) => {
       },
     });
 
-    // Verify connection first
-    console.log('Verifying SMTP connection...');
     await transporter.verify();
-    console.log('SMTP connection verified successfully');
 
     const info = await transporter.sendMail({
       from: settings.smtp_email,
@@ -332,11 +325,6 @@ app.post('/api/test-email', auth, adminOnly, async (req, res) => {
         </div>
       `,
     });
-
-    console.log('Email sent! Message ID:', info.messageId);
-    console.log('Response:', info.response);
-    console.log('Accepted:', info.accepted);
-    console.log('Rejected:', info.rejected);
 
     res.json({
       success: true,
@@ -1571,10 +1559,6 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     const { project_id, period_start, period_end, notes } = req.body;
     const db = getDb();
 
-    console.log('=== INVOICE GENERATION DEBUG ===');
-    console.log('Project ID:', project_id);
-    console.log('Period:', period_start, 'to', period_end);
-
     // Check project type
     const project = db.prepare(`
       SELECT p.*, p.description as project_description, c.name as customer_name, c.address as customer_address,
@@ -1589,11 +1573,8 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    console.log('Project type:', project.project_type);
-    console.log('Project total_cost:', project.total_cost);
     const isFixedPrice = project.project_type === 'fixed_price';
     const isFixedMonthly = project.project_type === 'fixed_monthly';
-    console.log('Is fixed price:', isFixedPrice, 'Is fixed monthly:', isFixedMonthly);
 
     const timesheets = db.prepare(`
       SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
@@ -1613,20 +1594,6 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       ORDER BY ts.week_ending
     `).all(project_id, period_start, period_end, period_start, period_end, period_start, period_end);
 
-    console.log('Found timesheets:', timesheets.length);
-    timesheets.forEach((ts, i) => {
-      console.log(`Timesheet ${i}:`, {
-        id: ts.id,
-        status: ts.status,
-        amount: ts.amount,
-        percentage: ts.percentage,
-        total_payment: ts.total_payment,
-        period_start: ts.period_start,
-        period_end: ts.period_end,
-        week_ending: ts.week_ending
-      });
-    });
-
     let total_hours = 0, total_amount = 0;
     const lineItems = [];
     const timesheetDetails = [];
@@ -1639,18 +1606,14 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       // Get total of all engineer payments for this project
       const engineerTotals = db.prepare('SELECT SUM(total_payment) as total FROM engineer_projects WHERE project_id = ?').get(project_id);
       totalEngineerPayments = engineerTotals?.total || 0;
-      console.log('Total engineer payments budget:', totalEngineerPayments);
     }
 
     for (const ts of timesheets) {
-      console.log('Processing timesheet:', ts.id, 'isFixedPrice:', isFixedPrice);
       if (isFixedPrice) {
         // Fixed price: calculate engineer's claimed amount
         let engineerAmt = ts.amount || 0;
-        console.log('  Initial amt:', engineerAmt, 'percentage:', ts.percentage, 'total_payment:', ts.total_payment);
         if ((engineerAmt === 0 || engineerAmt === null) && ts.percentage && ts.total_payment) {
           engineerAmt = (ts.percentage / 100) * ts.total_payment;
-          console.log('  Calculated engineer amt:', engineerAmt);
         }
         totalEngineerAmountClaimed += engineerAmt;
 
@@ -1756,10 +1719,6 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         // Percentage-based: calculate from engineer budget ratio
         const percentageClaimed = totalEngineerAmountClaimed / totalEngineerPayments;
         total_amount = percentageClaimed * (project.total_cost || 0);
-        console.log('Engineer amount claimed:', totalEngineerAmountClaimed);
-        console.log('Percentage of engineer budget:', (percentageClaimed * 100).toFixed(1) + '%');
-        console.log('Project total cost:', project.total_cost);
-        console.log('Customer invoice amount:', total_amount);
 
         // Update line items to show customer amount (proportional)
         lineItems.forEach(item => {
@@ -1770,10 +1729,6 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         });
       }
     }
-
-    console.log('Final totals - hours:', total_hours, 'amount:', total_amount);
-    console.log('Line items:', lineItems.length);
-    console.log('=== END DEBUG ===');
 
     // Check for billable data before creating invoice
     if (lineItems.length === 0 || total_amount <= 0) {
@@ -3254,11 +3209,14 @@ app.get('/api/reports/hours-summary', auth, adminOnly, (req, res) => {
 app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
   const db = getDb();
   const data = db.prepare(`
-    SELECT p.id, p.name as project_name, p.po_number, p.po_amount, c.name as customer_name,
+    SELECT p.id, p.name as project_name, p.po_number, p.project_type,
+           CASE WHEN p.project_type = 'fixed_price' THEN p.total_cost ELSE p.po_amount END as po_amount,
+           c.name as customer_name,
            COALESCE(SUM(te.hours), 0) as total_hours,
            COALESCE((SELECT SUM(i.total_amount) FROM invoices i
              WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed,
-           p.po_amount - COALESCE((SELECT SUM(i.total_amount) FROM invoices i
+           CASE WHEN p.project_type = 'fixed_price' THEN p.total_cost ELSE p.po_amount END
+             - COALESCE((SELECT SUM(i.total_amount) FROM invoices i
              WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as remaining
     FROM projects p
     JOIN customers c ON c.id = p.customer_id
