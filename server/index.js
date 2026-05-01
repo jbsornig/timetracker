@@ -581,9 +581,9 @@ app.get('/api/customers', auth, (req, res) => {
 });
 
 app.post('/api/customers', auth, adminOnly, (req, res) => {
-  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email } = req.body;
+  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null);
+  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$');
   const customerId = result.lastInsertRowid;
 
   // Auto-create a contact record if primary contact name is provided
@@ -595,9 +595,9 @@ app.post('/api/customers', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/customers/:id', auth, adminOnly, (req, res) => {
-  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email } = req.body;
+  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol } = req.body;
   const db = getDb();
-  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, req.params.id);
+  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', req.params.id);
   res.json({ success: true });
 });
 
@@ -1208,7 +1208,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
            p.project_type, p.total_cost, p.include_timesheets,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
-           cc.name as contact_name
+           c.currency_symbol, cc.name as contact_name
     FROM invoices i
     JOIN projects p ON p.id = i.project_id
     JOIN customers c ON c.id = p.customer_id
@@ -1582,7 +1582,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     // Check project type
     const project = db.prepare(`
       SELECT p.*, p.description as project_description, c.name as customer_name, c.address as customer_address,
-             c.supplier_number, c.payment_terms, cc.name as contact_name
+             c.supplier_number, c.payment_terms, c.currency_symbol, cc.name as contact_name
       FROM projects p
       JOIN customers c ON c.id = p.customer_id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id

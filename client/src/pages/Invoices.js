@@ -1590,6 +1590,7 @@ export default function Invoices() {
                   poNumber={inv.po_number || inv.project?.po_number}
                   periodStart={inv.period_start}
                   periodEnd={inv.period_end}
+                  currencySymbol={inv.currency_symbol || inv.project?.currency_symbol || '$'}
                 />
               </div>
             ))}
@@ -1738,7 +1739,7 @@ export default function Invoices() {
   );
 }
 
-function DailyTimeReport({ timesheet, settings, projectName, customerName, location, poNumber, periodStart, periodEnd }) {
+function DailyTimeReport({ timesheet, settings, projectName, customerName, location, poNumber, periodStart, periodEnd, currencySymbol = '$' }) {
   const ts = timesheet;
   const weekEnding = ts.week_ending
     ? new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
@@ -1822,7 +1823,7 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
           <div style={{ fontWeight: 'bold', fontSize: '9pt', marginBottom: '1px' }}>Daily Time Report</div>
           <div style={{ fontSize: '5pt', lineHeight: '1.2' }}>
             Mon shift 1 - Sun shift 3<br/>
-            {isFixedMonthly ? 'Fixed Monthly' : `$${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A
+            {isFixedMonthly ? 'Fixed Monthly' : `${currencySymbol}${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A
           </div>
         </div>
         {/* Right: Timesheet Info - compact */}
@@ -1921,13 +1922,13 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
         <div style={{ width: '50%', border: '1px solid #000' }}>
           <div style={{ background: '#f5f5f5', textAlign: 'center', fontWeight: 'bold', borderBottom: '1px solid #000', padding: '0px 1px', fontSize: '5pt' }}>Expenses</div>
           <div style={{ display: 'flex', padding: '0px 2px', fontSize: '5pt' }}>
-            <span>Air: $0 | Car: $0 | Meals: $0 | Parking: $0 | Misc: $0</span>
+            <span>Air: {currencySymbol}0 | Car: {currencySymbol}0 | Meals: {currencySymbol}0 | Parking: {currencySymbol}0 | Misc: {currencySymbol}0</span>
           </div>
-          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}><strong>Exp Subtotal:</strong> $0.00</div>
+          <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}><strong>Exp Subtotal:</strong> {currencySymbol}0.00</div>
           <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>
-            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(1)}` : `Rate: $${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(1)}`}
+            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(1)}` : `Rate: ${currencySymbol}${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(1)}`}
           </div>
-          <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold', fontSize: '6pt' }}>Total: ${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold', fontSize: '6pt' }}>Total: {currencySymbol}{laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
       </div>
     </div>
@@ -1944,6 +1945,7 @@ function InvoiceContent({ inv, settings }) {
   const projectName = inv.project_name || inv.project?.name || '';
   const projectDescription = inv.project_description || inv.project?.project_description || inv.project?.description || '';
   const contactName = inv.contact_name || inv.project?.contact_name || '';
+  const cs = inv.currency_symbol || inv.project?.currency_symbol || '$';
   const periodRange = `${formatDate(inv.period_start)} to ${formatDate(inv.period_end)}`;
 
   const weekRange = (weekEnding) => {
@@ -2065,10 +2067,10 @@ function InvoiceContent({ inv, settings }) {
                   }
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
-                  {item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `$${item.rate?.toFixed(2) || '0.00'}`}
+                  {item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
-                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{cs}{item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
               </tr>
             ))}
             {inv.lineItems.some(item => item.hours > 0) && inv.lineItems.length > 1 && (
@@ -2078,7 +2080,7 @@ function InvoiceContent({ inv, settings }) {
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }} colSpan={4}>Total Hours</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
-                  ${inv.lineItems.reduce((sum, item) => sum + (item.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {cs}{inv.lineItems.reduce((sum, item) => sum + (item.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
               </tr>
             )}
@@ -2092,7 +2094,7 @@ function InvoiceContent({ inv, settings }) {
               </td>
               <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>—</td>
               <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
-              <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>${inv.total_amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
+              <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{cs}{inv.total_amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
             </tr>
           )}
         </tbody>
@@ -2105,17 +2107,17 @@ function InvoiceContent({ inv, settings }) {
             <tr>
               <td style={{ padding: '4px 12px', textAlign: 'right' }}>Subtotal</td>
               <td style={{ padding: '4px 12px', textAlign: 'right', fontWeight: 'bold' }}>
-                ${inv.total_amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                {cs}{inv.total_amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
               </td>
             </tr>
             <tr>
               <td style={{ padding: '4px 12px', textAlign: 'right' }}>Sales tax</td>
-              <td style={{ padding: '4px 12px', textAlign: 'right' }}>$0.00</td>
+              <td style={{ padding: '4px 12px', textAlign: 'right' }}>{cs}0.00</td>
             </tr>
             <tr style={{ borderTop: '2px solid #000' }}>
               <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: 14 }}>Total</td>
               <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: 14 }}>
-                ${inv.total_amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                {cs}{inv.total_amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
               </td>
             </tr>
           </tbody>

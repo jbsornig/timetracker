@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '' };
+const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '', currency_symbol: '$' };
 const PAYMENT_TERMS_OPTIONS = ['Immediate', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 75', 'Net 90'];
 const emptyContact = { name: '', title: '', email: '', phone: '' };
 
@@ -272,6 +272,18 @@ export default function Customers() {
                   </div>
                 )}
                 <div className="form-hint">When payment is due after invoice date</div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Currency Symbol</label>
+                <select
+                  className="form-select"
+                  value={form.currency_symbol || '$'}
+                  onChange={(e) => setForm({ ...form, currency_symbol: e.target.value })}
+                >
+                  <option value="$">$ (USD)</option>
+                  <option value="€">€ (EUR)</option>
+                </select>
+                <div className="form-hint">Symbol shown on invoices</div>
               </div>
             </div>
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 8 }}>

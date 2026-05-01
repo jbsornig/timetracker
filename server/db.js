@@ -222,6 +222,11 @@ function initSchema() {
     db.exec('ALTER TABLE customers ADD COLUMN ap_email TEXT');
     console.log('✅ Migration: Added ap_email column to customers');
   }
+  // Add currency_symbol column to customers
+  if (!customerCols.find(c => c.name === 'currency_symbol')) {
+    db.exec("ALTER TABLE customers ADD COLUMN currency_symbol TEXT DEFAULT '$'");
+    console.log('✅ Migration: Added currency_symbol column to customers');
+  }
 
   // Add include_timesheets column to projects if missing
   const projectCols2 = db.prepare("PRAGMA table_info(projects)").all();
