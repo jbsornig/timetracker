@@ -421,9 +421,18 @@ export default function Reports() {
             notes: `Payroll for ${dateRange.period_start} to ${dateRange.period_end}`
           }
         });
+        // Clear any uncleared advances for this engineer
+        const engineerAdvances = unclearedAdvances.filter(a => a.user_id === row.user_id);
+        for (const adv of engineerAdvances) {
+          await apiFetch(`/engineer-payments/${adv.id}/clear`, {
+            method: 'PUT',
+            body: { cleared: true, cleared_payroll_period: `${dateRange.period_start} to ${dateRange.period_end}` }
+          });
+        }
       }
       alert(`${selected.length} payment(s) recorded successfully.`);
       setPaidSelections({});
+      loadPayrollData();
     } catch (e) {
       alert('Error recording payments: ' + e.message);
     } finally {
