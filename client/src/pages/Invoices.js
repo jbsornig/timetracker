@@ -149,7 +149,7 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
                               return (
                                 <td key={w} style={{ textAlign: 'center' }}>
                                   <span
-                                    title={`${ts.status} - ${ts.total_hours}h`}
+                                    title={`${ts.status} - ${parseFloat(ts.total_hours.toFixed(2))}h`}
                                     style={{
                                       display: 'inline-block',
                                       padding: '2px 6px',
@@ -160,7 +160,7 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
                                       color: ts.status === 'approved' ? '#1d4ed8' : '#92400e',
                                     }}
                                   >
-                                    {ts.total_hours}h
+                                    {parseFloat(ts.total_hours.toFixed(2))}h
                                   </span>
                                 </td>
                               );
@@ -233,7 +233,7 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
                           </td>
                           <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>
                             {hasSubmission ? (
-                              totalAmount > 0 ? formatCurrency(totalAmount) : `${totalHours}h`
+                              totalAmount > 0 ? formatCurrency(totalAmount) : `${parseFloat(totalHours.toFixed(2))}h`
                             ) : '—'}
                           </td>
                         </tr>
