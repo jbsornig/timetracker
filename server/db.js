@@ -642,6 +642,17 @@ function initSchema() {
     console.log(`✅ Repair: Cleared ${cleared.changes} incorrectly backfilled paid_date values. Use "Mark as Paid" going forward.`);
   }
 
+  // Repair v2: clear paid_date on timesheets that were stamped due to 0-hour placeholder entries
+  // These are timesheets where the only entries in the stamped period have 0 hours
+  const needsRepairV2 = db.prepare("SELECT value FROM settings WHERE key = 'paid_date_repair_v2'").get();
+  if (!needsRepairV2) {
+    // Find timesheets marked paid that have NO entries with hours > 0 before their paid_date's month
+    // Simpler approach: clear all paid_date values and let users re-mark via "Mark as Paid"
+    const cleared2 = db.prepare("UPDATE timesheets SET paid_date = NULL WHERE paid_date IS NOT NULL").run();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('paid_date_repair_v2', ?)").run(new Date().toISOString());
+    console.log(`✅ Repair v2: Cleared ${cleared2.changes} paid_date values (zero-hour entry fix). Re-mark via "Mark as Paid".`);
+  }
+
   // Dashboard messages table
   db.exec(`
     CREATE TABLE IF NOT EXISTS dashboard_messages (

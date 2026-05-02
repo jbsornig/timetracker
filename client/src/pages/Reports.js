@@ -493,6 +493,28 @@ export default function Reports() {
     row.total_pay = Math.max(0, row.gross_pay - row.advance_deduction);
   }
 
+  // Add paid engineers who aren't in the payroll data (their timesheets are stamped as paid)
+  for (const paid of paidForPeriod) {
+    const existing = Object.values(payrollByEngineer).find(r => r.user_id === paid.user_id);
+    if (!existing) {
+      payrollByEngineer[paid.engineer_name] = {
+        engineer_name: paid.engineer_name,
+        engineer_id: paid.engineer_id,
+        user_id: paid.user_id,
+        total_hours: 0,
+        gross_pay: paid.amount,
+        total_pay: paid.amount,
+        holiday_hours: 0,
+        holiday_pay: 0,
+        advance_deduction: 0,
+        pay_delay_months: 0,
+        pay_period_label: null,
+        pay_period_start: null,
+        pay_period_end: null
+      };
+    }
+  }
+
   const payrollSummary = Object.values(payrollByEngineer);
 
   // Set of user_ids already paid for this period

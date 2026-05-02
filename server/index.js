@@ -2702,10 +2702,11 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
 
   // Check which engineers have already been paid for this period
   const paidForPeriod = db.prepare(`
-    SELECT user_id, amount, payment_date
-    FROM engineer_payments
-    WHERE payment_type = 'payroll'
-      AND period_start = ? AND period_end = ?
+    SELECT ep.user_id, ep.amount, ep.payment_date, u.name as engineer_name, u.engineer_id
+    FROM engineer_payments ep
+    JOIN users u ON u.id = ep.user_id
+    WHERE ep.payment_type = 'payroll'
+      AND ep.period_start = ? AND ep.period_end = ?
   `).all(period_start, period_end);
 
   // Add pay_period_label for delayed engineers
@@ -3692,7 +3693,7 @@ app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
   const db = getDb();
   const stamp = paid_date || new Date().toISOString().split('T')[0];
 
-  // Stamp hourly/fixed_monthly timesheets (by entry_date overlap)
+  // Stamp hourly/fixed_monthly timesheets (by entry_date overlap, only entries with actual hours)
   const r1 = db.prepare(`
     UPDATE timesheets SET paid_date = ?
     WHERE user_id = ? AND status = 'approved' AND paid_date IS NULL
@@ -3700,7 +3701,7 @@ app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
       SELECT DISTINCT ts.id FROM timesheets ts
       JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.user_id = ? AND ts.status = 'approved' AND ts.paid_date IS NULL
-      AND te.entry_date BETWEEN ? AND ?
+      AND te.entry_date BETWEEN ? AND ? AND te.hours > 0
     )
   `).run(stamp, user_id, user_id, period_start, period_end);
 
