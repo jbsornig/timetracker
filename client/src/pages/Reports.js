@@ -424,12 +424,15 @@ export default function Reports() {
           }
         });
         // Mark timesheets as paid for this engineer/period
+        // For delayed engineers, use their actual work period (shifted dates)
+        const markStart = row.pay_period_start || dateRange.period_start;
+        const markEnd = row.pay_period_end || dateRange.period_end;
         await apiFetch('/timesheets/mark-paid', {
           method: 'POST',
           body: {
             user_id: row.user_id,
-            period_start: dateRange.period_start,
-            period_end: dateRange.period_end
+            period_start: markStart,
+            period_end: markEnd
           }
         });
         // Clear any uncleared advances for this engineer
@@ -471,7 +474,7 @@ export default function Reports() {
   const payrollByEngineer = payrollData.reduce((acc, row) => {
     const key = row.engineer_name;
     if (!acc[key]) {
-      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, user_id: row.user_id, total_hours: 0, gross_pay: 0, total_pay: 0, holiday_hours: 0, holiday_pay: 0, advance_deduction: 0, pay_delay_months: row.pay_delay_months || 0, pay_period_label: row.pay_period_label || null };
+      acc[key] = { engineer_name: row.engineer_name, engineer_id: row.engineer_id, user_id: row.user_id, total_hours: 0, gross_pay: 0, total_pay: 0, holiday_hours: 0, holiday_pay: 0, advance_deduction: 0, pay_delay_months: row.pay_delay_months || 0, pay_period_label: row.pay_period_label || null, pay_period_start: row.pay_period_start || null, pay_period_end: row.pay_period_end || null };
     }
     if (row.is_holiday_pay) {
       acc[key].holiday_hours += row.total_hours || 0;
