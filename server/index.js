@@ -2571,7 +2571,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-      WHERE ts.status = 'approved' AND p.project_type = 'hourly'
+      WHERE ts.status = 'approved' AND ts.paid_date IS NULL AND p.project_type = 'hourly'
         AND te.entry_date BETWEEN ? AND ? ${idFilter}
       GROUP BY u.id, p.id
       ORDER BY u.name, p.name
@@ -2598,7 +2598,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-      WHERE ts.status = 'approved' AND p.project_type = 'fixed_monthly'
+      WHERE ts.status = 'approved' AND ts.paid_date IS NULL AND p.project_type = 'fixed_monthly'
         AND te.entry_date BETWEEN ? AND ? ${idFilter}
       GROUP BY u.id, p.id
       ORDER BY u.name, p.name
@@ -2625,7 +2625,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-      WHERE ts.status = 'approved' AND p.project_type = 'fixed_price'
+      WHERE ts.status = 'approved' AND ts.paid_date IS NULL AND p.project_type = 'fixed_price'
         AND ts.week_ending BETWEEN ? AND ? ${idFilter}
       ORDER BY u.name, p.name
     `).all(start, end);
@@ -3673,6 +3673,38 @@ app.put('/api/engineer-payments/:id/clear', auth, adminOnly, (req, res) => {
   db.prepare('UPDATE engineer_payments SET cleared = ?, cleared_payroll_period = ? WHERE id = ?')
     .run(cleared ? 1 : 0, cleared ? (cleared_payroll_period || null) : null, req.params.id);
   res.json({ success: true });
+});
+
+// Mark timesheets as paid for a user in a given period
+app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
+  const { user_id, period_start, period_end, paid_date } = req.body;
+  if (!user_id || !period_start || !period_end) {
+    return res.status(400).json({ error: 'user_id, period_start, and period_end are required' });
+  }
+  const db = getDb();
+  const stamp = paid_date || new Date().toISOString().split('T')[0];
+
+  // Stamp hourly/fixed_monthly timesheets (by entry_date overlap)
+  const r1 = db.prepare(`
+    UPDATE timesheets SET paid_date = ?
+    WHERE user_id = ? AND status = 'approved' AND paid_date IS NULL
+    AND id IN (
+      SELECT DISTINCT ts.id FROM timesheets ts
+      JOIN timesheet_entries te ON te.timesheet_id = ts.id
+      WHERE ts.user_id = ? AND ts.status = 'approved' AND ts.paid_date IS NULL
+      AND te.entry_date BETWEEN ? AND ?
+    )
+  `).run(stamp, user_id, user_id, period_start, period_end);
+
+  // Stamp fixed_price timesheets (by week_ending in period)
+  const r2 = db.prepare(`
+    UPDATE timesheets SET paid_date = ?
+    WHERE user_id = ? AND status = 'approved' AND paid_date IS NULL
+    AND week_ending BETWEEN ? AND ?
+    AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_price')
+  `).run(stamp, user_id, period_start, period_end);
+
+  res.json({ success: true, stamped: r1.changes + r2.changes });
 });
 
 // Update an engineer payment

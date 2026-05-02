@@ -626,6 +626,51 @@ function initSchema() {
     console.log(`✅ Backfill complete: ${entryCount} entries stamped, ${tsCount} timesheets stamped`);
   }
 
+  // Add paid_date to timesheets for payroll tracking
+  const tsCols3 = db.prepare("PRAGMA table_info(timesheets)").all();
+  if (!tsCols3.find(c => c.name === 'paid_date')) {
+    db.exec("ALTER TABLE timesheets ADD COLUMN paid_date DATE");
+    console.log('✅ Migration: Added paid_date column to timesheets');
+
+    // Backfill: mark timesheets as paid if a payroll payment exists for that engineer/period
+    const payrollPayments = db.prepare(`
+      SELECT user_id, period_start, period_end, payment_date
+      FROM engineer_payments
+      WHERE payment_type = 'payroll' AND period_start IS NOT NULL AND period_end IS NOT NULL
+    `).all();
+
+    if (payrollPayments.length > 0) {
+      let stampCount = 0;
+      const backfillPaidTxn = db.transaction(() => {
+        for (const pmt of payrollPayments) {
+          // Stamp hourly/fixed_monthly timesheets (matched by entry_date overlap)
+          const r1 = db.prepare(`
+            UPDATE timesheets SET paid_date = ?
+            WHERE user_id = ? AND status = 'approved' AND paid_date IS NULL
+            AND id IN (
+              SELECT DISTINCT ts.id FROM timesheets ts
+              JOIN timesheet_entries te ON te.timesheet_id = ts.id
+              WHERE ts.user_id = ? AND ts.status = 'approved' AND ts.paid_date IS NULL
+              AND te.entry_date BETWEEN ? AND ?
+            )
+          `).run(pmt.payment_date, pmt.user_id, pmt.user_id, pmt.period_start, pmt.period_end);
+          stampCount += r1.changes;
+
+          // Stamp fixed_price timesheets (matched by week_ending in period)
+          const r2 = db.prepare(`
+            UPDATE timesheets SET paid_date = ?
+            WHERE user_id = ? AND status = 'approved' AND paid_date IS NULL
+            AND week_ending BETWEEN ? AND ?
+            AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_price')
+          `).run(pmt.payment_date, pmt.user_id, pmt.period_start, pmt.period_end);
+          stampCount += r2.changes;
+        }
+      });
+      backfillPaidTxn();
+      console.log(`✅ Backfill: Marked ${stampCount} timesheets as paid from existing payment records`);
+    }
+  }
+
   // Dashboard messages table
   db.exec(`
     CREATE TABLE IF NOT EXISTS dashboard_messages (

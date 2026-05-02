@@ -423,6 +423,15 @@ export default function Reports() {
             notes: `Payroll for ${dateRange.period_start} to ${dateRange.period_end}`
           }
         });
+        // Mark timesheets as paid for this engineer/period
+        await apiFetch('/timesheets/mark-paid', {
+          method: 'POST',
+          body: {
+            user_id: row.user_id,
+            period_start: dateRange.period_start,
+            period_end: dateRange.period_end
+          }
+        });
         // Clear any uncleared advances for this engineer
         const engineerAdvances = unclearedAdvances.filter(a => a.user_id === row.user_id);
         for (const adv of engineerAdvances) {
