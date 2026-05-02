@@ -2615,9 +2615,17 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
              u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
              0 as total_hours,
              0 as pay_rate,
-             ts.amount as total_pay,
+             CASE
+               WHEN ts.amount > 0 THEN ts.amount
+               WHEN ts.percentage > 0 AND ep.total_payment > 0 THEN (ts.percentage / 100.0) * ep.total_payment
+               ELSE 0
+             END as total_pay,
              0 as bill_rate,
-             ts.amount as total_billed,
+             CASE
+               WHEN ts.amount > 0 THEN ts.amount
+               WHEN ts.percentage > 0 AND ep.total_payment > 0 THEN (ts.percentage / 100.0) * ep.total_payment
+               ELSE 0
+             END as total_billed,
              p.name as project_name, p.po_number,
              'fixed_price' as pay_type,
              ts.percentage
@@ -3816,7 +3824,7 @@ app.get('/api/backup', auth, adminOnly, (req, res) => {
         customers: db.prepare('SELECT * FROM customers').all(),
         customer_contacts: db.prepare('SELECT * FROM customer_contacts').all(),
         projects: db.prepare('SELECT * FROM projects').all(),
-        users: db.prepare('SELECT id, name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at FROM users').all(),
+        users: db.prepare('SELECT * FROM users').all(),
         engineer_projects: db.prepare('SELECT * FROM engineer_projects').all(),
         timesheets: db.prepare('SELECT * FROM timesheets').all(),
         timesheet_entries: db.prepare('SELECT * FROM timesheet_entries').all(),
@@ -3885,8 +3893,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore projects
       if (backup.data.projects) {
         for (const p of backup.data.projects) {
-          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.created_at
+          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.billing_method || null, p.monthly_engineer_pay || null, p.monthly_invoice_amount || null, p.created_at
           );
         }
       }
@@ -3896,12 +3904,14 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
         for (const u of backup.data.users) {
           if (u.id === currentUserId) continue;
           db.prepare(`INSERT INTO users (id, name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate,
-            bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2,
+            pay_delay_months, address, city, state, zip, start_date, phone, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
             u.id, u.name, u.email, u.password, u.role, u.engineer_id, u.holiday_pay_eligible || 0, u.holiday_pay_rate || 0,
             u.bank_routing || null, u.bank_account || null, u.bank_account_type || 'checking',
             u.bank_routing_2 || null, u.bank_account_2 || null, u.bank_account_type_2 || 'checking',
-            u.bank_pct_1 ?? 100, u.bank_pct_2 ?? 0, u.created_at
+            u.bank_pct_1 ?? 100, u.bank_pct_2 ?? 0,
+            u.pay_delay_months || 0, u.address || null, u.city || null, u.state || null, u.zip || null, u.start_date || null, u.phone || null, u.created_at
           );
         }
       }
