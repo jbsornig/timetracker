@@ -2007,13 +2007,16 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings.' });
   }
 
-  if (!invoice.ap_email) {
-    return res.status(400).json({ error: 'No AP email set for this customer. Add AP email in Customers.' });
+  const missingApEmail = !invoice.ap_email;
+  const recipientEmail = invoice.ap_email || invoice.contact_email;
+
+  if (!recipientEmail) {
+    return res.status(400).json({ error: 'No AP email or contact email set for this customer. Add an email in Customers.' });
   }
 
   // Build CC list
   const ccList = [];
-  if (invoice.contact_email) ccList.push(invoice.contact_email);
+  if (invoice.contact_email && invoice.contact_email !== recipientEmail) ccList.push(invoice.contact_email);
   if (settings.admin_notification_email) ccList.push(settings.admin_notification_email);
 
   // Get line items and timesheet details
@@ -2438,7 +2441,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
 
     await transporter.sendMail({
       from: settings.smtp_email,
-      to: invoice.ap_email,
+      to: recipientEmail,
       cc: ccList.length > 0 ? ccList.join(', ') : undefined,
       subject: `Invoice #${invoice.invoice_number} from ${settings.company_name || 'UTech TimeTracker'} - ${invoice.project_name}`,
       html: emailBody,
@@ -2452,7 +2455,8 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     // Record that the invoice was emailed
     db.prepare('UPDATE invoices SET emailed_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
 
-    res.json({ success: true, message: `Invoice emailed to ${invoice.ap_email}` + (ccList.length > 0 ? ` (CC: ${ccList.join(', ')})` : '') });
+    const warning = missingApEmail ? ' (WARNING: No AP email — sent to contact instead)' : '';
+    res.json({ success: true, message: `Invoice emailed to ${recipientEmail}` + (ccList.length > 0 ? ` (CC: ${ccList.join(', ')})` : '') + warning });
   } catch (err) {
     console.error('Failed to send invoice email:', err);
     res.status(500).json({ error: 'Failed to send email: ' + err.message });
