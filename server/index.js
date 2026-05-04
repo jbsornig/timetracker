@@ -3101,15 +3101,58 @@ app.get('/api/reports/invoiced', auth, adminOnly, (req, res) => {
   const data = db.prepare(`
     SELECT i.id, i.invoice_number, i.created_at, i.period_start, i.period_end,
            i.total_hours, i.total_amount, i.amount_paid, i.status,
-           p.name as project_name, p.po_number,
-           c.name as customer_name
+           i.project_id,
+           p.name as project_name, p.po_number, p.project_type,
+           c.id as customer_id, c.name as customer_name
     FROM invoices i
     JOIN projects p ON p.id = i.project_id
     JOIN customers c ON c.id = p.customer_id
     WHERE DATE(i.created_at) BETWEEN ? AND ?
     ORDER BY i.created_at DESC
   `).all(period_start, period_end);
-  res.json(data);
+
+  const enriched = data.map(inv => {
+    let engineerCost = 0;
+    let engineers = [];
+
+    if (inv.project_type === 'hourly') {
+      const rows = db.prepare(`
+        SELECT u.id as user_id, u.name as engineer_name, ep.pay_rate,
+               SUM(te.hours) as hours
+        FROM timesheet_entries te
+        JOIN timesheets ts ON ts.id = te.timesheet_id
+        JOIN users u ON u.id = ts.user_id
+        LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+        WHERE ts.project_id = ? AND ts.status = 'approved'
+          AND te.entry_date BETWEEN ? AND ?
+        GROUP BY u.id
+      `).all(inv.project_id, inv.period_start, inv.period_end);
+      engineers = rows.map(r => ({ name: r.engineer_name, cost: (r.hours || 0) * (r.pay_rate || 0) }));
+      engineerCost = engineers.reduce((s, e) => s + e.cost, 0);
+    } else if (inv.project_type === 'fixed_monthly') {
+      const rows = db.prepare(`
+        SELECT u.id as user_id, u.name as engineer_name, ep.monthly_pay
+        FROM engineer_projects ep
+        JOIN users u ON u.id = ep.user_id
+        WHERE ep.project_id = ?
+      `).all(inv.project_id);
+      engineers = rows.map(r => ({ name: r.engineer_name, cost: r.monthly_pay || 0 }));
+      engineerCost = engineers.reduce((s, e) => s + e.cost, 0);
+    } else if (inv.project_type === 'fixed_price') {
+      const rows = db.prepare(`
+        SELECT u.id as user_id, u.name as engineer_name, ep.total_payment
+        FROM engineer_projects ep
+        JOIN users u ON u.id = ep.user_id
+        WHERE ep.project_id = ?
+      `).all(inv.project_id);
+      engineers = rows.map(r => ({ name: r.engineer_name, cost: r.total_payment || 0 }));
+      engineerCost = engineers.reduce((s, e) => s + e.cost, 0);
+    }
+
+    return { ...inv, engineer_cost: engineerCost, engineers };
+  });
+
+  res.json(enriched);
 });
 
 // Engineer earnings report (accessible by engineers for their own data)

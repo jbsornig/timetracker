@@ -73,6 +73,9 @@ export default function Reports() {
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState(getDefaultDates());
   const [invoicedDateRange, setInvoicedDateRange] = useState(getDefaultDates());
+  const [invoicedCustomerFilter, setInvoicedCustomerFilter] = useState('');
+  const [invoicedProjectFilter, setInvoicedProjectFilter] = useState('');
+  const [invoicedEngineerFilter, setInvoicedEngineerFilter] = useState('');
   const [error, setError] = useState('');
   const [achModal, setAchModal] = useState(false);
   const [achDeliveryDate, setAchDeliveryDate] = useState('');
@@ -544,14 +547,26 @@ export default function Reports() {
     { po: 0, billed: 0, remaining: 0 }
   );
 
-  const invoicedTotals = invoicedData.reduce(
+  const filteredInvoicedData = invoicedData.filter(row => {
+    if (invoicedCustomerFilter && row.customer_name !== invoicedCustomerFilter) return false;
+    if (invoicedProjectFilter && row.project_name !== invoicedProjectFilter) return false;
+    if (invoicedEngineerFilter && !(row.engineers || []).some(e => e.name === invoicedEngineerFilter)) return false;
+    return true;
+  });
+
+  const invoicedCustomers = [...new Set(invoicedData.map(r => r.customer_name))].sort();
+  const invoicedProjects = [...new Set(invoicedData.map(r => r.project_name))].sort();
+  const invoicedEngineers = [...new Set(invoicedData.flatMap(r => (r.engineers || []).map(e => e.name)))].sort();
+
+  const invoicedTotals = filteredInvoicedData.reduce(
     (acc, row) => ({
       count: acc.count + 1,
       total: acc.total + (row.total_amount || 0),
       paid: acc.paid + (row.amount_paid || 0),
       outstanding: acc.outstanding + ((row.total_amount || 0) - (row.amount_paid || 0)),
+      engineerCost: acc.engineerCost + (row.engineer_cost || 0),
     }),
-    { count: 0, total: 0, paid: 0, outstanding: 0 }
+    { count: 0, total: 0, paid: 0, outstanding: 0, engineerCost: 0 }
   );
 
   return (
@@ -1133,6 +1148,31 @@ export default function Reports() {
             </div>
           ) : (
             <>
+              {/* Filters */}
+              <div className="no-print" style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ margin: 0, minWidth: 160 }}>
+                  <label className="form-label">Customer</label>
+                  <select className="form-input" value={invoicedCustomerFilter} onChange={(e) => setInvoicedCustomerFilter(e.target.value)}>
+                    <option value="">All Customers</option>
+                    {invoicedCustomers.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ margin: 0, minWidth: 160 }}>
+                  <label className="form-label">Project</label>
+                  <select className="form-input" value={invoicedProjectFilter} onChange={(e) => setInvoicedProjectFilter(e.target.value)}>
+                    <option value="">All Projects</option>
+                    {invoicedProjects.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ margin: 0, minWidth: 160 }}>
+                  <label className="form-label">Engineer</label>
+                  <select className="form-input" value={invoicedEngineerFilter} onChange={(e) => setInvoicedEngineerFilter(e.target.value)}>
+                    <option value="">All Engineers</option>
+                    {invoicedEngineers.map(eng => <option key={eng} value={eng}>{eng}</option>)}
+                  </select>
+                </div>
+              </div>
+
               {/* Print Header */}
               <div className="print-only" style={{ marginBottom: 20, textAlign: 'center' }}>
                 <h1 style={{ margin: 0, fontSize: 24 }}>Invoiced Report</h1>
@@ -1152,13 +1192,14 @@ export default function Reports() {
                       <th>PO #</th>
                       <th>Hours</th>
                       <th>Amount</th>
+                      <th>Engineer Cost</th>
                       <th>Paid</th>
                       <th>Outstanding</th>
                       <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {invoicedData.map((row) => {
+                    {filteredInvoicedData.map((row) => {
                       const outstanding = (row.total_amount || 0) - (row.amount_paid || 0);
                       return (
                         <tr key={row.id}>
@@ -1169,6 +1210,11 @@ export default function Reports() {
                           <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.po_number || '-'}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>{(row.total_hours || 0).toFixed(2)}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(row.total_amount)}</td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}
+                            title={(row.engineers || []).map(e => `${e.name}: ${formatCurrency(e.cost)}`).join('\n')}
+                          >
+                            {formatCurrency(row.engineer_cost)}
+                          </td>
                           <td style={{ fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(row.amount_paid)}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: outstanding > 0 ? '#dc2626' : '#16a34a' }}>
                             {formatCurrency(outstanding)}
@@ -1194,6 +1240,7 @@ export default function Reports() {
                     <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
                       <td colSpan={6}>Totals ({invoicedTotals.count} invoices)</td>
                       <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(invoicedTotals.total)}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}>{formatCurrency(invoicedTotals.engineerCost)}</td>
                       <td style={{ fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(invoicedTotals.paid)}</td>
                       <td style={{ fontFamily: 'DM Mono, monospace', color: invoicedTotals.outstanding > 0 ? '#dc2626' : '#16a34a' }}>
                         {formatCurrency(invoicedTotals.outstanding)}
@@ -1213,9 +1260,13 @@ export default function Reports() {
                   <div className="stat-label">Total Invoiced</div>
                   <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(invoicedTotals.total)}</div>
                 </div>
+                <div className="stat-card" style={{ borderLeft: '4px solid #7c3aed' }}>
+                  <div className="stat-label">Engineer Cost</div>
+                  <div className="stat-value" style={{ fontSize: 22, color: '#7c3aed' }}>{formatCurrency(invoicedTotals.engineerCost)}</div>
+                </div>
                 <div className="stat-card accent">
-                  <div className="stat-label">Total Paid</div>
-                  <div className="stat-value" style={{ fontSize: 22, color: 'var(--success)' }}>{formatCurrency(invoicedTotals.paid)}</div>
+                  <div className="stat-label">Gross Margin</div>
+                  <div className="stat-value" style={{ fontSize: 22, color: 'var(--success)' }}>{formatCurrency(invoicedTotals.total - invoicedTotals.engineerCost)}</div>
                 </div>
                 <div className="stat-card">
                   <div className="stat-label">Outstanding</div>
