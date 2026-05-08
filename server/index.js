@@ -3166,7 +3166,7 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
   const engineer = db.prepare('SELECT id, name, engineer_id FROM users WHERE id = ?').get(user_id);
   if (!engineer) return res.status(404).json({ error: 'Engineer not found' });
 
-  // Get all submitted + approved timesheet hours grouped by project for the period
+  // Get hourly/fixed_monthly work from timesheet_entries
   const hourlyWork = db.prepare(`
     SELECT p.id as project_id, p.name as project_name, p.project_type,
            ep.pay_rate, ep.monthly_pay, ep.total_payment,
@@ -3182,13 +3182,29 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
     ORDER BY p.name
   `).all(user_id, period_start, period_end);
 
-  // Count distinct months with submissions for fixed_monthly calculation
+  // Get fixed_price submissions (these have no timesheet_entries, just an amount on the timesheet)
+  const fixedPriceWork = db.prepare(`
+    SELECT p.id as project_id, p.name as project_name, p.project_type,
+           ts.status, ts.amount,
+           ep.pay_rate, ep.total_payment
+    FROM timesheets ts
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.user_id = ? AND ts.status IN ('approved', 'submitted')
+      AND p.project_type = 'fixed_price'
+      AND ts.week_ending BETWEEN ? AND ?
+    ORDER BY p.name, ts.week_ending
+  `).all(user_id, period_start, period_end);
+
+  // Count distinct months for fixed_monthly calculation
   const startDate = new Date(period_start + 'T00:00:00');
   const endDate = new Date(period_end + 'T00:00:00');
   const monthsInPeriod = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
 
-  // Only show projects where the engineer actually submitted timesheets
-  const workLines = hourlyWork.map(row => {
+  const workLines = [];
+
+  // Add hourly/fixed_monthly work
+  for (const row of hourlyWork) {
     let amountOwed = 0;
     let submittedAmountOwed = 0;
     let fixedAmount = 0;
@@ -3199,12 +3215,8 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
       fixedAmount = (row.monthly_pay || 0) * monthsInPeriod;
       amountOwed = fixedAmount;
       submittedAmountOwed = fixedAmount;
-    } else if (row.project_type === 'fixed_price') {
-      fixedAmount = row.total_payment || 0;
-      amountOwed = fixedAmount;
-      submittedAmountOwed = fixedAmount;
     }
-    return {
+    workLines.push({
       project_name: row.project_name,
       project_type: row.project_type,
       approved_hours: row.approved_hours || 0,
@@ -3214,8 +3226,37 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
       fixed_amount: fixedAmount,
       amount_owed: amountOwed,
       submitted_amount_owed: submittedAmountOwed,
-    };
-  });
+    });
+  }
+
+  // Add fixed_price submissions (grouped by project, summing amounts)
+  const fixedByProject = {};
+  for (const row of fixedPriceWork) {
+    if (!fixedByProject[row.project_id]) {
+      fixedByProject[row.project_id] = { ...row, total_submitted: 0, total_approved: 0 };
+    }
+    fixedByProject[row.project_id].total_submitted += (row.amount || 0);
+    if (row.status === 'approved') {
+      fixedByProject[row.project_id].total_approved += (row.amount || 0);
+    }
+  }
+
+  // Don't duplicate if already captured via timesheet_entries
+  const hourlyProjectIds = new Set(hourlyWork.map(r => r.project_id));
+  for (const fp of Object.values(fixedByProject)) {
+    if (hourlyProjectIds.has(fp.project_id)) continue;
+    workLines.push({
+      project_name: fp.project_name,
+      project_type: 'fixed_price',
+      approved_hours: 0,
+      submitted_hours: 0,
+      pay_rate: 0,
+      monthly_pay: 0,
+      fixed_amount: fp.total_submitted,
+      amount_owed: fp.total_approved,
+      submitted_amount_owed: fp.total_submitted,
+    });
+  }
 
   // Get all payments made to this engineer in the period
   const payments = db.prepare(`
