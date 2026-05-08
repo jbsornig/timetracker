@@ -96,6 +96,9 @@ export default function Reports() {
   const [verificationData, setVerificationData] = useState(null);
   const [verificationEngineer, setVerificationEngineer] = useState('');
   const [verificationRange, setVerificationRange] = useState({ period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
+  const [reconciliationData, setReconciliationData] = useState(null);
+  const [reconciliationForm, setReconciliationForm] = useState({ user_id: '', period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
+  const [showReconciliation, setShowReconciliation] = useState(false);
   const [overdueData, setOverdueData] = useState([]);
   const [unclearedAdvances, setUnclearedAdvances] = useState([]);
 
@@ -227,6 +230,21 @@ export default function Reports() {
       if (f.payment_type) params.set('payment_type', f.payment_type);
       const data = await apiFetch(`/engineer-payments?${params}`);
       setEngPayments(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadReconciliation = async () => {
+    if (!reconciliationForm.user_id) return;
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams(reconciliationForm);
+      const data = await apiFetch(`/reports/engineer-reconciliation?${params}`);
+      setReconciliationData(data);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1581,14 +1599,15 @@ export default function Reports() {
           {/* Sub-tabs for Engineer Payments */}
           <div className="card no-print" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => { setVerificationData(null); setSummary1099([]); }}>Payment History</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => { load1099Summary(); setVerificationData(null); }}>1099 Summary</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => { setSummary1099([]); }}>Verification Letter</button>
+              <button className={`btn btn-sm ${!showReconciliation ? 'btn-secondary' : 'btn-secondary'}`} onClick={() => { setVerificationData(null); setSummary1099([]); setShowReconciliation(false); }}>Payment History</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { load1099Summary(); setVerificationData(null); setShowReconciliation(false); }}>1099 Summary</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setSummary1099([]); setShowReconciliation(false); }}>Verification Letter</button>
+              <button className={`btn btn-sm ${showReconciliation ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setShowReconciliation(true); setSummary1099([]); setVerificationData(null); }}>Reconciliation</button>
             </div>
           </div>
 
           {/* Record Payment Form */}
-          {summary1099.length === 0 && !verificationData && (
+          {summary1099.length === 0 && !verificationData && !showReconciliation && (
             <div className="card no-print" style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Record Payment</div>
               <form onSubmit={handleAddEngPayment}>
@@ -1646,7 +1665,7 @@ export default function Reports() {
           )}
 
           {/* Payment History Filter & Table */}
-          {summary1099.length === 0 && !verificationData && (
+          {summary1099.length === 0 && !verificationData && !showReconciliation && (
             <div className="card">
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Payment History</div>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16 }}>
@@ -1839,8 +1858,156 @@ export default function Reports() {
             </div>
           )}
 
+          {/* Reconciliation Report */}
+          {showReconciliation && (
+            <div>
+              <div className="card no-print" style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Engineer Payment Reconciliation</div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Engineer *</label>
+                    <select className="form-select" value={reconciliationForm.user_id} onChange={(e) => setReconciliationForm({ ...reconciliationForm, user_id: e.target.value })} style={{ width: 200 }}>
+                      <option value="">Select...</option>
+                      {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>From</label>
+                    <input className="form-input" type="date" value={reconciliationForm.period_start} onChange={(e) => setReconciliationForm({ ...reconciliationForm, period_start: e.target.value })} style={{ width: 150 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>To</label>
+                    <input className="form-input" type="date" value={reconciliationForm.period_end} onChange={(e) => setReconciliationForm({ ...reconciliationForm, period_end: e.target.value })} style={{ width: 150 }} />
+                  </div>
+                  <button className="btn btn-primary" onClick={loadReconciliation} disabled={!reconciliationForm.user_id || loading}>
+                    {loading ? 'Loading...' : 'Run Report'}
+                  </button>
+                  {reconciliationData && (
+                    <button className="btn btn-secondary" onClick={() => window.print()}>Print</button>
+                  )}
+                </div>
+              </div>
+
+              {reconciliationData && (
+                <div className="card">
+                  {/* Print Header */}
+                  <div className="print-only" style={{ marginBottom: 20, textAlign: 'center' }}>
+                    <h1 style={{ margin: 0, fontSize: 24 }}>Payment Reconciliation</h1>
+                    <p style={{ margin: '8px 0 0', color: '#666' }}>
+                      {reconciliationData.engineer.name} — {formatDate(reconciliationData.period_start)} to {formatDate(reconciliationData.period_end)}
+                    </p>
+                  </div>
+
+                  <div className="no-print" style={{ fontWeight: 600, fontSize: 15, marginBottom: 16 }}>
+                    {reconciliationData.engineer.name}
+                    {reconciliationData.engineer.engineer_id && <span style={{ color: '#64748b', fontWeight: 400 }}> ({reconciliationData.engineer.engineer_id})</span>}
+                  </div>
+
+                  {/* Work / Hours Owed Section */}
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: '#475569' }}>Hours Worked &amp; Amount Owed</div>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th>Project</th>
+                            <th>Type</th>
+                            <th style={{ textAlign: 'right' }}>Hours</th>
+                            <th style={{ textAlign: 'right' }}>Rate</th>
+                            <th style={{ textAlign: 'right' }}>Amount Owed</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reconciliationData.work.map((w, idx) => (
+                            <tr key={idx}>
+                              <td>{w.project_name}</td>
+                              <td style={{ textTransform: 'capitalize', fontSize: 11 }}>{w.project_type.replace('_', ' ')}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.total_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#64748b' }}>
+                                {w.project_type === 'hourly' ? `${formatCurrency(w.pay_rate)}/hr` : w.project_type === 'fixed_monthly' ? `${formatCurrency(w.monthly_pay)}/mo` : 'Fixed'}
+                              </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(w.amount_owed)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                            <td colSpan={2}>Total Owed</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{reconciliationData.work.reduce((s, w) => s + w.total_hours, 0).toFixed(2)}</td>
+                            <td></td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(reconciliationData.total_owed)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Payments Made Section */}
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: '#475569' }}>Payments Made</div>
+                    {reconciliationData.payments.length === 0 ? (
+                      <div style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: 12 }}>No payments recorded in this period.</div>
+                    ) : (
+                      <div className="table-wrap">
+                        <table style={{ fontSize: 12 }}>
+                          <thead>
+                            <tr>
+                              <th>Date</th>
+                              <th>Type</th>
+                              <th>Method</th>
+                              <th>Reference</th>
+                              <th style={{ textAlign: 'right' }}>Amount</th>
+                              <th>Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {reconciliationData.payments.map(p => (
+                              <tr key={p.id}>
+                                <td>{formatDate(p.payment_date)}</td>
+                                <td style={{ textTransform: 'capitalize', fontSize: 11 }}>{p.payment_type}</td>
+                                <td>{p.payment_method || '—'}</td>
+                                <td style={{ fontSize: 11 }}>{p.reference_number || '—'}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#16a34a' }}>{formatCurrency(p.amount)}</td>
+                                <td style={{ fontSize: 11, color: '#64748b' }}>{p.notes || ''}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                              <td colSpan={4}>Total Paid</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(reconciliationData.total_paid)}</td>
+                              <td></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Summary */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                    <div className="stat-card">
+                      <div className="stat-label">Total Owed</div>
+                      <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(reconciliationData.total_owed)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Total Paid</div>
+                      <div className="stat-value" style={{ fontSize: 22, color: 'var(--success)' }}>{formatCurrency(reconciliationData.total_paid)}</div>
+                    </div>
+                    <div className="stat-card" style={{ borderLeft: `4px solid ${reconciliationData.balance > 0 ? '#dc2626' : reconciliationData.balance < 0 ? '#f59e0b' : '#16a34a'}` }}>
+                      <div className="stat-label">{reconciliationData.balance > 0 ? 'Still Owed' : reconciliationData.balance < 0 ? 'Overpaid' : 'Balanced'}</div>
+                      <div className="stat-value" style={{ fontSize: 22, color: reconciliationData.balance > 0 ? '#dc2626' : reconciliationData.balance < 0 ? '#f59e0b' : '#16a34a' }}>
+                        {formatCurrency(Math.abs(reconciliationData.balance))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Verification Letter */}
-          {!summary1099.length && (
+          {!summary1099.length && !showReconciliation && (
             <div>
               {!verificationData && (
                 <div className="card no-print" style={{ marginTop: 16 }}>

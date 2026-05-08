@@ -3155,6 +3155,74 @@ app.get('/api/reports/invoiced', auth, adminOnly, (req, res) => {
   res.json(enriched);
 });
 
+// Engineer payment reconciliation report
+app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
+  const { user_id, period_start, period_end } = req.query;
+  if (!user_id || !period_start || !period_end) {
+    return res.status(400).json({ error: 'user_id, period_start, and period_end are required' });
+  }
+  const db = getDb();
+
+  const engineer = db.prepare('SELECT id, name, engineer_id FROM users WHERE id = ?').get(user_id);
+  if (!engineer) return res.status(404).json({ error: 'Engineer not found' });
+
+  // Get all approved timesheet hours grouped by project for the period
+  const hourlyWork = db.prepare(`
+    SELECT p.id as project_id, p.name as project_name, p.project_type,
+           ep.pay_rate, ep.monthly_pay, ep.total_payment,
+           SUM(te.hours) as total_hours
+    FROM timesheet_entries te
+    JOIN timesheets ts ON ts.id = te.timesheet_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.user_id = ? AND ts.status = 'approved'
+      AND te.entry_date BETWEEN ? AND ?
+    GROUP BY p.id
+    ORDER BY p.name
+  `).all(user_id, period_start, period_end);
+
+  const workLines = hourlyWork.map(row => {
+    let amountOwed = 0;
+    if (row.project_type === 'hourly') {
+      amountOwed = (row.total_hours || 0) * (row.pay_rate || 0);
+    } else if (row.project_type === 'fixed_monthly') {
+      amountOwed = row.monthly_pay || 0;
+    } else if (row.project_type === 'fixed_price') {
+      amountOwed = row.total_payment || 0;
+    }
+    return {
+      project_name: row.project_name,
+      project_type: row.project_type,
+      total_hours: row.total_hours || 0,
+      pay_rate: row.pay_rate || 0,
+      monthly_pay: row.monthly_pay || 0,
+      amount_owed: amountOwed,
+    };
+  });
+
+  // Get all payments made to this engineer in the period
+  const payments = db.prepare(`
+    SELECT id, amount, payment_date, payment_type, payment_method, reference_number, notes, period_start, period_end
+    FROM engineer_payments
+    WHERE user_id = ? AND payment_date BETWEEN ? AND ?
+    ORDER BY payment_date
+  `).all(user_id, period_start, period_end);
+
+  const totalOwed = workLines.reduce((s, w) => s + w.amount_owed, 0);
+  const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+
+  res.json({
+    engineer,
+    period_start,
+    period_end,
+    work: workLines,
+    payments,
+    total_owed: totalOwed,
+    total_paid: totalPaid,
+    balance: totalOwed - totalPaid,
+  });
+});
+
 // Engineer earnings report (accessible by engineers for their own data)
 app.get('/api/reports/my-earnings', auth, (req, res) => {
   const db = getDb();
