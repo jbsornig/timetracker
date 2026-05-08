@@ -3166,16 +3166,17 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
   const engineer = db.prepare('SELECT id, name, engineer_id FROM users WHERE id = ?').get(user_id);
   if (!engineer) return res.status(404).json({ error: 'Engineer not found' });
 
-  // Get all approved timesheet hours grouped by project for the period
+  // Get all submitted + approved timesheet hours grouped by project for the period
   const hourlyWork = db.prepare(`
     SELECT p.id as project_id, p.name as project_name, p.project_type,
            ep.pay_rate, ep.monthly_pay, ep.total_payment,
-           SUM(te.hours) as total_hours
+           SUM(CASE WHEN ts.status = 'approved' THEN te.hours ELSE 0 END) as approved_hours,
+           SUM(te.hours) as submitted_hours
     FROM timesheet_entries te
     JOIN timesheets ts ON ts.id = te.timesheet_id
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.user_id = ? AND ts.status = 'approved'
+    WHERE ts.user_id = ? AND ts.status IN ('approved', 'submitted')
       AND te.entry_date BETWEEN ? AND ?
     GROUP BY p.id
     ORDER BY p.name
@@ -3183,20 +3184,26 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
 
   const workLines = hourlyWork.map(row => {
     let amountOwed = 0;
+    let submittedAmountOwed = 0;
     if (row.project_type === 'hourly') {
-      amountOwed = (row.total_hours || 0) * (row.pay_rate || 0);
+      amountOwed = (row.approved_hours || 0) * (row.pay_rate || 0);
+      submittedAmountOwed = (row.submitted_hours || 0) * (row.pay_rate || 0);
     } else if (row.project_type === 'fixed_monthly') {
       amountOwed = row.monthly_pay || 0;
+      submittedAmountOwed = row.monthly_pay || 0;
     } else if (row.project_type === 'fixed_price') {
       amountOwed = row.total_payment || 0;
+      submittedAmountOwed = row.total_payment || 0;
     }
     return {
       project_name: row.project_name,
       project_type: row.project_type,
-      total_hours: row.total_hours || 0,
+      approved_hours: row.approved_hours || 0,
+      submitted_hours: row.submitted_hours || 0,
       pay_rate: row.pay_rate || 0,
       monthly_pay: row.monthly_pay || 0,
       amount_owed: amountOwed,
+      submitted_amount_owed: submittedAmountOwed,
     };
   });
 
@@ -3209,6 +3216,7 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
   `).all(user_id, period_start, period_end);
 
   const totalOwed = workLines.reduce((s, w) => s + w.amount_owed, 0);
+  const totalSubmittedOwed = workLines.reduce((s, w) => s + w.submitted_amount_owed, 0);
   const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
 
   res.json({
@@ -3218,8 +3226,9 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
     work: workLines,
     payments,
     total_owed: totalOwed,
+    total_submitted_owed: totalSubmittedOwed,
     total_paid: totalPaid,
-    balance: totalOwed - totalPaid,
+    balance: totalSubmittedOwed - totalPaid,
   });
 });
 

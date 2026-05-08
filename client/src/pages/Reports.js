@@ -1912,9 +1912,11 @@ export default function Reports() {
                           <tr>
                             <th>Project</th>
                             <th>Type</th>
-                            <th style={{ textAlign: 'right' }}>Hours</th>
+                            <th style={{ textAlign: 'right' }}>Submitted Hrs</th>
+                            <th style={{ textAlign: 'right' }}>Approved Hrs</th>
                             <th style={{ textAlign: 'right' }}>Rate</th>
-                            <th style={{ textAlign: 'right' }}>Amount Owed</th>
+                            <th style={{ textAlign: 'right' }}>Submitted Owed</th>
+                            <th style={{ textAlign: 'right' }}>Approved Owed</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1922,19 +1924,23 @@ export default function Reports() {
                             <tr key={idx}>
                               <td>{w.project_name}</td>
                               <td style={{ textTransform: 'capitalize', fontSize: 11 }}>{w.project_type.replace('_', ' ')}</td>
-                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.total_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.submitted_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.approved_hours.toFixed(2)}</td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#64748b' }}>
                                 {w.project_type === 'hourly' ? `${formatCurrency(w.pay_rate)}/hr` : w.project_type === 'fixed_monthly' ? `${formatCurrency(w.monthly_pay)}/mo` : 'Fixed'}
                               </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(w.submitted_amount_owed)}</td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(w.amount_owed)}</td>
                             </tr>
                           ))}
                         </tbody>
                         <tfoot>
                           <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
-                            <td colSpan={2}>Total Owed</td>
-                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{reconciliationData.work.reduce((s, w) => s + w.total_hours, 0).toFixed(2)}</td>
+                            <td colSpan={2}>Totals</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{reconciliationData.work.reduce((s, w) => s + w.submitted_hours, 0).toFixed(2)}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{reconciliationData.work.reduce((s, w) => s + w.approved_hours, 0).toFixed(2)}</td>
                             <td></td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(reconciliationData.total_submitted_owed)}</td>
                             <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(reconciliationData.total_owed)}</td>
                           </tr>
                         </tfoot>
@@ -1987,8 +1993,12 @@ export default function Reports() {
                   {/* Summary */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
                     <div className="stat-card">
-                      <div className="stat-label">Total Owed</div>
-                      <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(reconciliationData.total_owed)}</div>
+                      <div className="stat-label">Submitted Owed</div>
+                      <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(reconciliationData.total_submitted_owed)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Approved Owed</div>
+                      <div className="stat-value" style={{ fontSize: 20, color: '#475569' }}>{formatCurrency(reconciliationData.total_owed)}</div>
                     </div>
                     <div className="stat-card">
                       <div className="stat-label">Total Paid</div>
