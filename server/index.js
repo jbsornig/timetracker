@@ -3182,30 +3182,66 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
     ORDER BY p.name
   `).all(user_id, period_start, period_end);
 
-  const workLines = hourlyWork.map(row => {
+  // Get fixed-amount projects this engineer is assigned to (may not have timesheet entries)
+  const fixedAssignments = db.prepare(`
+    SELECT p.id as project_id, p.name as project_name, p.project_type,
+           ep.pay_rate, ep.monthly_pay, ep.total_payment
+    FROM engineer_projects ep
+    JOIN projects p ON p.id = ep.project_id
+    WHERE ep.user_id = ? AND p.project_type IN ('fixed_monthly', 'fixed_price')
+  `).all(user_id);
+
+  // Count distinct months in the period for fixed_monthly calculation
+  const startDate = new Date(period_start + 'T00:00:00');
+  const endDate = new Date(period_end + 'T00:00:00');
+  const monthsInPeriod = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
+
+  // Merge: hourly work from timesheets + fixed assignments that may not have timesheets
+  const projectIdsWithHours = new Set(hourlyWork.map(r => r.project_id));
+  const workLines = [];
+
+  for (const row of hourlyWork) {
     let amountOwed = 0;
     let submittedAmountOwed = 0;
     if (row.project_type === 'hourly') {
       amountOwed = (row.approved_hours || 0) * (row.pay_rate || 0);
       submittedAmountOwed = (row.submitted_hours || 0) * (row.pay_rate || 0);
     } else if (row.project_type === 'fixed_monthly') {
-      amountOwed = row.monthly_pay || 0;
-      submittedAmountOwed = row.monthly_pay || 0;
+      amountOwed = (row.monthly_pay || 0) * monthsInPeriod;
+      submittedAmountOwed = (row.monthly_pay || 0) * monthsInPeriod;
     } else if (row.project_type === 'fixed_price') {
       amountOwed = row.total_payment || 0;
       submittedAmountOwed = row.total_payment || 0;
     }
-    return {
+    workLines.push({
       project_name: row.project_name,
       project_type: row.project_type,
       approved_hours: row.approved_hours || 0,
       submitted_hours: row.submitted_hours || 0,
       pay_rate: row.pay_rate || 0,
       monthly_pay: row.monthly_pay || 0,
+      fixed_amount: row.project_type === 'fixed_monthly' ? (row.monthly_pay || 0) * monthsInPeriod : row.project_type === 'fixed_price' ? (row.total_payment || 0) : 0,
       amount_owed: amountOwed,
       submitted_amount_owed: submittedAmountOwed,
-    };
-  });
+    });
+  }
+
+  // Add fixed assignments with no timesheet entries in period
+  for (const fa of fixedAssignments) {
+    if (projectIdsWithHours.has(fa.project_id)) continue;
+    const fixedAmt = fa.project_type === 'fixed_monthly' ? (fa.monthly_pay || 0) * monthsInPeriod : (fa.total_payment || 0);
+    workLines.push({
+      project_name: fa.project_name,
+      project_type: fa.project_type,
+      approved_hours: 0,
+      submitted_hours: 0,
+      pay_rate: fa.pay_rate || 0,
+      monthly_pay: fa.monthly_pay || 0,
+      fixed_amount: fixedAmt,
+      amount_owed: fixedAmt,
+      submitted_amount_owed: fixedAmt,
+    });
+  }
 
   // Get all payments made to this engineer in the period
   const payments = db.prepare(`

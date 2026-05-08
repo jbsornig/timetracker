@@ -1905,7 +1905,7 @@ export default function Reports() {
 
                   {/* Work / Hours Owed Section */}
                   <div style={{ marginBottom: 24 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: '#475569' }}>Hours Worked &amp; Amount Owed</div>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: '#475569' }}>Hours Worked &amp; Amounts Owed</div>
                     <div className="table-wrap">
                       <table style={{ fontSize: 12 }}>
                         <thead>
@@ -1915,8 +1915,8 @@ export default function Reports() {
                             <th style={{ textAlign: 'right' }}>Submitted Hrs</th>
                             <th style={{ textAlign: 'right' }}>Approved Hrs</th>
                             <th style={{ textAlign: 'right' }}>Rate</th>
-                            <th style={{ textAlign: 'right' }}>Submitted Owed</th>
-                            <th style={{ textAlign: 'right' }}>Approved Owed</th>
+                            <th style={{ textAlign: 'right' }}>Fixed Amount</th>
+                            <th style={{ textAlign: 'right' }}>Total Owed</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1924,13 +1924,15 @@ export default function Reports() {
                             <tr key={idx}>
                               <td>{w.project_name}</td>
                               <td style={{ textTransform: 'capitalize', fontSize: 11 }}>{w.project_type.replace('_', ' ')}</td>
-                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.submitted_hours.toFixed(2)}</td>
-                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.approved_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.submitted_hours > 0 ? w.submitted_hours.toFixed(2) : '—'}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.approved_hours > 0 ? w.approved_hours.toFixed(2) : '—'}</td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#64748b' }}>
                                 {w.project_type === 'hourly' ? `${formatCurrency(w.pay_rate)}/hr` : w.project_type === 'fixed_monthly' ? `${formatCurrency(w.monthly_pay)}/mo` : 'Fixed'}
                               </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}>
+                                {w.fixed_amount > 0 ? formatCurrency(w.fixed_amount) : '—'}
+                              </td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(w.submitted_amount_owed)}</td>
-                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(w.amount_owed)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1940,8 +1942,8 @@ export default function Reports() {
                             <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{reconciliationData.work.reduce((s, w) => s + w.submitted_hours, 0).toFixed(2)}</td>
                             <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{reconciliationData.work.reduce((s, w) => s + w.approved_hours, 0).toFixed(2)}</td>
                             <td></td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}>{formatCurrency(reconciliationData.work.reduce((s, w) => s + (w.fixed_amount || 0), 0))}</td>
                             <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(reconciliationData.total_submitted_owed)}</td>
-                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(reconciliationData.total_owed)}</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -1993,12 +1995,12 @@ export default function Reports() {
                   {/* Summary */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
                     <div className="stat-card">
-                      <div className="stat-label">Submitted Owed</div>
+                      <div className="stat-label">Total Owed</div>
                       <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(reconciliationData.total_submitted_owed)}</div>
                     </div>
-                    <div className="stat-card">
-                      <div className="stat-label">Approved Owed</div>
-                      <div className="stat-value" style={{ fontSize: 20, color: '#475569' }}>{formatCurrency(reconciliationData.total_owed)}</div>
+                    <div className="stat-card" style={{ borderLeft: '4px solid #7c3aed' }}>
+                      <div className="stat-label">Fixed Amounts</div>
+                      <div className="stat-value" style={{ fontSize: 22, color: '#7c3aed' }}>{formatCurrency(reconciliationData.work.reduce((s, w) => s + (w.fixed_amount || 0), 0))}</div>
                     </div>
                     <div className="stat-card">
                       <div className="stat-label">Total Paid</div>
