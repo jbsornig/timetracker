@@ -2070,8 +2070,10 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const formatCurrency = (amt) => `${cs}${(amt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
-    const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.split(' ')[0];
+    const str = String(dateStr);
+    const datePart = str.includes('T') ? str.split('T')[0] : str.split(' ')[0];
     const d = new Date(datePart + 'T00:00:00');
+    if (isNaN(d.getTime())) return datePart;
     return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   };
   const formatTime = (time) => {
@@ -2091,10 +2093,10 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     const match = invoice.payment_terms?.match(/Net\s*(\d+)/i);
     if (match) daysUntilDue = parseInt(match[1], 10);
   }
-  const invoiceDate = new Date(invoice.created_at.replace(' ', 'T'));
+  const invoiceDate = new Date(String(invoice.created_at).replace(' ', 'T'));
   const dueDate = new Date(invoiceDate);
   dueDate.setDate(dueDate.getDate() + daysUntilDue);
-  const dueDateStr = dueDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  const dueDateStr = isNaN(dueDate.getTime()) ? '' : dueDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   const invoiceDateStr = formatDate(invoice.created_at);
   const periodRange = `${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}`;
 
