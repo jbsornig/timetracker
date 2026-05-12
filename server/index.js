@@ -2091,7 +2091,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     const match = invoice.payment_terms?.match(/Net\s*(\d+)/i);
     if (match) daysUntilDue = parseInt(match[1], 10);
   }
-  const invoiceDate = new Date(invoice.created_at);
+  const invoiceDate = new Date(invoice.created_at.replace(' ', 'T'));
   const dueDate = new Date(invoiceDate);
   dueDate.setDate(dueDate.getDate() + daysUntilDue);
   const dueDateStr = dueDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
