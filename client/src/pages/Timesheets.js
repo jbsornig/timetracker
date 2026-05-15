@@ -451,13 +451,30 @@ export default function Timesheets() {
       if (filter.status) params.append('status', filter.status);
       if (filter.project_id) params.append('project_id', filter.project_id);
       if (filter.user_id) params.append('user_id', filter.user_id);
+      if (dateFilter && dateFilter !== 'all') {
+        let filterMonth, filterYear;
+        if (dateFilter === 'current') {
+          const now = new Date();
+          filterMonth = now.getMonth() + 1;
+          filterYear = now.getFullYear();
+        } else {
+          const [y, m] = dateFilter.split('-');
+          filterYear = parseInt(y);
+          filterMonth = parseInt(m);
+        }
+        const pStart = `${filterYear}-${String(filterMonth).padStart(2, '0')}-01`;
+        const lastDay = new Date(filterYear, filterMonth, 0).getDate();
+        const pEnd = `${filterYear}-${String(filterMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        params.append('period_start', pStart);
+        params.append('period_end', pEnd);
+      }
       const queryString = params.toString();
       const data = await apiFetch(`/timesheets${queryString ? '?' + queryString : ''}`);
       setTimesheets(data);
     } catch (e) {
       setError(e.message);
     }
-  }, [filter]);
+  }, [filter, dateFilter]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -1549,7 +1566,19 @@ export default function Timesheets() {
                             </span>
                           </>
                         ) : (
-                          <>{(ts.total_hours || 0).toFixed(2)} hrs</>
+                          <>
+                            {ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? (
+                              <>
+                                {(ts.period_hours || 0).toFixed(2)} hrs
+                                <br />
+                                <span style={{ fontSize: 11, color: '#64748b' }}>
+                                  of {(ts.total_hours || 0).toFixed(2)} total
+                                </span>
+                              </>
+                            ) : (
+                              <>{(ts.total_hours || 0).toFixed(2)} hrs</>
+                            )}
+                          </>
                         )}
                       </td>
                       <td>
@@ -1679,7 +1708,7 @@ export default function Timesheets() {
                       {isFixedPrice ? (
                         <>${(ts.amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</>
                       ) : (
-                        <>{(ts.total_hours || 0).toFixed(1)}</>
+                        <>{ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? (ts.period_hours || 0).toFixed(1) : (ts.total_hours || 0).toFixed(1)}</>
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>
@@ -1687,7 +1716,7 @@ export default function Timesheets() {
                         ? (mIsInstallment
                           ? `of $${(mProj?.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
                           : `${ts.percentage}%`)
-                        : 'hours'}
+                        : ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? `of ${(ts.total_hours || 0).toFixed(1)} hrs` : 'hours'}
                     </div>
                     <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>

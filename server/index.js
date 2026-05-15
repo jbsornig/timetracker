@@ -771,7 +771,8 @@ app.get('/api/engineer-projects', auth, adminOnly, (req, res) => {
 
 app.get('/api/timesheets', auth, (req, res) => {
   const db = getDb();
-  const { week_ending, project_id, user_id, status } = req.query;
+  const { week_ending, project_id, user_id, status, period_start, period_end } = req.query;
+
   let query = `
     SELECT ts.*, u.name as engineer_name, p.name as project_name,
            c.name as customer_name, p.po_number, p.project_type, p.requires_daily_logs,
@@ -792,7 +793,19 @@ app.get('/api/timesheets', auth, (req, res) => {
   if (project_id) { query += ' AND ts.project_id = ?'; params.push(project_id); }
   if (status) { query += ' AND ts.status = ?'; params.push(status); }
   query += ' GROUP BY ts.id ORDER BY ts.week_ending DESC, u.name';
-  res.json(db.prepare(query).all(...params));
+  let results = db.prepare(query).all(...params);
+
+  if (period_start && period_end) {
+    const periodHoursStmt = db.prepare(
+      'SELECT COALESCE(SUM(hours), 0) as ph FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ?'
+    );
+    results = results.map(ts => ({
+      ...ts,
+      period_hours: periodHoursStmt.get(ts.id, period_start, period_end).ph
+    }));
+  }
+
+  res.json(results);
 });
 
 app.get('/api/timesheets/:id', auth, (req, res) => {
