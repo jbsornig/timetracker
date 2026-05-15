@@ -1463,11 +1463,26 @@ export default function Timesheets() {
               </select>
             </div>
           )}
-          <div style={{ marginLeft: 'auto', alignSelf: 'center', color: '#64748b', fontSize: 14 }}>
-            Showing <strong style={{ color: '#1e293b' }}>{sortedTimesheets.length}</strong> timesheet{sortedTimesheets.length !== 1 ? 's' : ''}
-            {sortedTimesheets.length !== timesheets.length && (
-              <span> of {timesheets.length}</span>
-            )}
+          <div style={{ marginLeft: 'auto', alignSelf: 'center', color: '#64748b', fontSize: 14, textAlign: 'right' }}>
+            <div>
+              Showing <strong style={{ color: '#1e293b' }}>{sortedTimesheets.length}</strong> timesheet{sortedTimesheets.length !== 1 ? 's' : ''}
+              {sortedTimesheets.length !== timesheets.length && (
+                <span> of {timesheets.length}</span>
+              )}
+            </div>
+            {sortedTimesheets.length > 0 && (() => {
+              const periodTotal = sortedTimesheets.reduce((sum, ts) => sum + (ts.period_hours !== undefined ? ts.period_hours : (ts.total_hours || 0)), 0);
+              const grandTotal = sortedTimesheets.reduce((sum, ts) => sum + (ts.total_hours || 0), 0);
+              const fixedTotal = sortedTimesheets.reduce((sum, ts) => ts.project_type === 'fixed_price' ? sum + (ts.amount || 0) : sum, 0);
+              const hasPeriodFilter = sortedTimesheets.some(ts => ts.period_hours !== undefined && ts.period_hours !== ts.total_hours);
+              return (
+                <div style={{ fontSize: 13, marginTop: 2 }}>
+                  <strong style={{ color: '#1e293b' }}>{periodTotal.toFixed(2)}</strong> hrs
+                  {hasPeriodFilter && <span> (of {grandTotal.toFixed(2)} total)</span>}
+                  {fixedTotal > 0 && <span> + <strong style={{ color: '#1e293b' }}>${fixedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> fixed</span>}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
