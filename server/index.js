@@ -4002,6 +4002,19 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
   });
 });
 
+// My payments - for logged-in engineer to see their own payment history
+app.get('/api/my-payments', auth, (req, res) => {
+  const db = getDb();
+  const payments = db.prepare(`
+    SELECT id, amount, payment_date, payment_type, period_start, period_end, payment_method, notes
+    FROM engineer_payments
+    WHERE user_id = ?
+    ORDER BY payment_date DESC
+    LIMIT 20
+  `).all(req.user.id);
+  res.json(payments);
+});
+
 // ─── BACKUP & RESTORE ─────────────────────────────────────────────────────────
 
 // Backup all company data

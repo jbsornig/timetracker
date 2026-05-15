@@ -9,6 +9,7 @@ export default function Dashboard({ setPage }) {
   const [budgets, setBudgets] = useState([]);
   const [earnings, setEarnings] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -19,7 +20,8 @@ export default function Dashboard({ setPage }) {
       user.role === 'admin' ? apiFetch('/reports/project-budget') : Promise.resolve([]),
       user.role !== 'admin' ? apiFetch(`/reports/my-earnings?year=${year}`) : Promise.resolve(null),
       apiFetch('/dashboard-messages'),
-    ]).then(([p, t, b, e, m]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setLoading(false); }).catch(() => setLoading(false));
+      user.role !== 'admin' ? apiFetch('/my-payments') : Promise.resolve([]),
+    ]).then(([p, t, b, e, m, pay]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setPayments(pay || []); setLoading(false); }).catch(() => setLoading(false));
   }, [user]);
 
   const dismissMessage = async (id) => {
@@ -190,6 +192,32 @@ export default function Dashboard({ setPage }) {
           <div className="stat-sub">timesheets this year</div>
         </div>
       </div>
+
+      {payments.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">Recent Payments</div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Method</th><th>Period</th></tr></thead>
+              <tbody>
+                {payments.map(p => (
+                  <tr key={p.id}>
+                    <td>{new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>${parseFloat(p.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td><span className="badge" style={{ background: p.payment_type === 'advance' ? '#fef3c7' : '#e0f2fe', color: p.payment_type === 'advance' ? '#92400e' : '#0369a1' }}>{p.payment_type}</span></td>
+                    <td style={{ color: '#64748b', fontSize: 13 }}>{p.payment_method || '—'}</td>
+                    <td style={{ fontSize: 12, color: '#64748b' }}>
+                      {p.period_start && p.period_end
+                        ? `${new Date(p.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(p.period_end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-title">My Assigned Projects</div>
