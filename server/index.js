@@ -423,6 +423,15 @@ app.get('/api/holidays', auth, adminOnly, (req, res) => {
   res.json(db.prepare(query).all(...params));
 });
 
+app.get('/api/my-holidays', auth, (req, res) => {
+  const db = getDb();
+  const user = db.prepare('SELECT holiday_pay_eligible, holiday_pay_rate FROM users WHERE id = ?').get(req.user.id);
+  if (!user || !user.holiday_pay_eligible) return res.json({ eligible: false, holidays: [] });
+  const currentYear = new Date().getFullYear();
+  const holidays = db.prepare("SELECT id, name, date, hours FROM holidays WHERE strftime('%Y', date) = ? ORDER BY date").all(String(currentYear));
+  res.json({ eligible: true, rate: user.holiday_pay_rate, holidays });
+});
+
 app.post('/api/holidays', auth, adminOnly, (req, res) => {
   const { name, date, hours } = req.body;
   const db = getDb();

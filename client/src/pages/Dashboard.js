@@ -10,6 +10,7 @@ export default function Dashboard({ setPage }) {
   const [earnings, setEarnings] = useState(null);
   const [messages, setMessages] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [holidayInfo, setHolidayInfo] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,7 +22,8 @@ export default function Dashboard({ setPage }) {
       user.role !== 'admin' ? apiFetch(`/reports/my-earnings?year=${year}`) : Promise.resolve(null),
       apiFetch('/dashboard-messages'),
       user.role !== 'admin' ? apiFetch('/my-payments') : Promise.resolve([]),
-    ]).then(([p, t, b, e, m, pay]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setPayments(pay || []); setLoading(false); }).catch(() => setLoading(false));
+      user.role !== 'admin' ? apiFetch('/my-holidays') : Promise.resolve(null),
+    ]).then(([p, t, b, e, m, pay, hol]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setPayments(pay || []); setHolidayInfo(hol); setLoading(false); }).catch(() => setLoading(false));
   }, [user]);
 
   const dismissMessage = async (id) => {
@@ -192,6 +194,38 @@ export default function Dashboard({ setPage }) {
           <div className="stat-sub">timesheets this year</div>
         </div>
       </div>
+
+      {holidayInfo && holidayInfo.eligible && holidayInfo.holidays.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">{new Date().getFullYear()} Paid Holidays</div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Holiday</th><th>Date</th><th>Hours</th><th>Pay</th></tr></thead>
+              <tbody>
+                {holidayInfo.holidays.map(h => {
+                  const isPast = new Date(h.date + 'T00:00:00') < new Date(new Date().toDateString());
+                  return (
+                    <tr key={h.id} style={{ opacity: isPast ? 0.6 : 1 }}>
+                      <td style={{ fontWeight: 500 }}>{h.name}</td>
+                      <td>{new Date(h.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace' }}>{h.hours || 8}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', color: '#10b981' }}>${((h.hours || 8) * holidayInfo.rate).toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ fontWeight: 600, borderTop: '2px solid var(--border)' }}>
+                  <td>Total</td>
+                  <td></td>
+                  <td style={{ fontFamily: 'DM Mono, monospace' }}>{holidayInfo.holidays.reduce((s, h) => s + (h.hours || 8), 0)}</td>
+                  <td style={{ fontFamily: 'DM Mono, monospace', color: '#10b981' }}>${(holidayInfo.holidays.reduce((s, h) => s + (h.hours || 8), 0) * holidayInfo.rate).toFixed(2)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
 
       {payments.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
