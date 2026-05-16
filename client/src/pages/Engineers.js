@@ -32,6 +32,7 @@ export default function Engineers() {
   const [engineerProjects, setEngineerProjects] = useState([]);
   const [profileHistory, setProfileHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [holidays, setHolidays] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -39,13 +40,16 @@ export default function Engineers() {
 
   const loadData = async () => {
     try {
-      const [users, projs] = await Promise.all([
+      const currentYear = new Date().getFullYear();
+      const [users, projs, hols] = await Promise.all([
         apiFetch('/users'),
         apiFetch('/projects'),
+        apiFetch(`/holidays?year=${currentYear}`),
       ]);
       setEngineers(users.filter((u) => u.role === 'engineer'));
       setAdmins(users.filter((u) => u.role === 'admin'));
       setProjects(projs);
+      setHolidays(hols);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -443,19 +447,43 @@ export default function Engineers() {
                     </label>
                   </div>
                   {form.holiday_pay_eligible && (
-                    <div className="form-group">
-                      <label className="form-label">Holiday Pay Rate ($/hr)</label>
-                      <input
-                        className="form-input"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={form.holiday_pay_rate}
-                        onChange={(e) => setForm({ ...form, holiday_pay_rate: e.target.value })}
-                        placeholder="0.00"
-                      />
-                      <div className="form-hint">Rate paid per holiday hour</div>
-                    </div>
+                    <>
+                      <div className="form-group">
+                        <label className="form-label">Holiday Pay Rate ($/hr)</label>
+                        <input
+                          className="form-input"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={form.holiday_pay_rate}
+                          onChange={(e) => setForm({ ...form, holiday_pay_rate: e.target.value })}
+                          placeholder="0.00"
+                        />
+                        <div className="form-hint">Rate paid per holiday hour</div>
+                      </div>
+                      {holidays.length > 0 && (
+                        <div style={{ background: '#f8fafc', borderRadius: 8, padding: '12px 16px', marginTop: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8 }}>
+                            {new Date().getFullYear()} Holidays ({holidays.length})
+                          </div>
+                          {holidays.sort((a, b) => a.date.localeCompare(b.date)).map(h => (
+                            <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13 }}>
+                              <span style={{ color: '#1e293b' }}>{h.name}</span>
+                              <span style={{ color: '#64748b' }}>
+                                {new Date(h.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {h.hours || 8}h
+                              </span>
+                            </div>
+                          ))}
+                          {form.holiday_pay_rate && (
+                            <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 8, paddingTop: 8, fontSize: 12, color: '#64748b' }}>
+                              Est. annual holiday pay: <strong style={{ color: '#1e293b' }}>
+                                ${(holidays.reduce((sum, h) => sum + (h.hours || 8), 0) * parseFloat(form.holiday_pay_rate || 0)).toFixed(2)}
+                              </strong>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
