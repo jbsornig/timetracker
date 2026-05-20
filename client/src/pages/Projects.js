@@ -200,19 +200,34 @@ export default function Projects() {
     }
   };
 
+  const [emailPreview, setEmailPreview] = useState(null);
+
   const handleNotifyEngineer = async (userId) => {
     setNotifying(userId);
     try {
       const result = await apiFetch(`/projects/${selectedProject.id}/notify-engineer`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
+        body: { user_id: userId, preview: true },
       });
-      alert(result.message);
+      setEmailPreview({ ...result, userId });
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
       setNotifying(null);
+    }
+  };
+
+  const handleSendNotification = async () => {
+    if (!emailPreview) return;
+    try {
+      const result = await apiFetch(`/projects/${selectedProject.id}/notify-engineer`, {
+        method: 'POST',
+        body: { user_id: emailPreview.userId, preview: false },
+      });
+      alert(result.message);
+      setEmailPreview(null);
+    } catch (e) {
+      alert('Error: ' + e.message);
     }
   };
 
@@ -759,6 +774,23 @@ export default function Projects() {
                 {saving ? 'Adding...' : 'Add to Project'}
               </button>
             </form>
+          </div>
+        </Modal>
+      )}
+
+      {emailPreview && (
+        <Modal title="Email Preview" onClose={() => setEmailPreview(null)} width={640}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}><strong>To:</strong> {emailPreview.to}</div>
+            <div style={{ fontSize: 13, color: '#64748b' }}><strong>Subject:</strong> {emailPreview.subject}</div>
+          </div>
+          <div
+            style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 20, background: '#fff', maxHeight: 400, overflowY: 'auto' }}
+            dangerouslySetInnerHTML={{ __html: emailPreview.html }}
+          />
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button className="btn btn-secondary" onClick={() => setEmailPreview(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSendNotification}>Send Email</button>
           </div>
         </Modal>
       )}

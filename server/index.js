@@ -766,7 +766,7 @@ app.delete('/api/projects/:id/engineers/:userId', auth, adminOnly, (req, res) =>
 });
 
 app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) => {
-  const { user_id } = req.body;
+  const { user_id, preview } = req.body;
   if (!user_id) return res.status(400).json({ error: 'user_id is required' });
   const db = getDb();
 
@@ -781,7 +781,7 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
 
   const settings = {};
   db.prepare("SELECT key, value FROM settings").all().forEach(s => { settings[s.key] = s.value; });
-  if (!settings.smtp_email || !settings.smtp_password) return res.status(400).json({ error: 'SMTP not configured' });
+  if (!preview && !settings.smtp_email) return res.status(400).json({ error: 'SMTP not configured' });
 
   let compensationHtml = '';
   if (project.project_type === 'fixed_price') {
@@ -832,6 +832,14 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     </div>
   `;
 
+  const subject = `Project Assignment: ${project.name} (PO: ${project.po_number || 'N/A'})`;
+
+  if (preview) {
+    return res.json({ subject, to: engineer.email, html: emailBody, engineerName: engineer.name });
+  }
+
+  if (!settings.smtp_password) return res.status(400).json({ error: 'SMTP password not configured' });
+
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -840,7 +848,7 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     await transporter.sendMail({
       from: settings.smtp_email,
       to: engineer.email,
-      subject: `Project Assignment: ${project.name} (PO: ${project.po_number || 'N/A'})`,
+      subject,
       html: emailBody,
     });
     res.json({ success: true, message: `Assignment email sent to ${engineer.email}` });
