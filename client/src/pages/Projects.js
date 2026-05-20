@@ -21,6 +21,7 @@ export default function Projects() {
   const [engineerFilter, setEngineerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
   const [engineerAssignments, setEngineerAssignments] = useState([]);
+  const [notifying, setNotifying] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -196,6 +197,22 @@ export default function Projects() {
       setProjectEngineers(engs);
     } catch (e) {
       alert('Error: ' + e.message);
+    }
+  };
+
+  const handleNotifyEngineer = async (userId) => {
+    setNotifying(userId);
+    try {
+      const result = await apiFetch(`/projects/${selectedProject.id}/notify-engineer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      alert(result.message);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setNotifying(null);
     }
   };
 
@@ -615,7 +632,7 @@ export default function Projects() {
                           <th>Bill Rate</th>
                         </>
                       )}
-                      <th style={{ width: 80 }}>Actions</th>
+                      <th style={{ width: 160 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -635,7 +652,15 @@ export default function Projects() {
                             <td>${eng.bill_rate?.toFixed(2) || '0.00'}/hr</td>
                           </>
                         )}
-                        <td>
+                        <td style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleNotifyEngineer(eng.user_id)}
+                            disabled={notifying === eng.user_id}
+                            title="Send assignment email to engineer"
+                          >
+                            {notifying === eng.user_id ? 'Sending...' : 'Notify'}
+                          </button>
                           <button className="btn btn-danger btn-sm" onClick={() => handleUnassignEngineer(eng.user_id)}>Remove</button>
                         </td>
                       </tr>

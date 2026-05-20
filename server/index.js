@@ -765,6 +765,91 @@ app.delete('/api/projects/:id/engineers/:userId', auth, adminOnly, (req, res) =>
   res.json({ success: true });
 });
 
+app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) => {
+  const { user_id } = req.body;
+  if (!user_id) return res.status(400).json({ error: 'user_id is required' });
+  const db = getDb();
+
+  const project = db.prepare('SELECT p.*, c.name as customer_name FROM projects p JOIN customers c ON c.id = p.customer_id WHERE p.id = ?').get(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const engineer = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(user_id);
+  if (!engineer || !engineer.email) return res.status(400).json({ error: 'Engineer not found or has no email' });
+
+  const assignment = db.prepare('SELECT * FROM engineer_projects WHERE project_id = ? AND user_id = ?').get(req.params.id, user_id);
+  if (!assignment) return res.status(400).json({ error: 'Engineer is not assigned to this project' });
+
+  const settings = {};
+  db.prepare("SELECT key, value FROM settings").all().forEach(s => { settings[s.key] = s.value; });
+  if (!settings.smtp_email || !settings.smtp_password) return res.status(400).json({ error: 'SMTP not configured' });
+
+  let compensationHtml = '';
+  if (project.project_type === 'fixed_price') {
+    compensationHtml = `<li><strong>Compensation:</strong> $${parseFloat(assignment.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (fixed price)</li>`;
+  } else if (project.project_type === 'fixed_monthly') {
+    compensationHtml = `<li><strong>Monthly Pay:</strong> $${parseFloat(assignment.monthly_pay || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/month</li>`;
+  } else {
+    compensationHtml = `<li><strong>Pay Rate:</strong> $${parseFloat(assignment.pay_rate || 0).toFixed(2)}/hr</li>`;
+  }
+
+  const budgetHtml = project.project_type === 'hourly' && project.po_amount && assignment.bill_rate
+    ? `<li><strong>Budgeted Hours:</strong> ${(project.po_amount / assignment.bill_rate).toFixed(1)} hours</li>`
+    : '';
+
+  const emailBody = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px;">
+      <h2 style="color: #1e293b;">Project Assignment</h2>
+      <p>Hi ${engineer.name},</p>
+      <p>You have been assigned to the following project:</p>
+      <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
+        <tr style="background: #f8fafc;">
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600; width: 140px;">Project</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.name}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">Customer</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.customer_name}</td>
+        </tr>
+        <tr style="background: #f8fafc;">
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">PO Number</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.po_number || 'N/A'}</td>
+        </tr>
+        ${project.location ? `<tr><td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">Location</td><td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.location}</td></tr>` : ''}
+        <tr style="background: #f8fafc;">
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">Type</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.project_type === 'fixed_price' ? 'Fixed Price' : project.project_type === 'fixed_monthly' ? 'Fixed Monthly' : 'Hourly'}</td>
+        </tr>
+      </table>
+      <h3 style="color: #1e293b; margin-top: 24px;">Compensation Details</h3>
+      <ul style="line-height: 1.8;">
+        ${compensationHtml}
+        ${budgetHtml}
+      </ul>
+      ${project.description ? `<h3 style="color: #1e293b; margin-top: 24px;">Description</h3><p style="color: #475569;">${project.description}</p>` : ''}
+      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+      <p style="font-size: 13px; color: #64748b;">Please log your time at <a href="https://timetracker.utechconsulting.net">timetracker.utechconsulting.net</a></p>
+      <p style="font-size: 13px; color: #64748b;">${settings.company_name || 'UTech Consulting'}</p>
+    </div>
+  `;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
+    });
+    await transporter.sendMail({
+      from: settings.smtp_email,
+      to: engineer.email,
+      subject: `Project Assignment: ${project.name} (PO: ${project.po_number || 'N/A'})`,
+      html: emailBody,
+    });
+    res.json({ success: true, message: `Assignment email sent to ${engineer.email}` });
+  } catch (err) {
+    console.error('Failed to send assignment email:', err);
+    res.status(500).json({ error: 'Failed to send email: ' + err.message });
+  }
+});
+
 // Get all engineer-project assignments (for filtering)
 app.get('/api/engineer-projects', auth, adminOnly, (req, res) => {
   const db = getDb();
