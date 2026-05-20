@@ -784,16 +784,27 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
   if (!preview && !settings.smtp_email) return res.status(400).json({ error: 'SMTP not configured' });
 
   let compensationHtml = '';
+  let estTotal = 0;
   if (project.project_type === 'fixed_price') {
-    compensationHtml = `<li><strong>Compensation:</strong> $${parseFloat(assignment.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (fixed price)</li>`;
+    estTotal = parseFloat(assignment.total_payment || 0);
+    compensationHtml = `<li><strong>Compensation:</strong> $${estTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (fixed price)</li>`;
   } else if (project.project_type === 'fixed_monthly') {
-    compensationHtml = `<li><strong>Monthly Pay:</strong> $${parseFloat(assignment.monthly_pay || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/month</li>`;
+    estTotal = parseFloat(assignment.monthly_pay || 0);
+    compensationHtml = `<li><strong>Monthly Pay:</strong> $${estTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/month</li>`;
   } else {
     compensationHtml = `<li><strong>Pay Rate:</strong> $${parseFloat(assignment.pay_rate || 0).toFixed(2)}/hr</li>`;
+    if (project.po_amount && assignment.bill_rate) {
+      const budgetedHours = project.po_amount / assignment.bill_rate;
+      estTotal = budgetedHours * parseFloat(assignment.pay_rate || 0);
+    }
   }
 
   const budgetHtml = project.project_type === 'hourly' && project.po_amount && assignment.bill_rate
     ? `<li><strong>Budgeted Hours:</strong> ${(project.po_amount / assignment.bill_rate).toFixed(1)} hours</li>`
+    : '';
+
+  const estTotalHtml = estTotal > 0
+    ? `<li><strong>Estimated Total Compensation:</strong> $${estTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</li>`
     : '';
 
   const emailBody = `
@@ -824,6 +835,7 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
       <ul style="line-height: 1.8;">
         ${compensationHtml}
         ${budgetHtml}
+        ${estTotalHtml}
       </ul>
       ${project.description ? `<h3 style="color: #1e293b; margin-top: 24px;">Description</h3><p style="color: #475569;">${project.description}</p>` : ''}
       <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
