@@ -629,59 +629,41 @@ export default function Projects() {
             {projectEngineers.length === 0 ? (
               <p style={{ color: '#94a3b8', fontSize: 14 }}>No engineers assigned yet.</p>
             ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Engineer</th>
-                      {selectedProject.project_type === 'fixed_price' ? (
-                        <th>Total Payment</th>
-                      ) : selectedProject.project_type === 'fixed_monthly' ? (
-                        <>
-                          <th>Monthly Pay</th>
-                          <th>Monthly Bill</th>
-                        </>
-                      ) : (
-                        <>
-                          <th>Pay Rate</th>
-                          <th>Bill Rate</th>
-                        </>
-                      )}
-                      <th style={{ width: 160 }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projectEngineers.map((eng) => (
-                      <tr key={eng.user_id}>
-                        <td><strong>{eng.name}</strong><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{eng.engineer_id || eng.email}</span></td>
-                        {selectedProject.project_type === 'fixed_price' ? (
-                          <td>${(eng.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        ) : selectedProject.project_type === 'fixed_monthly' ? (
-                          <>
-                            <td>${(eng.monthly_pay || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</td>
-                            <td>${(eng.monthly_bill || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</td>
-                          </>
-                        ) : (
-                          <>
-                            <td>${eng.pay_rate?.toFixed(2) || '0.00'}/hr</td>
-                            <td>${eng.bill_rate?.toFixed(2) || '0.00'}/hr</td>
-                          </>
+              <div>
+                {projectEngineers.map((eng) => (
+                  <div key={eng.user_id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 16px', marginBottom: 10, background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div>
+                        <strong>{eng.name}</strong>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>{eng.engineer_id || eng.email}</div>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', textAlign: 'right' }}>
+                        {selectedProject.project_type === 'fixed_price'
+                          ? `$${(eng.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : selectedProject.project_type === 'fixed_monthly'
+                            ? `$${(eng.monthly_pay || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo`
+                            : `$${eng.pay_rate?.toFixed(2) || '0.00'}/hr`
+                        }
+                        {selectedProject.project_type === 'fixed_monthly' && (
+                          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Bill: ${(eng.monthly_bill || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</div>
                         )}
-                        <td style={{ display: 'flex', gap: 6 }}>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => handleNotifyEngineer(eng.user_id)}
-                            disabled={notifying === eng.user_id}
-                            title="Send assignment email to engineer"
-                          >
-                            {notifying === eng.user_id ? 'Sending...' : 'Notify'}
-                          </button>
-                          <button className="btn btn-danger btn-sm" onClick={() => handleUnassignEngineer(eng.user_id)}>Remove</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        {selectedProject.project_type === 'hourly' && (
+                          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Bill: ${eng.bill_rate?.toFixed(2) || '0.00'}/hr</div>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleNotifyEngineer(eng.user_id)}
+                        disabled={notifying === eng.user_id}
+                      >
+                        {notifying === eng.user_id ? 'Sending...' : 'Send Assignment Email'}
+                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleUnassignEngineer(eng.user_id)}>Remove</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
