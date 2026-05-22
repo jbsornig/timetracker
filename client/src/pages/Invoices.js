@@ -317,6 +317,10 @@ export default function Invoices() {
   });
   const [batchPaySaving, setBatchPaySaving] = useState(false);
   const [customers, setCustomers] = useState([]);
+  const [showAdviceImport, setShowAdviceImport] = useState(false);
+  const [adviceResults, setAdviceResults] = useState(null);
+  const [adviceSelected, setAdviceSelected] = useState({});
+  const [adviceProcessing, setAdviceProcessing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -689,6 +693,67 @@ export default function Invoices() {
       setError(e.message);
     } finally {
       setBatchPaySaving(false);
+    }
+  };
+
+  const handleAdviceUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const token = localStorage.getItem('tt_token');
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/invoices/import-payment-advice`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      setAdviceResults(data);
+      const preSelected = {};
+      data.matches.forEach(m => {
+        if (!m.already_paid && m.balance_due > 0) preSelected[m.invoice_id] = true;
+      });
+      setAdviceSelected(preSelected);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+    e.target.value = '';
+  };
+
+  const handleAdviceApply = async () => {
+    const selectedIds = Object.keys(adviceSelected).filter(id => adviceSelected[id]).map(Number);
+    if (selectedIds.length === 0) {
+      alert('No invoices selected');
+      return;
+    }
+    const matched = adviceResults.matches.filter(m => selectedIds.includes(m.invoice_id));
+    const total = matched.reduce((s, m) => s + Math.min(m.advice_amount, m.balance_due), 0);
+    if (!window.confirm(`Mark ${selectedIds.length} invoice(s) as paid totaling ${formatCurrency(total)}?`)) return;
+
+    setAdviceProcessing(true);
+    try {
+      const paymentDate = matched[0]?.payment_date || new Date().toISOString().split('T')[0];
+      const result = await apiFetch('/invoices/batch-payment', {
+        method: 'POST',
+        body: {
+          invoice_ids: selectedIds,
+          payment_date: paymentDate,
+          payment_method: 'ACH',
+          reference_number: 'Payment Advice Import',
+          notes: 'Imported from payment advice file',
+        },
+      });
+      await loadData();
+      const paidCount = result.paid?.length || 0;
+      alert(`Successfully recorded payment for ${paidCount} invoice(s).`);
+      setAdviceResults(null);
+      setAdviceSelected({});
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setAdviceProcessing(false);
     }
   };
 
@@ -1241,6 +1306,120 @@ export default function Invoices() {
             {!batchPayCustomer && (
               <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>
                 Select a customer to see their outstanding invoices.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Payment Advice Import */}
+      <div className="card no-print" style={{ marginBottom: 16 }}>
+        <div
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+          onClick={() => setShowAdviceImport(!showAdviceImport)}
+        >
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>Payment Advice Import</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>Upload a payment advice (.xlsx) to match and clear invoices</div>
+          </div>
+          <span style={{ fontSize: 18, color: '#64748b' }}>{showAdviceImport ? '▼' : '▶'}</span>
+        </div>
+
+        {showAdviceImport && (
+          <div style={{ marginTop: 16, borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
+            <div style={{ marginBottom: 16 }}>
+              <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'inline-block' }}>
+                Choose File...
+                <input type="file" accept=".xlsx,.xls" onChange={handleAdviceUpload} style={{ display: 'none' }} />
+              </label>
+              <span style={{ marginLeft: 12, fontSize: 13, color: '#64748b' }}>Supports .xlsx files (e.g., Mercedes payment advice)</span>
+            </div>
+
+            {adviceResults && (
+              <div>
+                {adviceResults.matches.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: '#16a34a' }}>
+                      Matched Invoices ({adviceResults.matches.length})
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th style={{ width: 30 }}></th>
+                            <th>Invoice #</th>
+                            <th>Project</th>
+                            <th>Invoice Amt</th>
+                            <th>Advice Amt</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adviceResults.matches.map(m => (
+                            <tr key={m.invoice_id} style={{ opacity: m.already_paid ? 0.5 : 1 }}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={!!adviceSelected[m.invoice_id]}
+                                  disabled={m.already_paid}
+                                  onChange={(e) => setAdviceSelected({ ...adviceSelected, [m.invoice_id]: e.target.checked })}
+                                />
+                              </td>
+                              <td><strong>{m.invoice_number}</strong></td>
+                              <td>{m.project_name}<br /><span style={{ fontSize: 11, color: '#94a3b8' }}>{m.customer_name}</span></td>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(m.invoice_amount)}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(m.advice_amount)}</td>
+                              <td>
+                                {m.already_paid
+                                  ? <span className="badge badge-paid">Already Paid</span>
+                                  : <span className="badge badge-unpaid">Balance: {formatCurrency(m.balance_due)}</span>
+                                }
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {adviceResults.unmatched.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: '#f59e0b' }}>
+                      Unmatched ({adviceResults.unmatched.length})
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead><tr><th>Document #</th><th>Amount</th><th>Reference</th></tr></thead>
+                        <tbody>
+                          {adviceResults.unmatched.map((u, i) => (
+                            <tr key={i}>
+                              <td>{u.invoice_number}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(u.amount)}</td>
+                              <td style={{ fontSize: 12, color: '#64748b' }}>{u.reference || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleAdviceApply}
+                    disabled={adviceProcessing || Object.values(adviceSelected).filter(v => v).length === 0}
+                  >
+                    {adviceProcessing
+                      ? 'Processing...'
+                      : `Mark ${Object.values(adviceSelected).filter(v => v).length} Invoice(s) as Paid`
+                    }
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => { setAdviceResults(null); setAdviceSelected({}); }}>
+                    Clear
+                  </button>
+                </div>
               </div>
             )}
           </div>
