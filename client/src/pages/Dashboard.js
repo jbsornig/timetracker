@@ -75,7 +75,7 @@ export default function Dashboard({ setPage }) {
         </div>
 
         {pending > 0 && (
-          <div className="alert alert-info" style={{ cursor: 'pointer' }} onClick={() => setPage('timesheets')}>
+          <div className="alert alert-info" style={{ cursor: 'pointer' }} onClick={() => { localStorage.setItem('timesheetFilter', 'submitted'); setPage('timesheets'); }}>
             ⏳ You have <strong>{pending} timesheet{pending > 1 ? 's' : ''}</strong> waiting for approval. Click to review.
           </div>
         )}
