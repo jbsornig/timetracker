@@ -790,8 +790,15 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     estTotal = parseFloat(assignment.total_payment || 0);
     compensationHtml = `<li><strong>Compensation:</strong> $${estTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (fixed price)</li>`;
   } else if (project.project_type === 'fixed_monthly') {
-    estTotal = parseFloat(assignment.monthly_pay || 0);
-    compensationHtml = `<li><strong>Monthly Pay:</strong> $${estTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/month</li>`;
+    const monthlyPay = parseFloat(assignment.monthly_pay || 0);
+    compensationHtml = `<li><strong>Monthly Pay:</strong> $${monthlyPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/month</li>`;
+    if (project.po_amount && assignment.monthly_bill) {
+      const months = project.po_amount / assignment.monthly_bill;
+      estTotal = months * monthlyPay;
+      compensationHtml += `<li><strong>Duration:</strong> ${months.toFixed(0)} months</li>`;
+    } else {
+      estTotal = monthlyPay;
+    }
   } else {
     compensationHtml = `<li><strong>Pay Rate:</strong> $${parseFloat(assignment.pay_rate || 0).toFixed(2)}/hr</li>`;
     if (project.po_amount && assignment.bill_rate) {
