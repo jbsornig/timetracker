@@ -656,10 +656,15 @@ export default function Reports() {
         const byEngineer = {};
         filtered.forEach(row => {
           if (!byEngineer[row.engineer_name]) {
-            byEngineer[row.engineer_name] = { rows: [], totalHours: 0 };
+            byEngineer[row.engineer_name] = { rows: [], totalHours: 0, submittedHours: 0, draftHours: 0, submittedCount: 0, draftCount: 0, totalCount: 0 };
           }
           byEngineer[row.engineer_name].rows.push(row);
           byEngineer[row.engineer_name].totalHours += row.total_hours;
+          byEngineer[row.engineer_name].submittedHours += row.submitted_hours;
+          byEngineer[row.engineer_name].draftHours += row.draft_hours;
+          byEngineer[row.engineer_name].submittedCount += row.submitted_count;
+          byEngineer[row.engineer_name].draftCount += row.draft_count;
+          byEngineer[row.engineer_name].totalCount += row.timesheet_count;
         });
 
         // Unique engineers and customers for filter dropdowns
@@ -764,9 +769,20 @@ export default function Reports() {
                   <div key={engineerName} style={{ marginBottom: 24 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
                       <h3 style={{ fontSize: 16, margin: 0 }}>{engineerName}</h3>
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, fontSize: 15 }}>
-                        {group.totalHours.toFixed(2)} hrs total
-                      </span>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, fontSize: 15 }}>
+                          {group.totalHours.toFixed(2)} hrs
+                        </span>
+                        <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>
+                          ({group.totalCount} timesheets)
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 16, marginBottom: 8, fontSize: 12 }}>
+                      <span style={{ color: '#16a34a' }}>Submitted: {group.submittedCount} timesheets / {group.submittedHours.toFixed(2)} hrs</span>
+                      {group.draftCount > 0 && (
+                        <span style={{ color: '#d97706' }}>Draft: {group.draftCount} timesheets / {group.draftHours.toFixed(2)} hrs</span>
+                      )}
                     </div>
                     <div className="table-wrap">
                       <table>
@@ -775,8 +791,12 @@ export default function Reports() {
                             <th>Project</th>
                             <th>Customer</th>
                             <th>Type</th>
-                            <th>Timesheets</th>
-                            <th>Hours</th>
+                            <th style={{ textAlign: 'center' }}>Submitted</th>
+                            <th style={{ textAlign: 'right' }}>Submitted Hrs</th>
+                            <th style={{ textAlign: 'center' }}>Draft</th>
+                            <th style={{ textAlign: 'right' }}>Draft Hrs</th>
+                            <th style={{ textAlign: 'center' }}>Total</th>
+                            <th style={{ textAlign: 'right' }}>Total Hrs</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -789,8 +809,12 @@ export default function Reports() {
                                   {row.project_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
                                 </span>
                               </td>
-                              <td style={{ textAlign: 'center' }}>{row.timesheet_count}</td>
-                              <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{row.total_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'center' }}>{row.submitted_count}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{row.submitted_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'center', color: row.draft_count > 0 ? '#d97706' : undefined }}>{row.draft_count}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: row.draft_hours > 0 ? '#d97706' : undefined }}>{row.draft_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'center', fontWeight: 600 }}>{row.timesheet_count}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, textAlign: 'right' }}>{row.total_hours.toFixed(2)}</td>
                             </tr>
                           ))}
                         </tbody>

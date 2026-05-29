@@ -3647,7 +3647,11 @@ app.get('/api/reports/hours-summary', auth, adminOnly, (req, res) => {
            c.id as customer_id, c.name as customer_name,
            p.project_type,
            COALESCE(SUM(te.hours), 0) as total_hours,
-           COUNT(DISTINCT ts.id) as timesheet_count
+           COUNT(DISTINCT ts.id) as timesheet_count,
+           COALESCE(SUM(CASE WHEN ts.status IN ('submitted', 'approved') THEN te.hours ELSE 0 END), 0) as submitted_hours,
+           COUNT(DISTINCT CASE WHEN ts.status IN ('submitted', 'approved') THEN ts.id END) as submitted_count,
+           COALESCE(SUM(CASE WHEN ts.status = 'draft' THEN te.hours ELSE 0 END), 0) as draft_hours,
+           COUNT(DISTINCT CASE WHEN ts.status = 'draft' THEN ts.id END) as draft_count
     FROM timesheet_entries te
     JOIN timesheets ts ON ts.id = te.timesheet_id
     JOIN users u ON u.id = ts.user_id
