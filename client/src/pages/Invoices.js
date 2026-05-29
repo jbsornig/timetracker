@@ -265,6 +265,7 @@ export default function Invoices() {
   const [modal, setModal] = useState(null);
   const [generateForm, setGenerateForm] = useState({ project_id: '', ...getDefaultDates(), notes: '' });
   const [viewingInvoice, setViewingInvoice] = useState(null);
+  const [editingAmount, setEditingAmount] = useState(null);
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [payments, setPayments] = useState([]);
   const [error, setError] = useState('');
@@ -1790,9 +1791,31 @@ export default function Invoices() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, textAlign: 'center' }}>
               <div>
                 <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Total</div>
-                <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'DM Mono, monospace' }}>
-                  {formatCurrency(viewingInvoice.total_amount)}
-                </div>
+                {editingAmount !== null ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editingAmount}
+                      onChange={(e) => setEditingAmount(e.target.value)}
+                      style={{ width: 110, fontFamily: 'DM Mono, monospace', fontSize: 14, padding: '4px 8px', textAlign: 'right' }}
+                      className="form-input"
+                    />
+                    <button className="btn btn-primary btn-sm" onClick={async () => {
+                      try {
+                        await apiFetch(`/invoices/${viewingInvoice.id}`, { method: 'PUT', body: { total_amount: parseFloat(editingAmount) } });
+                        setViewingInvoice({ ...viewingInvoice, total_amount: parseFloat(editingAmount), amount_paid: viewingInvoice.status === 'paid' ? parseFloat(editingAmount) : viewingInvoice.amount_paid });
+                        setEditingAmount(null);
+                        await loadData();
+                      } catch (e) { alert('Error: ' + e.message); }
+                    }}>Save</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setEditingAmount(null)}>X</button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 18, fontWeight: 600, fontFamily: 'DM Mono, monospace', cursor: 'pointer' }} onClick={() => setEditingAmount(viewingInvoice.total_amount)} title="Click to edit">
+                    {formatCurrency(viewingInvoice.total_amount)}
+                  </div>
+                )}
               </div>
               <div>
                 <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase' }}>Paid</div>

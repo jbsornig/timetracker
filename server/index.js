@@ -2208,6 +2208,32 @@ app.put('/api/invoices/:id/unreceived', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// Edit invoice details (amount, hours, notes)
+app.put('/api/invoices/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  const { total_amount, total_hours, notes } = req.body;
+  const updates = [];
+  const params = [];
+
+  if (total_amount !== undefined) { updates.push('total_amount = ?'); params.push(total_amount); }
+  if (total_hours !== undefined) { updates.push('total_hours = ?'); params.push(total_hours); }
+  if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  params.push(req.params.id);
+  db.prepare(`UPDATE invoices SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+  if (total_amount !== undefined && invoice.status === 'paid' && total_amount !== invoice.total_amount) {
+    db.prepare('UPDATE invoices SET amount_paid = ? WHERE id = ?').run(total_amount, req.params.id);
+  }
+
+  res.json({ success: true });
+});
+
 // Email an invoice with PDF attachment
 app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const db = getDb();
