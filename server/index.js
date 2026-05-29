@@ -702,16 +702,16 @@ app.get('/api/projects', auth, (req, res) => {
 });
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0);
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal } = req.body;
   const db = getDb();
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -1236,6 +1236,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.status = 'approved'
+    AND COALESCE(p.internal, 0) = 0
     AND (
       (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL)
       OR (p.project_type = 'fixed_price' AND ts.invoice_id IS NULL AND (
@@ -1706,6 +1707,9 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
+    }
+    if (project.internal) {
+      return res.status(400).json({ error: 'Cannot generate invoices for internal projects' });
     }
 
     const isFixedPrice = project.project_type === 'fixed_price';

@@ -1651,7 +1651,7 @@ export default function Invoices() {
                 onChange={(e) => setGenerateForm({ ...generateForm, project_id: e.target.value })}
               >
                 <option value="">Select a project...</option>
-                {projects.map((p) => (
+                {projects.filter(p => !p.internal).map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.customer_name})
                   </option>

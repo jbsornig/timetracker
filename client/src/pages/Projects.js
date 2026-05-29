@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '' };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -83,6 +83,7 @@ export default function Projects() {
       billing_method: project.billing_method || 'percentage',
       monthly_engineer_pay: project.monthly_engineer_pay || '',
       monthly_invoice_amount: project.monthly_invoice_amount || '',
+      internal: project.internal === 1,
     });
     setError('');
     if (project.customer_id) {
@@ -384,6 +385,9 @@ export default function Projects() {
                         <span className={`badge ${isFixedPrice ? 'badge-fixed' : isFixedMonthly ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
                           {isFixedPrice ? 'Fixed Price' : isFixedMonthly ? 'Fixed Monthly' : 'Hourly'}
                         </span>
+                        {p.internal === 1 && (
+                          <span className="badge" style={{ fontSize: 10, marginLeft: 4, background: '#dbeafe', color: '#1d4ed8' }}>Internal</span>
+                        )}
                       </td>
                       <td>{p.customer_name}</td>
                       <td>{p.contact_name || '—'}</td>
@@ -655,6 +659,18 @@ export default function Projects() {
                 <div className="form-hint">When unchecked, engineers can submit monthly hour totals instead of daily logs</div>
               </div>
             )}
+            <div className="form-group" style={{ marginTop: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={form.internal}
+                  onChange={(e) => setForm({ ...form, internal: e.target.checked })}
+                  style={{ width: 18, height: 18 }}
+                />
+                <span>Internal Project</span>
+              </label>
+              <div className="form-hint">Internal projects are not invoiced to customers but engineers still get paid for their time</div>
+            </div>
           </form>
         </Modal>
       )}

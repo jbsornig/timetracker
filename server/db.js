@@ -507,6 +507,13 @@ function initSchema() {
     console.log('✅ Migration: Added amount column to timesheets (post-recreation)');
   }
 
+  // Add internal flag to projects
+  const projectCols4 = db.prepare("PRAGMA table_info(projects)").all();
+  if (!projectCols4.find(c => c.name === 'internal')) {
+    db.exec('ALTER TABLE projects ADD COLUMN internal INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added internal column to projects');
+  }
+
   // Seed admin user if none exists
   const adminExists = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {
