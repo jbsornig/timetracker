@@ -738,6 +738,29 @@ export default function Projects() {
             )}
           </div>
 
+          {selectedProject.project_type === 'fixed_price' && projectEngineers.length > 0 && (() => {
+            const totalAssigned = projectEngineers.reduce((sum, eng) => sum + (eng.total_payment || 0), 0);
+            const projectBudget = selectedProject.total_cost || 0;
+            const remaining = projectBudget - totalAssigned;
+            const over = remaining < 0;
+            return (
+              <div style={{ background: over ? '#fef2f2' : '#f0fdf4', border: `1px solid ${over ? '#fecaca' : '#bbf7d0'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                  <span>Project Total:</span>
+                  <strong>${projectBudget.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}>
+                  <span>Total Assigned:</span>
+                  <strong>${totalAssigned.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4, color: over ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
+                  <span>{over ? 'Over Budget:' : 'Remaining:'}</span>
+                  <span>{over ? '-' : ''}${Math.abs(remaining).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
             <div className="card-title" style={{ fontSize: 14 }}>Add Engineer</div>
             <form onSubmit={handleAssignEngineer}>
