@@ -729,7 +729,7 @@ export default function Invoices() {
       return;
     }
     const matched = adviceResults.matches.filter(m => selectedIds.includes(m.invoice_id));
-    const total = matched.reduce((s, m) => s + Math.min(m.advice_amount, m.balance_due), 0);
+    const total = matched.reduce((s, m) => s + m.balance_due, 0);
     if (!window.confirm(`Mark ${selectedIds.length} invoice(s) as paid totaling ${formatCurrency(total)}?`)) return;
 
     setAdviceProcessing(true);
