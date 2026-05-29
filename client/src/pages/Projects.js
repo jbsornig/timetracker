@@ -337,7 +337,7 @@ export default function Projects() {
                   <th>Type</th>
                   <th onClick={() => handleSort('customer')} style={{ cursor: 'pointer', userSelect: 'none' }}>Customer{sortIndicator('customer')}</th>
                   <th>Contact</th>
-                  <th>PO #</th>
+                  <th onClick={() => handleSort('po_number')} style={{ cursor: 'pointer', userSelect: 'none' }}>PO #{sortIndicator('po_number')}</th>
                   <th>Budget</th>
                   <th>Billed</th>
                   <th>Remaining</th>
@@ -363,6 +363,9 @@ export default function Projects() {
                   } else if (sortField === 'customer') {
                     aVal = (a.customer_name || '').toLowerCase();
                     bVal = (b.customer_name || '').toLowerCase();
+                  } else if (sortField === 'po_number') {
+                    aVal = (a.po_number || '').toLowerCase();
+                    bVal = (b.po_number || '').toLowerCase();
                   } else {
                     aVal = (a.name || '').toLowerCase();
                     bVal = (b.name || '').toLowerCase();
