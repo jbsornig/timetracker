@@ -1287,10 +1287,10 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       SELECT COALESCE(SUM(total_amount), 0) as total_billed
       FROM invoices WHERE project_id = ? AND voided_date IS NULL
     `).get(p.id);
-    const po_amount = p.po_amount || 0;
+    const budget = p.project_type === 'fixed_price' ? (p.total_cost || 0) : (p.po_amount || 0);
     const total_billed = billedSoFar.total_billed || 0;
-    const remaining_balance = po_amount > 0 ? po_amount - total_billed : null;
-    const over_budget = po_amount > 0 && estimated_amount > (remaining_balance + 0.01);
+    const remaining_balance = budget > 0 ? budget - total_billed : null;
+    const over_budget = budget > 0 && estimated_amount > (remaining_balance + 0.01);
 
     return {
       id: p.id,
@@ -1304,7 +1304,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       estimated_amount,
       engineers,
       existing_invoice: existingInvoice ? existingInvoice.invoice_number : null,
-      po_amount,
+      po_amount: budget,
       total_billed,
       remaining_balance,
       over_budget
