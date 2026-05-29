@@ -2252,7 +2252,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   if (settings.admin_notification_email) ccList.push(settings.admin_notification_email);
 
   // Get line items and timesheet details
-  // Find timesheets that have entries in the invoice period
+  // Find timesheets that have entries stamped with this invoice ID
   const timesheets = db.prepare(`
     SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.monthly_bill, ep.monthly_pay, p.project_type
     FROM timesheets ts
@@ -2261,16 +2261,16 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
-    AND te.entry_date BETWEEN ? AND ?
+    AND (te.invoice_id = ? OR (p.project_type = 'fixed_price' AND ts.invoice_id = ?))
     ORDER BY ts.week_ending
-  `).all(invoice.project_id, invoice.period_start, invoice.period_end);
+  `).all(invoice.project_id, invoice.id, invoice.id);
 
   const lineItems = [];
   const timesheetDetails = [];
   const isFixedMonthly = timesheets.length > 0 && timesheets[0].project_type === 'fixed_monthly';
   for (const ts of timesheets) {
-    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? ORDER BY entry_date')
-      .all(ts.id, invoice.period_start, invoice.period_end);
+    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ? ORDER BY entry_date')
+      .all(ts.id, invoice.id);
     const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
     if (hrs > 0) {
       if (isFixedMonthly) {
