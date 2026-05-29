@@ -22,6 +22,10 @@ export default function Projects() {
   const [statusFilter, setStatusFilter] = useState('active');
   const [engineerAssignments, setEngineerAssignments] = useState([]);
   const [notifying, setNotifying] = useState(null);
+  const [sortField, setSortField] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   useEffect(() => {
     loadData();
@@ -231,6 +235,17 @@ export default function Projects() {
     }
   };
 
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir(field === 'created_at' ? 'desc' : 'asc');
+    }
+  };
+
+  const sortIndicator = (field) => sortField === field ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
   if (loading) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading...</div>;
 
   return (
@@ -286,8 +301,22 @@ export default function Projects() {
               ))}
             </select>
           </div>
-          <span style={{ fontSize: 13, color: '#94a3b8' }}>
-            Showing {projects.filter(p => (!statusFilter || p.status === statusFilter) && (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).length} of {projects.length} projects
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Created:</span>
+            <input type="date" className="form-input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ width: 140, padding: '4px 8px', fontSize: 13 }} />
+            <span style={{ fontSize: 13, color: '#64748b' }}>to</span>
+            <input type="date" className="form-input" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ width: 140, padding: '4px 8px', fontSize: 13 }} />
+            {(dateFrom || dateTo) && <button className="btn btn-secondary btn-sm" onClick={() => { setDateFrom(''); setDateTo(''); }} style={{ padding: '2px 8px', fontSize: 11 }}>Clear</button>}
+          </div>
+          <span style={{ fontSize: 13, color: '#94a3b8', marginLeft: 'auto' }}>
+            {projects.filter(p => {
+              if (statusFilter && p.status !== statusFilter) return false;
+              if (customerFilter && String(p.customer_id) !== customerFilter) return false;
+              if (engineerFilter && !engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter)) return false;
+              if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
+              if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
+              return true;
+            }).length} of {projects.length} projects
           </span>
         </div>
       </div>
@@ -303,9 +332,9 @@ export default function Projects() {
             <table>
               <thead>
                 <tr>
-                  <th>Project</th>
+                  <th onClick={() => handleSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>Project{sortIndicator('name')}</th>
                   <th>Type</th>
-                  <th>Customer</th>
+                  <th onClick={() => handleSort('customer')} style={{ cursor: 'pointer', userSelect: 'none' }}>Customer{sortIndicator('customer')}</th>
                   <th>Contact</th>
                   <th>PO #</th>
                   <th>Budget</th>
@@ -313,12 +342,34 @@ export default function Projects() {
                   <th>Remaining</th>
                   <th>Progress</th>
                   <th>Status</th>
-                  <th>Created</th>
+                  <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer', userSelect: 'none' }}>Created{sortIndicator('created_at')}</th>
                   <th style={{ width: 180 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {projects.filter(p => (!statusFilter || p.status === statusFilter) && (!customerFilter || String(p.customer_id) === customerFilter) && (!engineerFilter || engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter))).map((p) => {
+                {projects.filter(p => {
+                  if (statusFilter && p.status !== statusFilter) return false;
+                  if (customerFilter && String(p.customer_id) !== customerFilter) return false;
+                  if (engineerFilter && !engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter)) return false;
+                  if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
+                  if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
+                  return true;
+                }).sort((a, b) => {
+                  let aVal, bVal;
+                  if (sortField === 'created_at') {
+                    aVal = a.created_at || '';
+                    bVal = b.created_at || '';
+                  } else if (sortField === 'customer') {
+                    aVal = (a.customer_name || '').toLowerCase();
+                    bVal = (b.customer_name || '').toLowerCase();
+                  } else {
+                    aVal = (a.name || '').toLowerCase();
+                    bVal = (b.name || '').toLowerCase();
+                  }
+                  if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+                  if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+                  return 0;
+                }).map((p) => {
                   const isFixedPrice = p.project_type === 'fixed_price';
                   const isFixedMonthly = p.project_type === 'fixed_monthly';
                   const budget = isFixedPrice ? (p.total_cost || 0) : (p.po_amount || 0);
