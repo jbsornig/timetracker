@@ -1326,7 +1326,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-           p.project_type, p.total_cost, p.include_timesheets,
+           p.project_type, p.total_cost, p.include_timesheets, p.billing_method,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.currency_symbol, cc.name as contact_name
     FROM invoices i
@@ -1890,16 +1890,17 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     }
 
     // Budget check: ensure invoice amount doesn't exceed remaining PO balance
-    if (project.po_amount > 0 && total_amount > 0) {
+    const projectBudget = isFixedPrice ? (project.total_cost || 0) : (project.po_amount || 0);
+    if (projectBudget > 0 && total_amount > 0) {
       const billedSoFar = db.prepare(`
         SELECT COALESCE(SUM(total_amount), 0) as total_billed
         FROM invoices
         WHERE project_id = ? AND voided_date IS NULL
       `).get(project_id);
-      const remaining = project.po_amount - (billedSoFar.total_billed || 0);
+      const remaining = projectBudget - (billedSoFar.total_billed || 0);
       if (total_amount > remaining + 0.01) {
         return res.status(400).json({
-          error: `Invoice amount ${formatMoney(total_amount)} exceeds remaining PO balance of ${formatMoney(remaining)} (PO: ${formatMoney(project.po_amount)}, already billed: ${formatMoney(billedSoFar.total_billed || 0)}).`
+          error: `Invoice amount ${formatMoney(total_amount)} exceeds remaining budget of ${formatMoney(remaining)} (Budget: ${formatMoney(projectBudget)}, already billed: ${formatMoney(billedSoFar.total_billed || 0)}).`
         });
       }
     }

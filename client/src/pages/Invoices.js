@@ -2257,7 +2257,7 @@ function InvoiceContent({ inv, settings }) {
             {inv.lineItems.map((item, idx) => (
               <tr key={idx}>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_fixed_price ? `${item.percentage}%` : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
+                  {item.is_fixed_price ? (inv.billing_method === 'monthly_installment' ? 'Monthly' : `${item.percentage}%`) : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
