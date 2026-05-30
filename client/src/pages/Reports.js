@@ -101,6 +101,7 @@ export default function Reports() {
   const [showReconciliation, setShowReconciliation] = useState(false);
   const [overdueData, setOverdueData] = useState([]);
   const [unclearedAdvances, setUnclearedAdvances] = useState([]);
+  const [bankSplits, setBankSplits] = useState({});
 
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
@@ -151,6 +152,7 @@ export default function Reports() {
       setPayrollHolidays(response.holidays || []);
       setUnclearedAdvances(response.unclearedAdvances || []);
       setPaidForPeriod(response.paidForPeriod || []);
+      setBankSplits(response.bankSplits || {});
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1005,18 +1007,55 @@ export default function Reports() {
                     </tfoot>
                   </table>
                 </div>
-                {Object.values(paidSelections).some(v => v) && (
-                  <div className="no-print" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleMarkAsPaid}
-                      disabled={markingPaid}
-                    >
-                      {markingPaid ? 'Recording...' : `Mark ${Object.values(paidSelections).filter(v => v).length} Selected as Paid`}
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => setPaidSelections({})}>Clear Selection</button>
+                {Object.values(paidSelections).some(v => v) && (() => {
+                  const selectedEngineers = payrollSummary.filter(r => paidSelections[r.engineer_name]);
+                  const selectedTotal = selectedEngineers.reduce((sum, r) => sum + r.total_pay, 0);
+                  const hasSplits = selectedEngineers.some(r => bankSplits[r.user_id]);
+                  return (
+                  <div className="no-print" style={{ marginTop: 12 }}>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: hasSplits ? 10 : 0 }}>
+                        <span style={{ fontWeight: 600, fontSize: 15 }}>
+                          Total Payout ({selectedEngineers.length} engineer{selectedEngineers.length !== 1 ? 's' : ''}):
+                        </span>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontWeight: 700, fontSize: 18, color: '#16a34a' }}>
+                          {formatCurrency(selectedTotal)}
+                        </span>
+                      </div>
+                      {hasSplits && (
+                        <div style={{ borderTop: '1px solid #bbf7d0', paddingTop: 10 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>Split Deposit Breakdown:</div>
+                          {selectedEngineers.filter(r => bankSplits[r.user_id]).map(r => {
+                            const split = bankSplits[r.user_id];
+                            const amt1 = r.total_pay * (split.pct_1 / 100);
+                            const amt2 = r.total_pay * (split.pct_2 / 100);
+                            return (
+                              <div key={r.user_id} style={{ fontSize: 13, marginBottom: 6, padding: '6px 10px', background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                                <strong>{r.engineer_name}</strong>
+                                <span style={{ color: '#64748b', marginLeft: 8 }}>({formatCurrency(r.total_pay)} total)</span>
+                                <div style={{ display: 'flex', gap: 16, marginTop: 4, fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                                  <span>Acct 1 (****{split.account_1_last4} {split.account_1_type}): {split.pct_1}% = {formatCurrency(amt1)}</span>
+                                  <span>Acct 2 (****{split.account_2_last4} {split.account_2_type}): {split.pct_2}% = {formatCurrency(amt2)}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleMarkAsPaid}
+                        disabled={markingPaid}
+                      >
+                        {markingPaid ? 'Recording...' : `Mark ${selectedEngineers.length} Selected as Paid`}
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => setPaidSelections({})}>Clear Selection</button>
+                    </div>
                   </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Detailed Breakdown */}

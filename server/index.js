@@ -2988,7 +2988,23 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     }
   }
 
-  res.json({ data, holidays, unclearedAdvances, paidForPeriod });
+  // Get bank split info for all engineers
+  const allEngineers = db.prepare('SELECT id, bank_pct_1, bank_pct_2, bank_account, bank_account_2, bank_account_type, bank_account_type_2 FROM users WHERE role = ?').all('engineer');
+  const bankSplits = {};
+  for (const eng of allEngineers) {
+    if (eng.bank_pct_2 > 0 && eng.bank_account_2) {
+      bankSplits[eng.id] = {
+        pct_1: eng.bank_pct_1 || 100,
+        pct_2: eng.bank_pct_2,
+        account_1_last4: eng.bank_account ? eng.bank_account.slice(-4) : null,
+        account_2_last4: eng.bank_account_2 ? eng.bank_account_2.slice(-4) : null,
+        account_1_type: eng.bank_account_type || 'checking',
+        account_2_type: eng.bank_account_type_2 || 'checking'
+      };
+    }
+  }
+
+  res.json({ data, holidays, unclearedAdvances, paidForPeriod, bankSplits });
 });
 
 // ACH Export - Generate Chase CSV file for payroll (supports GET for backward compat and POST with overrides)
