@@ -67,13 +67,29 @@ const emptyPayment = { amount: '', payment_date: new Date().toISOString().split(
 const PAYMENT_METHODS = ['Check', 'ACH/Wire', 'Credit Card', 'Cash', 'Other'];
 
 function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionStatus, loadingStatus }) {
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [engineerFilter, setEngineerFilter] = useState('');
+
   if (loadingStatus) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading submission status...</div>;
 
   const monthLabel = submissionStatus ? new Date(submissionStatus.month + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
 
+  const allEngineers = submissionStatus?.engineers || [];
+
+  // Get unique customers and engineers for filter dropdowns
+  const uniqueCustomers = [...new Set(allEngineers.map(e => e.customer_name))].sort();
+  const uniqueEngineers = [...new Map(allEngineers.map(e => [e.user_id, e.engineer_name])).values()].sort();
+
+  // Apply filters
+  const filteredEngineers = allEngineers.filter(e => {
+    if (customerFilter && e.customer_name !== customerFilter) return false;
+    if (engineerFilter && e.engineer_name !== engineerFilter) return false;
+    return true;
+  });
+
   // Separate weekly vs monthly engineers
-  const weeklyEngineers = (submissionStatus?.engineers || []).filter(e => e.include_timesheets !== 0);
-  const monthlyEngineers = (submissionStatus?.engineers || []).filter(e => e.include_timesheets === 0);
+  const weeklyEngineers = filteredEngineers.filter(e => e.include_timesheets !== 0);
+  const monthlyEngineers = filteredEngineers.filter(e => e.include_timesheets === 0);
   const weeks = submissionStatus?.weeks || [];
 
   // Count stats
@@ -112,6 +128,39 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
           </span>
         )}
       </div>
+
+      {submissionStatus && (
+        <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Customer:</span>
+            <select
+              className="form-select"
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 180 }}
+            >
+              <option value="">All Customers</option>
+              {uniqueCustomers.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Engineer:</span>
+            <select
+              className="form-select"
+              value={engineerFilter}
+              onChange={(e) => setEngineerFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 180 }}
+            >
+              <option value="">All Engineers</option>
+              {uniqueEngineers.map(e => (
+                <option key={e} value={e}>{e}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {!submissionStatus ? (
         <div className="empty-state"><p>Select a month to view submission status.</p></div>
