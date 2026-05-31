@@ -2064,7 +2064,7 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
             const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
             const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dateObj.getDay()];
             const hours = entry.hours || 0;
-            const st = hours > 0 ? hours.toFixed(1) : '0.0';
+            const st = hours > 0 ? hours.toFixed(2) : '0.00';
 
             return (
               <React.Fragment key={date}>
@@ -2077,12 +2077,12 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
                   <td style={centerCell}></td>
                   <td style={centerCell}>{formatTime(entry.start_time)}</td>
                   <td style={centerCell}>{formatTime(entry.end_time)}</td>
-                  <td style={centerCell}>{hours > 0 ? st : '0.0'}</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={{ ...centerCell, fontWeight: 'bold' }}>{hours > 0 ? st : '0.0'}</td>
+                  <td style={centerCell}>{hours > 0 ? st : '0.00'}</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={{ ...centerCell, fontWeight: 'bold' }}>{hours > 0 ? st : '0.00'}</td>
                 </tr>
                 {/* Description Row */}
                 <tr>
@@ -2095,12 +2095,12 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
           {/* Weekly Totals Row */}
           <tr style={{ background: '#f5f5f5' }}>
             <td colSpan={7} style={{ ...cellStyle, fontWeight: 'bold' }}>Weekly Totals:</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalST.toFixed(1)}</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalOT.toFixed(1)}</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalPT.toFixed(1)}</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{grandTotal.toFixed(1)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalST.toFixed(2)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalOT.toFixed(2)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalPT.toFixed(2)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.00</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.00</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{grandTotal.toFixed(2)}</td>
           </tr>
         </tbody>
       </table>
@@ -2128,7 +2128,7 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
           </div>
           <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}><strong>Exp Subtotal:</strong> {currencySymbol}0.00</div>
           <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>
-            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(1)}` : `Rate: ${currencySymbol}${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(1)}`}
+            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(2)}` : `Rate: ${currencySymbol}${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(2)}`}
           </div>
           <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold', fontSize: '6pt' }}>Total: {currencySymbol}{laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>

@@ -209,7 +209,7 @@ function TimesheetPrintView({ ts, entries, settings }) {
             const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
             const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dateObj.getDay()];
             const hours = entry.hours || 0;
-            const st = hours > 0 ? hours.toFixed(1) : '0.0';
+            const st = hours > 0 ? hours.toFixed(2) : '0.00';
 
             return (
               <React.Fragment key={date}>
@@ -222,12 +222,12 @@ function TimesheetPrintView({ ts, entries, settings }) {
                   <td style={centerCell}></td>
                   <td style={centerCell}>{formatTime(entry.start_time)}</td>
                   <td style={centerCell}>{formatTime(entry.end_time)}</td>
-                  <td style={centerCell}>{hours > 0 ? st : '0.0'}</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={centerCell}>0.0</td>
-                  <td style={{ ...centerCell, fontWeight: 'bold' }}>{hours > 0 ? st : '0.0'}</td>
+                  <td style={centerCell}>{hours > 0 ? st : '0.00'}</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={centerCell}>0.00</td>
+                  <td style={{ ...centerCell, fontWeight: 'bold' }}>{hours > 0 ? st : '0.00'}</td>
                 </tr>
                 {/* Description Row */}
                 <tr>
@@ -240,12 +240,12 @@ function TimesheetPrintView({ ts, entries, settings }) {
           {/* Weekly Totals Row */}
           <tr style={{ background: '#f5f5f5' }}>
             <td colSpan={7} style={{ ...cellStyle, fontWeight: 'bold' }}>Weekly Totals:</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalST.toFixed(1)}</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.0</td>
-            <td style={{ ...centerCell, fontWeight: 'bold' }}>{grandTotal.toFixed(1)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{totalST.toFixed(2)}</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.00</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.00</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.00</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>0.00</td>
+            <td style={{ ...centerCell, fontWeight: 'bold' }}>{grandTotal.toFixed(2)}</td>
           </tr>
         </tbody>
       </table>
@@ -273,7 +273,7 @@ function TimesheetPrintView({ ts, entries, settings }) {
           </div>
           <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}><strong>Exp Subtotal:</strong> $0.00</div>
           <div style={{ textAlign: 'right', padding: '0px 2px', fontSize: '5pt' }}>
-            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(1)}` : `Rate: $${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(1)}`}
+            {isFixedMonthly ? `Fixed Monthly | Hours: ${grandTotal.toFixed(2)}` : `Rate: $${rate.toFixed(2)}/hr | Hours: ${grandTotal.toFixed(2)}`}
           </div>
           <div style={{ textAlign: 'right', padding: '1px 2px', fontWeight: 'bold', fontSize: '6pt' }}>Total: ${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
@@ -1730,7 +1730,7 @@ export default function Timesheets() {
                       {isFixedPrice ? (
                         <>${(ts.amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</>
                       ) : (
-                        <>{ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? (ts.period_hours || 0).toFixed(1) : (ts.total_hours || 0).toFixed(1)}</>
+                        <>{ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? (ts.period_hours || 0).toFixed(2) : (ts.total_hours || 0).toFixed(2)}</>
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>
@@ -1738,7 +1738,7 @@ export default function Timesheets() {
                         ? (mIsInstallment
                           ? `of $${(mProj?.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
                           : `${ts.percentage}%`)
-                        : ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? `of ${(ts.total_hours || 0).toFixed(1)} hrs` : 'hours'}
+                        : ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? `of ${(ts.total_hours || 0).toFixed(2)} hrs` : 'hours'}
                     </div>
                     <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>

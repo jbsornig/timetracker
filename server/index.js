@@ -1149,7 +1149,7 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
     </table>
     <p>Log in to <a href="https://timetracker.utechconsulting.net">UTech TimeTracker</a> to review and approve.</p>
     `,
-    `Timesheet: ${ts.engineer_name} - ${ts.project_name} WE ${weekEnding} ${isFixedPrice ? ts.percentage + '%' : ts.total_hours.toFixed(1) + 'hrs'} ${amountStr}`
+    `Timesheet: ${ts.engineer_name} - ${ts.project_name} WE ${weekEnding} ${isFixedPrice ? ts.percentage + '%' : ts.total_hours.toFixed(2) + 'hrs'} ${amountStr}`
   );
 
   res.json({ success: true });
@@ -2517,7 +2517,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
         const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
         const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dateObj.getDay()];
         const hours = entry.hours || 0;
-        const st = hours > 0 ? hours.toFixed(1) : '0.0';
+        const st = hours > 0 ? hours.toFixed(2) : '0.00';
 
         return `
           <tr>
@@ -2529,10 +2529,10 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
             <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formatTime(entry.start_time)}</td>
             <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formatTime(entry.end_time)}</td>
             <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${st}</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.0</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
+            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
             <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${st}</td>
           </tr>
           <tr>
@@ -2588,12 +2588,12 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
               ${rowsHtml}
               <tr style="background: #f5f5f5;">
                 <td colspan="7" style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; font-weight: bold;">Weekly Totals:</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(1)}</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.0</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(1)}</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(2)}</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
+                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(2)}</td>
               </tr>
             </tbody>
           </table>
@@ -2616,7 +2616,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
               <div style="background: #f5f5f5; text-align: center; font-weight: bold; border-bottom: 1px solid #000; padding: 0 1px; font-size: 5pt;">Expenses</div>
               <div style="padding: 0 2px; font-size: 5pt;">Air: ${cs}0 | Car: ${cs}0 | Meals: ${cs}0 | Parking: ${cs}0 | Misc: ${cs}0</div>
               <div style="text-align: right; padding: 0 2px; font-size: 5pt;"><strong>Exp Subtotal:</strong> ${cs}0.00</div>
-              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">${isFixedMonthlyTs ? `Fixed Monthly | Hours: ${totalST.toFixed(1)}` : `Rate: ${cs}${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(1)}`}</div>
+              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">${isFixedMonthlyTs ? `Fixed Monthly | Hours: ${totalST.toFixed(2)}` : `Rate: ${cs}${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(2)}`}</div>
               <div style="text-align: right; padding: 1px 2px; font-weight: bold; font-size: 6pt;">Total: ${cs}${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
             </div>
           </div>
