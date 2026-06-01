@@ -260,19 +260,20 @@ export default function Dashboard({ setPage }) {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Project</th><th>Customer</th><th>Hours Remaining</th><th>Projected Remaining</th></tr></thead>
+              <thead><tr><th>Project</th><th>Customer</th><th>Pay Rate</th><th>Hours Remaining</th><th>Earnings Remaining</th></tr></thead>
               <tbody>
                 {projects.map(p => {
                   const approved = p.my_hours_approved || 0;
                   const pending = p.my_hours_pending || 0;
-                  const hasPending = pending > 0;
 
                   // Hours Remaining = budgeted - approved (actual remaining)
                   const hoursRemaining = p.budgeted_hours ? p.budgeted_hours - approved : null;
-                  // Projected Remaining = budgeted - approved - pending (after pending is approved)
-                  const projectedRemaining = p.budgeted_hours ? p.budgeted_hours - approved - pending : null;
 
-                  const pctUsed = p.budgeted_hours ? ((approved + pending) / p.budgeted_hours) * 100 : 0;
+                  // Earnings calculations
+                  const payRate = p.pay_rate || 0;
+                  const totalEarnings = p.budgeted_hours ? payRate * p.budgeted_hours : null;
+                  const earnedSoFar = payRate * approved;
+                  const earningsRemaining = totalEarnings ? totalEarnings - earnedSoFar : null;
 
                   return (
                     <tr key={p.id}>
@@ -281,17 +282,26 @@ export default function Dashboard({ setPage }) {
                         <div style={{ fontSize: 12, color: '#94a3b8' }}>{p.po_number || ''}</div>
                       </td>
                       <td>{p.customer_name}</td>
+                      <td>
+                        {p.project_type === 'fixed_price' ? (
+                          <span style={{ fontSize: 13 }}>${(p.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                        ) : payRate > 0 ? (
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>${payRate.toFixed(2)}/hr</span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: 13 }}>—</span>
+                        )}
+                      </td>
                       <td style={{ minWidth: 140 }}>
                         {p.project_type === 'fixed_price' ? (
                           (() => {
-                            const remaining = (p.total_cost || 0) - (p.amount_claimed || 0);
-                            return p.total_cost ? (
+                            const remaining = (p.total_payment || 0) - (p.amount_claimed || 0);
+                            return p.total_payment ? (
                               <div>
                                 <div style={{ fontSize: 15, fontWeight: 600, color: remaining <= 0 ? '#ef4444' : '#10b981' }}>
-                                  {remaining >= 0 ? `$${remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `($${Math.abs(remaining).toLocaleString('en-US', { minimumFractionDigits: 2 })})`}
+                                  ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                 </div>
                                 <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                                  ${(p.amount_claimed || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} of ${p.total_cost.toLocaleString('en-US', { minimumFractionDigits: 2 })} used
+                                  ${(p.amount_claimed || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} of ${p.total_payment.toLocaleString('en-US', { minimumFractionDigits: 2 })} claimed
                                 </div>
                               </div>
                             ) : (
@@ -304,7 +314,7 @@ export default function Dashboard({ setPage }) {
                               {hoursRemaining >= 0 ? `${hoursRemaining.toFixed(1)} hrs` : `(${Math.abs(hoursRemaining).toFixed(1)}) hrs`}
                             </div>
                             <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                              {approved.toFixed(1)} of {p.budgeted_hours.toFixed(1)} used
+                              {approved.toFixed(1)} of {p.budgeted_hours.toFixed(1)} hrs used
                             </div>
                           </div>
                         ) : (
@@ -314,17 +324,17 @@ export default function Dashboard({ setPage }) {
                       <td style={{ minWidth: 140 }}>
                         {p.project_type === 'fixed_price' ? (
                           <span style={{ color: '#64748b', fontSize: 13 }}>—</span>
-                        ) : p.budgeted_hours && hasPending ? (
+                        ) : earningsRemaining !== null ? (
                           <div>
-                            <div style={{ fontSize: 15, fontWeight: 600, color: projectedRemaining < 0 ? '#ef4444' : pctUsed >= 80 ? '#f59e0b' : '#3b82f6' }}>
-                              {projectedRemaining >= 0 ? `${projectedRemaining.toFixed(1)} hrs` : `(${Math.abs(projectedRemaining).toFixed(1)}) hrs`}
+                            <div style={{ fontSize: 15, fontWeight: 600, color: earningsRemaining <= 0 ? '#ef4444' : '#10b981' }}>
+                              ${earningsRemaining.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </div>
                             <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                              {pending.toFixed(1)} hrs pending
+                              ${earnedSoFar.toLocaleString('en-US', { minimumFractionDigits: 2 })} of ${totalEarnings.toLocaleString('en-US', { minimumFractionDigits: 2 })} earned
                             </div>
                           </div>
                         ) : (
-                          <span style={{ color: '#94a3b8', fontSize: 13 }}>No pending</span>
+                          <span style={{ color: '#94a3b8', fontSize: 13 }}>—</span>
                         )}
                       </td>
                     </tr>

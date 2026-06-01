@@ -658,7 +658,7 @@ app.get('/api/projects', auth, (req, res) => {
     // my_hours_approved/pending = this engineer only
     // project_hours_approved/pending = all engineers on this project
     projects = db.prepare(`
-      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.total_payment,
+      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.bill_rate as my_bill_rate, ep.total_payment,
         -- My personal hours (this engineer only)
         COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
                   JOIN timesheets ts ON ts.id = te.timesheet_id
