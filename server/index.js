@@ -1876,18 +1876,8 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       });
     }
 
-    // Check for duplicate invoice: same project + overlapping period that isn't voided
-    const existingInvoice = db.prepare(`
-      SELECT id, invoice_number, period_start, period_end, status
-      FROM invoices
-      WHERE project_id = ? AND voided_date IS NULL
-      AND period_start = ? AND period_end = ?
-    `).get(project_id, period_start, period_end);
-    if (existingInvoice) {
-      return res.status(400).json({
-        error: `Invoice #${existingInvoice.invoice_number} already exists for this project and period (${period_start} to ${period_end}). Void the existing invoice first if you need to recreate it.`
-      });
-    }
+    // Note: multiple invoices for the same period are allowed since entries are
+    // tracked individually via invoice_id — no risk of double-billing
 
     // Budget check: ensure invoice amount doesn't exceed remaining PO balance
     const projectBudget = isFixedPrice ? (project.total_cost || 0) : (project.po_amount || 0);

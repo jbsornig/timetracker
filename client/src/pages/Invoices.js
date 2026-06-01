@@ -470,7 +470,7 @@ export default function Invoices() {
   const selectAllProjects = () => {
     const all = {};
     readyProjects.forEach(p => {
-      if (!p.existing_invoice && !p.over_budget) all[p.id] = true;
+      if (!p.over_budget) all[p.id] = true;
     });
     setSelectedProjects(all);
   };
@@ -1094,25 +1094,23 @@ export default function Invoices() {
                     </thead>
                     <tbody>
                       {readyProjects.map(proj => {
-                        const blocked = !!proj.existing_invoice;
                         const overBudget = !!proj.over_budget;
                         return (
-                        <tr key={proj.id} style={{ opacity: blocked ? 0.5 : 1, background: blocked ? '#fef2f2' : overBudget ? '#fffbeb' : undefined }}>
+                        <tr key={proj.id} style={{ background: overBudget ? '#fffbeb' : undefined }}>
                           <td>
                             <input
                               type="checkbox"
                               checked={!!selectedProjects[proj.id]}
                               onChange={() => toggleProjectSelection(proj.id)}
-                              disabled={blocked}
                               style={{ width: 16, height: 16 }}
                             />
                           </td>
                           <td title={proj.engineers?.join(', ')}>
                             <strong style={{ fontSize: 12 }}>{proj.project_name}</strong>
                             {proj.po_number && <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 6 }}>PO: {proj.po_number}</span>}
-                            {blocked && (
-                              <div style={{ fontSize: 10, color: '#dc2626', marginTop: 2 }}>
-                                Already invoiced (#{proj.existing_invoice})
+                            {proj.existing_invoice && (
+                              <div style={{ fontSize: 10, color: '#1d4ed8', marginTop: 2 }}>
+                                Note: Invoice #{proj.existing_invoice} exists for this period (additional uninvoiced entries found)
                               </div>
                             )}
                             {overBudget && !blocked && (
