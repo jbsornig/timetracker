@@ -516,20 +516,30 @@ export default function Reports() {
     row.total_pay = Math.max(0, row.gross_pay - row.advance_deduction);
   }
 
-  // Add paid engineers who aren't in the payroll data (their timesheets are stamped as paid)
+  // Handle paid engineers: zero out amounts for those already paid, add missing ones
+  const paidUserIds = new Set(paidForPeriod.map(p => p.user_id));
   for (const paid of paidForPeriod) {
     const existing = Object.values(payrollByEngineer).find(r => r.user_id === paid.user_id);
-    if (!existing) {
+    if (existing) {
+      existing.gross_pay = 0;
+      existing.total_pay = 0;
+      existing.total_hours = 0;
+      existing.holiday_hours = 0;
+      existing.holiday_pay = 0;
+      existing.advance_deduction = 0;
+      existing.paid_amount = paid.amount;
+    } else {
       payrollByEngineer[paid.engineer_name] = {
         engineer_name: paid.engineer_name,
         engineer_id: paid.engineer_id,
         user_id: paid.user_id,
         total_hours: 0,
-        gross_pay: paid.amount,
-        total_pay: paid.amount,
+        gross_pay: 0,
+        total_pay: 0,
         holiday_hours: 0,
         holiday_pay: 0,
         advance_deduction: 0,
+        paid_amount: paid.amount,
         pay_delay_months: 0,
         pay_period_label: null,
         pay_period_start: null,
@@ -545,16 +555,17 @@ export default function Reports() {
 
   const hasAnyAdvances = unclearedAdvances.length > 0;
   const totalAdvanceDeductions = payrollSummary.reduce((s, r) => s + r.advance_deduction, 0);
-  const payrollTotals = payrollData.reduce(
+  const billedTotal = payrollData.filter(r => !paidUserIds.has(r.user_id)).reduce((s, r) => s + (r.total_billed || 0), 0);
+  const payrollTotals = payrollSummary.reduce(
     (acc, row) => ({
-      hours: acc.hours + (row.is_holiday_pay ? 0 : (row.total_hours || 0)),
-      holidayHours: acc.holidayHours + (row.is_holiday_pay ? (row.total_hours || 0) : 0),
-      grossPay: acc.grossPay + (row.total_pay || 0),
+      hours: acc.hours + (row.total_hours || 0),
+      holidayHours: acc.holidayHours + (row.holiday_hours || 0),
+      grossPay: acc.grossPay + (row.gross_pay || 0),
       pay: acc.pay + (row.total_pay || 0),
-      billed: acc.billed + (row.total_billed || 0),
-      advanceDeductions: totalAdvanceDeductions,
+      billed: billedTotal,
+      advanceDeductions: acc.advanceDeductions + (row.advance_deduction || 0),
     }),
-    { hours: 0, holidayHours: 0, grossPay: 0, pay: 0, billed: 0, advanceDeductions: 0 }
+    { hours: 0, holidayHours: 0, grossPay: 0, pay: 0, billed: billedTotal, advanceDeductions: 0 }
   );
   payrollTotals.pay = Math.max(0, payrollTotals.grossPay - totalAdvanceDeductions);
 
@@ -983,13 +994,17 @@ export default function Reports() {
                               {row.holiday_hours > 0 ? `${row.holiday_hours.toFixed(2)}` : '—'}
                             </td>
                           )}
-                          <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{formatCurrency(row.gross_pay)}</td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>
+                            {isPaid && row.paid_amount ? formatCurrency(row.paid_amount) : formatCurrency(row.gross_pay)}
+                          </td>
                           {hasAnyAdvances && (
                             <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: row.advance_deduction > 0 ? '#dc2626' : '#94a3b8' }}>
                               {row.advance_deduction > 0 ? `(${formatCurrency(row.advance_deduction)})` : '—'}
                             </td>
                           )}
-                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, textAlign: 'right', color: '#16a34a' }}>{formatCurrency(row.total_pay)}</td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, textAlign: 'right', color: isPaid ? '#64748b' : '#16a34a' }}>
+                            {isPaid && row.paid_amount ? formatCurrency(row.paid_amount) : formatCurrency(row.total_pay)}
+                          </td>
                         </tr>
                         );
                       })}
