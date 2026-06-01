@@ -1113,7 +1113,7 @@ export default function Invoices() {
                                 Note: Invoice #{proj.existing_invoice} exists for this period (additional uninvoiced entries found)
                               </div>
                             )}
-                            {overBudget && !blocked && (
+                            {overBudget && (
                               <div style={{ fontSize: 10, color: '#d97706', marginTop: 2 }}>
                                 Over budget — {formatCurrency(proj.remaining_balance)} remaining
                               </div>
