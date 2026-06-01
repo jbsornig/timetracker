@@ -1691,6 +1691,54 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
   }
 });
 
+app.post('/api/send-bulk-email', auth, adminOnly, async (req, res) => {
+  const { recipients, subject, body } = req.body;
+  if (!recipients || !recipients.length || !subject || !body) {
+    return res.status(400).json({ error: 'Recipients, subject, and body are required' });
+  }
+
+  const db = getDb();
+  const settingsRows = db.prepare('SELECT key, value FROM settings').all();
+  const settings = {};
+  for (const row of settingsRows) settings[row.key] = row.value;
+
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings.' });
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
+    });
+
+    let sent = 0;
+    for (const r of recipients) {
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <p>Hi ${r.name},</p>
+          <div style="white-space: pre-wrap;">${body.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+          <p style="color: #94a3b8; font-size: 12px;">${settings.company_name || 'UTech Consulting'}</p>
+        </div>
+      `;
+
+      await transporter.sendMail({
+        from: settings.smtp_email,
+        to: r.email,
+        subject,
+        html,
+      });
+      sent++;
+    }
+
+    res.json({ success: true, sent });
+  } catch (err) {
+    console.error('Error sending bulk email:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/timesheet-reminders', auth, adminOnly, async (req, res) => {
   const { recipients, month } = req.body;
   if (!recipients || !recipients.length || !month) {

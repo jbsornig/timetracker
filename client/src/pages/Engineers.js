@@ -33,6 +33,11 @@ export default function Engineers() {
   const [profileHistory, setProfileHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [holidays, setHolidays] = useState([]);
+  const [emailSelections, setEmailSelections] = useState({});
+  const [emailModal, setEmailModal] = useState(false);
+  const [emailForm, setEmailForm] = useState({ subject: '', body: '' });
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailResult, setEmailResult] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -61,6 +66,32 @@ export default function Engineers() {
     return projects.filter((p) => {
       return false;
     }).length;
+  };
+
+  const selectedEngineers = engineers.filter(e => emailSelections[e.id]);
+
+  const handleSendEmail = async () => {
+    if (!emailForm.subject.trim() || !emailForm.body.trim()) {
+      setEmailResult({ success: false, error: 'Subject and message are required' });
+      return;
+    }
+    setSendingEmail(true);
+    setEmailResult(null);
+    try {
+      const recipients = selectedEngineers.map(e => ({ email: e.email, name: e.name }));
+      const result = await apiFetch('/send-bulk-email', {
+        method: 'POST',
+        body: { recipients, subject: emailForm.subject, body: emailForm.body },
+      });
+      setEmailResult({ success: true, count: result.sent });
+      setEmailSelections({});
+      setEmailForm({ subject: '', body: '' });
+      setTimeout(() => setEmailModal(false), 2000);
+    } catch (e) {
+      setEmailResult({ success: false, error: e.message });
+    } finally {
+      setSendingEmail(false);
+    }
   };
 
   const openAdd = (role = 'engineer') => {
@@ -247,7 +278,14 @@ export default function Engineers() {
 
       {/* Engineers Section */}
       <div className="card">
-        <div className="card-title">Engineers</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div className="card-title" style={{ margin: 0 }}>Engineers</div>
+          {selectedEngineers.length > 0 && (
+            <button className="btn btn-primary btn-sm" onClick={() => { setEmailResult(null); setEmailModal(true); }}>
+              Email {selectedEngineers.length} Engineer{selectedEngineers.length !== 1 ? 's' : ''}
+            </button>
+          )}
+        </div>
         {engineers.length === 0 ? (
           <div className="empty-state">
             <h3>No engineers yet</h3>
@@ -258,6 +296,17 @@ export default function Engineers() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 30 }}>
+                    <input type="checkbox"
+                      checked={engineers.length > 0 && engineers.every(e => emailSelections[e.id])}
+                      onChange={(e) => {
+                        const next = {};
+                        if (e.target.checked) engineers.forEach(eng => { next[eng.id] = true; });
+                        setEmailSelections(next);
+                      }}
+                      style={{ width: 14, height: 14 }}
+                    />
+                  </th>
                   <th>Name</th>
                   <th>Email</th>
                   <th>Engineer ID</th>
@@ -271,6 +320,13 @@ export default function Engineers() {
               <tbody>
                 {engineers.map((eng) => (
                   <tr key={eng.id}>
+                    <td>
+                      <input type="checkbox"
+                        checked={!!emailSelections[eng.id]}
+                        onChange={(e) => setEmailSelections({ ...emailSelections, [eng.id]: e.target.checked })}
+                        style={{ width: 14, height: 14 }}
+                      />
+                    </td>
                     <td>
                       <strong>{eng.name}</strong>
                       {eng.pay_delay_months > 0 && (
@@ -737,6 +793,53 @@ export default function Engineers() {
               </table>
             </div>
           )}
+        </Modal>
+      )}
+      {emailModal && (
+        <Modal
+          title={`Send Email to ${selectedEngineers.length} Engineer${selectedEngineers.length !== 1 ? 's' : ''}`}
+          onClose={() => setEmailModal(false)}
+          footer={
+            <>
+              <button className="btn btn-secondary" onClick={() => setEmailModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSendEmail} disabled={sendingEmail}>
+                {sendingEmail ? 'Sending...' : 'Send Email'}
+              </button>
+            </>
+          }
+        >
+          {emailResult && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, fontSize: 13, background: emailResult.success ? '#dcfce7' : '#fef2f2', color: emailResult.success ? '#16a34a' : '#dc2626' }}>
+              {emailResult.success ? `Sent to ${emailResult.count} engineer(s) successfully.` : `Error: ${emailResult.error}`}
+            </div>
+          )}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>To:</div>
+            <div style={{ fontSize: 13, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              {selectedEngineers.map(e => e.name).join(', ')}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Subject *</label>
+            <input
+              className="form-input"
+              value={emailForm.subject}
+              onChange={(e) => setEmailForm({ ...emailForm, subject: e.target.value })}
+              placeholder="Email subject line"
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Message *</label>
+            <textarea
+              className="form-textarea"
+              value={emailForm.body}
+              onChange={(e) => setEmailForm({ ...emailForm, body: e.target.value })}
+              placeholder="Type your message here..."
+              rows={8}
+              style={{ resize: 'vertical' }}
+            />
+            <div className="form-hint">The engineer's name will be automatically added as a greeting.</div>
+          </div>
         </Modal>
       )}
     </div>
