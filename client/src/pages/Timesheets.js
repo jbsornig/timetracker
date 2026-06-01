@@ -298,16 +298,17 @@ export default function Timesheets() {
   const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '', monthly_hours: '', description: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [filter, setFilter] = useState(() => {
+  const [filterFromDashboard] = useState(() => {
     const saved = localStorage.getItem('timesheetFilter');
-    if (saved) {
-      localStorage.removeItem('timesheetFilter');
-      return { status: saved, project_id: '', user_id: '' };
-    }
+    if (saved) localStorage.removeItem('timesheetFilter');
+    return saved || null;
+  });
+  const [filter, setFilter] = useState(() => {
+    if (filterFromDashboard) return { status: filterFromDashboard, project_id: '', user_id: '' };
     return { status: '', project_id: '', user_id: '' };
   });
   const [projectStatusFilter, setProjectStatusFilter] = useState('active');
-  const [dateFilter, setDateFilter] = useState('current'); // 'all', 'current', or 'YYYY-MM'
+  const [dateFilter, setDateFilter] = useState(filterFromDashboard ? 'all' : 'current'); // 'all', 'current', or 'YYYY-MM'
   const [sortColumn, setSortColumn] = useState('period');
   const [sortDirection, setSortDirection] = useState('desc');
 
