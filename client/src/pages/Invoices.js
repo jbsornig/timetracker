@@ -1137,7 +1137,7 @@ export default function Invoices() {
                           </td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: overBudget ? '#d97706' : '#10b981' }}>
                             {formatCurrency(proj.estimated_amount)}
-                            {proj.remaining_balance !== null && !blocked && (
+                            {proj.remaining_balance !== null && (
                               <div style={{ fontSize: 9, color: '#64748b', fontWeight: 400 }}>
                                 {formatCurrency(proj.remaining_balance)} left
                               </div>
