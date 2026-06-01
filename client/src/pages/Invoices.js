@@ -69,6 +69,9 @@ const PAYMENT_METHODS = ['Check', 'ACH/Wire', 'Credit Card', 'Cash', 'Other'];
 function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionStatus, loadingStatus }) {
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
+  const [reminderSelections, setReminderSelections] = useState({});
+  const [sendingReminders, setSendingReminders] = useState(false);
+  const [reminderResult, setReminderResult] = useState(null);
 
   if (loadingStatus) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading submission status...</div>;
 
@@ -167,13 +170,74 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
       ) : (
         <>
           {/* Weekly timesheet engineers */}
-          {weeklyEngineers.length > 0 && (
+          {weeklyEngineers.length > 0 && (() => {
+            const engineersWithMissing = weeklyEngineers.filter(eng => !weeks.every(w => eng.weeks[w]));
+            const allMissingSelected = engineersWithMissing.length > 0 && engineersWithMissing.every(eng => reminderSelections[`${eng.user_id}-${eng.project_id}`]);
+
+            const handleSendReminders = async () => {
+              const selected = engineersWithMissing.filter(eng => reminderSelections[`${eng.user_id}-${eng.project_id}`]);
+              if (selected.length === 0) return;
+              setSendingReminders(true);
+              setReminderResult(null);
+              try {
+                const recipients = selected.map(eng => ({
+                  email: eng.engineer_email,
+                  engineer_name: eng.engineer_name,
+                  project_name: eng.project_name,
+                  missing_weeks: weeks.filter(w => !eng.weeks[w]),
+                }));
+                const result = await apiFetch('/timesheet-reminders', { method: 'POST', body: { recipients, month: submissionMonth } });
+                setReminderResult({ success: true, count: result.sent });
+                setReminderSelections({});
+              } catch (e) {
+                setReminderResult({ success: false, error: e.message });
+              } finally {
+                setSendingReminders(false);
+              }
+            };
+
+            return (
             <div className="card" style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Requires Timesheets</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>Requires Timesheets</div>
+                {engineersWithMissing.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {Object.values(reminderSelections).some(v => v) && (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={handleSendReminders}
+                        disabled={sendingReminders}
+                      >
+                        {sendingReminders ? 'Sending...' : `Send Reminder (${Object.values(reminderSelections).filter(v => v).length})`}
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        if (allMissingSelected) {
+                          setReminderSelections({});
+                        } else {
+                          const next = {};
+                          engineersWithMissing.forEach(eng => { next[`${eng.user_id}-${eng.project_id}`] = true; });
+                          setReminderSelections(next);
+                        }
+                      }}
+                    >
+                      {allMissingSelected ? 'Deselect All' : 'Select All Missing'}
+                    </button>
+                  </div>
+                )}
+              </div>
+              {reminderResult && (
+                <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, fontSize: 13, background: reminderResult.success ? '#dcfce7' : '#fef2f2', color: reminderResult.success ? '#16a34a' : '#dc2626' }}>
+                  {reminderResult.success ? `Sent ${reminderResult.count} reminder(s) successfully.` : `Error: ${reminderResult.error}`}
+                </div>
+              )}
               <div className="table-wrap">
                 <table style={{ fontSize: 12 }}>
                   <thead>
                     <tr>
+                      <th style={{ width: 30 }}></th>
                       <th style={{ position: 'sticky', left: 0, background: '#f8fafc', zIndex: 1 }}>Engineer</th>
                       <th>Project</th>
                       {weeks.map(w => (
@@ -186,8 +250,19 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
                   <tbody>
                     {weeklyEngineers.map(eng => {
                       const allSubmitted = weeks.every(w => eng.weeks[w]);
+                      const key = `${eng.user_id}-${eng.project_id}`;
                       return (
-                        <tr key={`${eng.user_id}-${eng.project_id}`} style={{ background: allSubmitted ? '#f0f9ff' : undefined }}>
+                        <tr key={key} style={{ background: allSubmitted ? '#f0f9ff' : undefined }}>
+                          <td>
+                            {!allSubmitted && (
+                              <input
+                                type="checkbox"
+                                checked={!!reminderSelections[key]}
+                                onChange={(e) => setReminderSelections({ ...reminderSelections, [key]: e.target.checked })}
+                                style={{ width: 14, height: 14 }}
+                              />
+                            )}
+                          </td>
                           <td style={{ position: 'sticky', left: 0, background: allSubmitted ? '#f0f9ff' : '#fff', zIndex: 1, fontWeight: 500 }}>
                             {eng.engineer_name}
                           </td>
@@ -237,7 +312,8 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Does not require timesheets */}
           {monthlyEngineers.length > 0 && (

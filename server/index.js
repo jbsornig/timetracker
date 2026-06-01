@@ -1578,7 +1578,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
 
     // Get all active engineer-project assignments with project info
     const assignments = db.prepare(`
-      SELECT ep.user_id, ep.project_id, u.name as engineer_name,
+      SELECT ep.user_id, ep.project_id, u.name as engineer_name, u.email as engineer_email,
              p.name as project_name, p.project_type, p.requires_daily_logs,
              p.include_timesheets, c.name as customer_name
       FROM engineer_projects ep
@@ -1634,6 +1634,7 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
           user_id: a.user_id,
           project_id: a.project_id,
           engineer_name: a.engineer_name,
+          engineer_email: a.engineer_email,
           project_name: a.project_name,
           project_type: a.project_type,
           requires_daily_logs: a.requires_daily_logs,
@@ -1686,6 +1687,73 @@ app.get('/api/submission-status', auth, adminOnly, (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching submission status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/timesheet-reminders', auth, adminOnly, async (req, res) => {
+  const { recipients, month } = req.body;
+  if (!recipients || !recipients.length || !month) {
+    return res.status(400).json({ error: 'Recipients and month are required' });
+  }
+
+  const db = getDb();
+  const settingsRows = db.prepare('SELECT key, value FROM settings').all();
+  const settings = {};
+  for (const row of settingsRows) settings[row.key] = row.value;
+
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings.' });
+  }
+
+  const monthLabel = new Date(month + '-15').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
+    });
+
+    let sent = 0;
+    for (const r of recipients) {
+      const missingWeeks = (r.missing_weeks || []).map(w =>
+        new Date(w + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      ).join(', ');
+
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #1e3a5f;">Timesheet Reminder</h2>
+          <p>Hi ${r.engineer_name},</p>
+          <p>This is a friendly reminder that you have outstanding timesheet(s) for <strong>${monthLabel}</strong>.</p>
+          <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
+            <tr style="background: #f8fafc;">
+              <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">Project</td>
+              <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${r.project_name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">Missing Week(s)</td>
+              <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${missingWeeks || 'Timesheet not submitted'}</td>
+            </tr>
+          </table>
+          <p>Please log in and submit your timesheet at your earliest convenience:</p>
+          <p><a href="https://timetracker.utechconsulting.net" style="display: inline-block; padding: 10px 20px; background: #1e3a5f; color: white; text-decoration: none; border-radius: 6px;">Open TimeTracker</a></p>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+          <p style="color: #94a3b8; font-size: 12px;">${settings.company_name || 'UTech Consulting'}</p>
+        </div>
+      `;
+
+      await transporter.sendMail({
+        from: settings.smtp_email,
+        to: r.email,
+        subject: `Timesheet Reminder - ${r.project_name} - ${monthLabel}`,
+        html,
+      });
+      sent++;
+    }
+
+    res.json({ success: true, sent });
+  } catch (err) {
+    console.error('Error sending reminders:', err);
     res.status(500).json({ error: err.message });
   }
 });
