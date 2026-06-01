@@ -1364,7 +1364,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
       (p.project_type NOT IN ('fixed_price') AND te.invoice_id = ?)
       OR (p.project_type = 'fixed_price' AND ts.invoice_id = ?)
     )
-    ORDER BY ts.week_ending
+    ORDER BY u.name, ts.week_ending
   `).all(invoice.project_id, req.params.id, req.params.id);
 
   // If no stamped entries found, fall back to date-range query (legacy invoices)
@@ -1384,7 +1384,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
         OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
       ))
     )
-    ORDER BY ts.week_ending
+    ORDER BY u.name, ts.week_ending
   `).all(invoice.project_id, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end, invoice.period_start, invoice.period_end) : timesheets;
 
   const lineItems = [];
@@ -1730,7 +1730,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
           OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
         ))
       )
-      ORDER BY ts.week_ending
+      ORDER BY u.name, ts.week_ending
     `).all(project_id, period_start, period_end, period_start, period_end, period_start, period_end);
 
     let total_hours = 0, total_amount = 0;
@@ -2293,7 +2293,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
     AND (te.invoice_id = ? OR (p.project_type = 'fixed_price' AND ts.invoice_id = ?))
-    ORDER BY ts.week_ending
+    ORDER BY u.name, ts.week_ending
   `).all(invoice.project_id, invoice.id, invoice.id);
 
   const lineItems = [];
