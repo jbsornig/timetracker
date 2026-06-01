@@ -4279,7 +4279,18 @@ app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
     AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_price')
   `).run(stamp, user_id, period_start, period_end);
 
-  res.json({ success: true, stamped: r1.changes + r2.changes });
+  // Stamp fixed_monthly timesheets without entries (week_ending or period in range)
+  const r3 = db.prepare(`
+    UPDATE timesheets SET paid_date = ?
+    WHERE user_id = ? AND status = 'approved' AND paid_date IS NULL
+    AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_monthly')
+    AND (
+      week_ending BETWEEN ? AND ?
+      OR (period_start IS NOT NULL AND period_start >= ? AND period_end <= ?)
+    )
+  `).run(stamp, user_id, period_start, period_end, period_start, period_end);
+
+  res.json({ success: true, stamped: r1.changes + r2.changes + r3.changes });
 });
 
 // Update an engineer payment
