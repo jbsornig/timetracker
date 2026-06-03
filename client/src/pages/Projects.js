@@ -336,12 +336,12 @@ export default function Projects() {
                   <th onClick={() => handleSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }}>Project{sortIndicator('name')}</th>
                   <th>Type</th>
                   <th onClick={() => handleSort('customer')} style={{ cursor: 'pointer', userSelect: 'none' }}>Customer{sortIndicator('customer')}</th>
-                  <th>Contact</th>
+                  <th onClick={() => handleSort('contact')} style={{ cursor: 'pointer', userSelect: 'none' }}>Contact{sortIndicator('contact')}</th>
                   <th onClick={() => handleSort('po_number')} style={{ cursor: 'pointer', userSelect: 'none' }}>PO #{sortIndicator('po_number')}</th>
                   <th>Budget</th>
                   <th>Billed</th>
                   <th>Remaining</th>
-                  <th>Progress</th>
+                  <th onClick={() => handleSort('progress')} style={{ cursor: 'pointer', userSelect: 'none' }}>Progress{sortIndicator('progress')}</th>
                   <th>Status</th>
                   <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer', userSelect: 'none' }}>Created{sortIndicator('created_at')}</th>
                   <th style={{ width: 180 }}>Actions</th>
@@ -366,6 +366,14 @@ export default function Projects() {
                   } else if (sortField === 'po_number') {
                     aVal = (a.po_number || '').toLowerCase();
                     bVal = (b.po_number || '').toLowerCase();
+                  } else if (sortField === 'contact') {
+                    aVal = (a.contact_name || '').toLowerCase();
+                    bVal = (b.contact_name || '').toLowerCase();
+                  } else if (sortField === 'progress') {
+                    const aBudget = a.project_type === 'fixed_price' ? (a.total_cost || 0) : (a.po_amount || 0);
+                    const bBudget = b.project_type === 'fixed_price' ? (b.total_cost || 0) : (b.po_amount || 0);
+                    aVal = aBudget > 0 ? ((a.amount_billed || 0) / aBudget) : 0;
+                    bVal = bBudget > 0 ? ((b.amount_billed || 0) / bBudget) : 0;
                   } else {
                     aVal = (a.name || '').toLowerCase();
                     bVal = (b.name || '').toLowerCase();
