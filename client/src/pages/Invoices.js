@@ -1502,6 +1502,23 @@ export default function Invoices() {
                             </tr>
                           ))}
                         </tbody>
+                        <tfoot>
+                          <tr style={{ fontWeight: 700, borderTop: '2px solid #cbd5e1', background: '#f8fafc' }}>
+                            <td></td>
+                            <td colSpan={2} style={{ fontSize: 13 }}>
+                              Selected Total ({adviceResults.matches.filter(m => adviceSelected[m.invoice_id]).length} invoices)
+                            </td>
+                            <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                              {formatCurrency(adviceResults.matches.filter(m => adviceSelected[m.invoice_id]).reduce((s, m) => s + m.invoice_amount, 0))}
+                            </td>
+                            <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                              {formatCurrency(adviceResults.matches.filter(m => adviceSelected[m.invoice_id]).reduce((s, m) => s + m.advice_amount, 0))}
+                            </td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                              Balance: {formatCurrency(adviceResults.matches.filter(m => adviceSelected[m.invoice_id]).reduce((s, m) => s + m.balance_due, 0))}
+                            </td>
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   </div>
