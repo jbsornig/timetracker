@@ -4780,6 +4780,216 @@ app.post('/api/seed-demo-data', auth, adminOnly, (req, res) => {
   }
 });
 
+// ─── eSUPPLIER CONNECT AUTOMATION ─────────────────────────────────────────────
+
+const credentialStore = require('./credential-store');
+const { submitToESupplier } = require('./esupplier-automation');
+
+let activeESupplierBrowser = null;
+
+app.get('/api/esupplier/has-credentials', auth, adminOnly, (req, res) => {
+  res.json({ hasCredentials: credentialStore.hasCredentials() });
+});
+
+app.post('/api/esupplier/save-credentials', auth, adminOnly, (req, res) => {
+  const { username, password, passphrase } = req.body;
+  if (!username || !password || !passphrase) {
+    return res.status(400).json({ error: 'Username, password, and passphrase are required' });
+  }
+  try {
+    credentialStore.saveCredentials({ username, password }, passphrase);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save credentials: ' + err.message });
+  }
+});
+
+app.post('/api/esupplier/submit-invoice/:id', auth, adminOnly, async (req, res) => {
+  const { passphrase } = req.body;
+  if (!passphrase) return res.status(400).json({ error: 'Passphrase required to decrypt credentials' });
+
+  const db = getDb();
+  const invoice = db.prepare(`
+    SELECT i.*, p.name as project_name, p.po_number, p.project_type, p.billing_method,
+           p.total_cost,
+           c.name as customer_name, c.supplier_number,
+           c.ap_email, c.email as customer_email
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.id = ?
+  `).get(req.params.id);
+
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+  let credentials;
+  try {
+    credentials = credentialStore.loadCredentials(passphrase);
+    if (!credentials) return res.status(400).json({ error: 'No credentials stored. Please configure eSupplier credentials first.' });
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid passphrase' });
+  }
+
+  // Determine qty and unit price based on project type
+  let qtyShipped, unitPrice;
+  if (invoice.project_type === 'fixed_price') {
+    qtyShipped = 1;
+    unitPrice = invoice.total_amount;
+  } else {
+    qtyShipped = invoice.total_hours;
+    // Calculate effective rate from hours
+    unitPrice = invoice.total_hours > 0 ? (invoice.total_amount / invoice.total_hours) : 0;
+  }
+
+  // Format invoice date as mm/dd/yyyy
+  const invDate = new Date(invoice.period_end);
+  const invoiceDate = `${String(invDate.getMonth() + 1).padStart(2, '0')}/${String(invDate.getDate()).padStart(2, '0')}/${invDate.getFullYear()}`;
+
+  // Generate PDF for attachment
+  const pdfDir = path.join(process.env.DATA_DIR || path.join(__dirname, '..', 'data'), 'invoices');
+  if (!require('fs').existsSync(pdfDir)) require('fs').mkdirSync(pdfDir, { recursive: true });
+  const pdfFilename = `PO ${invoice.po_number || 'N-A'} - ${invoice.project_name} - Invoice ${invoice.invoice_number}.pdf`;
+  const pdfPath = path.join(pdfDir, pdfFilename.replace(/[<>:"/\\|?*]/g, '_'));
+
+  // Generate PDF using existing puppeteer logic
+  try {
+    await generateInvoicePdf(invoice.id, pdfPath);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to generate PDF: ' + err.message });
+  }
+
+  const invoiceData = {
+    supplierNumber: invoice.supplier_number || '38850',
+    invoiceNumber: invoice.invoice_number,
+    email: 'jbsornig@utechconsulting.net',
+    invoiceDate,
+    poNumber: invoice.po_number,
+    poLineItemNumber: '00001',
+    qtyShipped: Math.round(qtyShipped * 1000) / 1000,
+    unitPrice: Math.round(unitPrice * 100) / 100,
+  };
+
+  // Close any existing browser
+  if (activeESupplierBrowser) {
+    try { await activeESupplierBrowser.close(); } catch (e) {}
+    activeESupplierBrowser = null;
+  }
+
+  // Return immediately, run automation in background
+  res.json({ success: true, message: 'Automation started. A browser window will open on your machine.' });
+
+  try {
+    const result = await submitToESupplier({
+      credentials,
+      invoiceData,
+      pdfPath,
+      onStatus: (msg) => console.log(msg),
+    });
+    if (result.browser) activeESupplierBrowser = result.browser;
+  } catch (err) {
+    console.error('eSupplier automation failed:', err);
+  }
+});
+
+// Helper: generate invoice PDF to a file
+async function generateInvoicePdf(invoiceId, outputPath) {
+  const db = getDb();
+  const invoice = db.prepare(`
+    SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
+           p.include_timesheets, p.billing_method,
+           c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
+           c.ap_email, c.email as customer_email, c.currency_symbol,
+           cc.name as contact_name, cc.email as contact_email
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
+    WHERE i.id = ?
+  `).get(invoiceId);
+
+  if (!invoice) throw new Error('Invoice not found');
+
+  const settings = {};
+  const rows = db.prepare("SELECT key, value FROM settings").all();
+  for (const row of rows) settings[row.key] = row.value;
+
+  const timesheets = db.prepare(`
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.monthly_bill, ep.monthly_pay, p.project_type
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+    WHERE ts.project_id = ? AND ts.status = 'approved'
+    AND (te.invoice_id = ? OR (p.project_type = 'fixed_price' AND ts.invoice_id = ?))
+    ORDER BY u.name, ts.week_ending
+  `).all(invoice.project_id, invoiceId, invoiceId);
+
+  const formatCurrency = (amt) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amt || 0);
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-US') : '';
+
+  const lineItems = [];
+  const isFixedMonthly = timesheets.length > 0 && timesheets[0].project_type === 'fixed_monthly';
+
+  if (isFixedMonthly) {
+    const engineers = [...new Set(timesheets.map(ts => ts.engineer_name))];
+    for (const eng of engineers) {
+      const engTs = timesheets.filter(ts => ts.engineer_name === eng);
+      const monthlyBill = engTs[0]?.monthly_bill || 0;
+      lineItems.push({ description: `${eng} - Monthly Rate`, hours: '', rate: '', amount: formatCurrency(monthlyBill) });
+    }
+  } else {
+    const engineers = [...new Set(timesheets.map(ts => ts.engineer_name))];
+    for (const eng of engineers) {
+      const engTs = timesheets.filter(ts => ts.engineer_name === eng);
+      const billRate = engTs[0]?.bill_rate || 0;
+      const totalHrs = engTs.reduce((sum, ts) => sum + (ts.total_hours || 0), 0);
+      lineItems.push({ description: `${eng}`, hours: totalHrs.toFixed(2), rate: formatCurrency(billRate), amount: formatCurrency(totalHrs * billRate) });
+    }
+  }
+
+  const invoiceHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+        <div><h2 style="margin:0;">${settings.company_name || 'UTech Consulting'}</h2><p style="margin:5px 0; font-size:12px;">${settings.company_address || ''}</p></div>
+        <div style="text-align: right;"><h1 style="margin:0; color:#1e40af;">INVOICE</h1><p style="margin:5px 0;">Invoice #: ${invoice.invoice_number}</p><p style="margin:5px 0;">Date: ${formatDate(invoice.period_end)}</p></div>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+        <div><strong>Bill To:</strong><br/>${invoice.customer_name}<br/>${invoice.customer_address || ''}</div>
+        <div style="text-align: right;"><strong>PO Number:</strong> ${invoice.po_number || 'N/A'}<br/><strong>Project:</strong> ${invoice.project_name}<br/><strong>Period:</strong> ${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}</div>
+      </div>
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <thead><tr style="background: #1e40af; color: white;"><th style="padding: 8px; text-align: left;">Description</th><th style="padding: 8px; text-align: right;">Hours</th><th style="padding: 8px; text-align: right;">Rate</th><th style="padding: 8px; text-align: right;">Amount</th></tr></thead>
+        <tbody>${lineItems.map(li => `<tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px;">${li.description}</td><td style="padding: 8px; text-align: right;">${li.hours}</td><td style="padding: 8px; text-align: right;">${li.rate}</td><td style="padding: 8px; text-align: right;">${li.amount}</td></tr>`).join('')}</tbody>
+      </table>
+      <div style="text-align: right; font-size: 18px; font-weight: bold;">Total: ${formatCurrency(invoice.total_amount)}</div>
+      <div style="margin-top: 30px; font-size: 12px; color: #666;">Payment Terms: ${invoice.payment_terms || 'Net 30'}</div>
+    </div>
+  `;
+
+  const pdfHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page { margin: 0.25in; size: letter; } body { margin: 0; padding: 0; }</style></head><body>${invoiceHtml}</body></html>`;
+
+  const fs = require('fs');
+  let browserOptions;
+  const possiblePaths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+  ];
+  const chromePath = possiblePaths.find(p => fs.existsSync(p));
+  if (!chromePath) throw new Error('Chrome not found for PDF generation');
+
+  browserOptions = { executablePath: chromePath, headless: 'new', args: ['--no-sandbox'] };
+  const browser = await puppeteer.launch(browserOptions);
+  const page = await browser.newPage();
+  await page.setContent(pdfHtml, { waitUntil: 'networkidle0' });
+  const pdfBuffer = await page.pdf({ format: 'Letter', printBackground: true, margin: { top: '0.25in', right: '0.25in', bottom: '0.25in', left: '0.25in' } });
+  await browser.close();
+
+  fs.writeFileSync(outputPath, pdfBuffer);
+  return outputPath;
+}
+
 // Catch-all: serve React app for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
