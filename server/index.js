@@ -4780,10 +4780,15 @@ app.post('/api/seed-demo-data', auth, adminOnly, (req, res) => {
   }
 });
 
-// ─── eSUPPLIER CONNECT AUTOMATION ─────────────────────────────────────────────
+// ─── eSUPPLIER CONNECT AUTOMATION (local only) ────────────────────────────────
 
 const credentialStore = require('./credential-store');
-const { submitToESupplier } = require('./esupplier-automation');
+let submitToESupplier;
+try {
+  submitToESupplier = require('./esupplier-automation').submitToESupplier;
+} catch (e) {
+  // Playwright not available in production - CLI tool used instead
+}
 
 let activeESupplierBrowser = null;
 
@@ -4805,6 +4810,7 @@ app.post('/api/esupplier/save-credentials', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/esupplier/submit-invoice/:id', auth, adminOnly, async (req, res) => {
+  if (!submitToESupplier) return res.status(501).json({ error: 'eSupplier automation not available on this server. Use the CLI tool locally: node esupplier-cli.js' });
   const { passphrase } = req.body;
   if (!passphrase) return res.status(400).json({ error: 'Passphrase required to decrypt credentials' });
 

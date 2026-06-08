@@ -448,10 +448,6 @@ export default function Invoices() {
   const [adviceSelected, setAdviceSelected] = useState({});
   const [adviceProcessing, setAdviceProcessing] = useState(false);
   const [esupplierModal, setEsupplierModal] = useState(null);
-  const [esupplierPassphrase, setEsupplierPassphrase] = useState('');
-  const [esupplierSubmitting, setEsupplierSubmitting] = useState(false);
-  const [showCredentialSetup, setShowCredentialSetup] = useState(false);
-  const [credForm, setCredForm] = useState({ username: '', password: '', passphrase: '' });
 
   useEffect(() => {
     loadData();
@@ -890,42 +886,6 @@ export default function Invoices() {
 
   const handleEsupplierSubmit = async (invoice) => {
     setEsupplierModal(invoice);
-    setEsupplierPassphrase('');
-  };
-
-  const confirmEsupplierSubmit = async () => {
-    if (!esupplierPassphrase) { alert('Enter your passphrase'); return; }
-    setEsupplierSubmitting(true);
-    try {
-      const result = await apiFetch(`/esupplier/submit-invoice/${esupplierModal.id}`, {
-        method: 'POST',
-        body: { passphrase: esupplierPassphrase },
-      });
-      alert(result.message);
-      setEsupplierModal(null);
-    } catch (err) {
-      alert('Error: ' + err.message);
-    } finally {
-      setEsupplierSubmitting(false);
-    }
-  };
-
-  const handleSaveCredentials = async () => {
-    if (!credForm.username || !credForm.password || !credForm.passphrase) {
-      alert('All fields are required');
-      return;
-    }
-    try {
-      await apiFetch('/esupplier/save-credentials', {
-        method: 'POST',
-        body: credForm,
-      });
-      alert('Credentials saved successfully');
-      setShowCredentialSetup(false);
-      setCredForm({ username: '', password: '', passphrase: '' });
-    } catch (err) {
-      alert('Error: ' + err.message);
-    }
   };
 
   const handleReceived = async (invoice) => {
@@ -2133,78 +2093,32 @@ export default function Invoices() {
             <p style={{ margin: '0 0 8px' }}>
               Submit Invoice <strong>#{esupplierModal.invoice_number}</strong> for <strong>{esupplierModal.project_name}</strong> to eSupplierConnect.
             </p>
-            <p style={{ margin: '0 0 8px', fontSize: 13, color: '#64748b' }}>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: '#64748b' }}>
               PO: {esupplierModal.po_number} | Amount: {formatCurrency(esupplierModal.total_amount)}
             </p>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>
-              A browser window will open and fill the CAP invoice form. Review and click Submit Invoice yourself when ready.
+          </div>
+          <div style={{ background: '#f1f5f9', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+            <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: 14 }}>Run this from your local machine:</p>
+            <code style={{ display: 'block', background: '#1e293b', color: '#e2e8f0', padding: 12, borderRadius: 4, fontSize: 13, fontFamily: 'DM Mono, monospace', wordBreak: 'break-all' }}>
+              cd timetracker/server && node esupplier-cli.js
+            </code>
+            <p style={{ margin: '12px 0 0', fontSize: 12, color: '#64748b' }}>
+              The tool will authenticate with production, generate the invoice PDF, and open a browser to fill the CAP form automatically. You verify and click Submit.
             </p>
           </div>
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 13, fontWeight: 600 }}>Passphrase (to decrypt credentials):</label>
-            <input
-              type="password"
-              className="form-control"
-              value={esupplierPassphrase}
-              onChange={(e) => setEsupplierPassphrase(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && confirmEsupplierSubmit()}
-              placeholder="Enter your passphrase"
-              style={{ marginTop: 4 }}
-            />
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn btn-primary" onClick={confirmEsupplierSubmit} disabled={esupplierSubmitting}>
-              {esupplierSubmitting ? 'Launching...' : 'Launch Automation'}
-            </button>
-            <button className="btn btn-secondary" onClick={() => setEsupplierModal(null)}>Cancel</button>
-            <button className="btn btn-secondary" onClick={() => { setEsupplierModal(null); setShowCredentialSetup(true); }} style={{ marginLeft: 'auto', fontSize: 12 }}>
-              Configure Credentials
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* eSupplier Credential Setup Modal */}
-      {showCredentialSetup && (
-        <Modal title="Configure eSupplier Credentials" onClose={() => setShowCredentialSetup(false)}>
-          <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>
-            Your eSupplierConnect login credentials will be encrypted with the passphrase you choose.
-            You'll need this passphrase each time you submit an invoice.
-          </p>
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 13, fontWeight: 600 }}>eSupplierConnect Username:</label>
-            <input
-              type="text"
-              className="form-control"
-              value={credForm.username}
-              onChange={(e) => setCredForm({ ...credForm, username: e.target.value })}
-              style={{ marginTop: 4 }}
-            />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 13, fontWeight: 600 }}>eSupplierConnect Password:</label>
-            <input
-              type="password"
-              className="form-control"
-              value={credForm.password}
-              onChange={(e) => setCredForm({ ...credForm, password: e.target.value })}
-              style={{ marginTop: 4 }}
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 600 }}>Encryption Passphrase (you choose this):</label>
-            <input
-              type="password"
-              className="form-control"
-              value={credForm.passphrase}
-              onChange={(e) => setCredForm({ ...credForm, passphrase: e.target.value })}
-              placeholder="Choose a passphrase to protect these credentials"
-              style={{ marginTop: 4 }}
-            />
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+            <strong>What it does:</strong>
+            <ol style={{ margin: '4px 0 0', paddingLeft: 20 }}>
+              <li>Logs into eSupplierConnect</li>
+              <li>Navigates to Corporate Accounts Payable</li>
+              <li>Fills invoice form (supplier #, PO, dates, amounts)</li>
+              <li>Attaches generated PDF</li>
+              <li>Adds line item (PO, hours/qty, rate)</li>
+              <li>Pauses for you to verify and submit</li>
+            </ol>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-primary" onClick={handleSaveCredentials}>Save Credentials</button>
-            <button className="btn btn-secondary" onClick={() => setShowCredentialSetup(false)}>Cancel</button>
+            <button className="btn btn-secondary" onClick={() => setEsupplierModal(null)}>Close</button>
           </div>
         </Modal>
       )}
