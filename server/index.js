@@ -579,9 +579,9 @@ app.get('/api/customers', auth, (req, res) => {
 });
 
 app.post('/api/customers', auth, adminOnly, (req, res) => {
-  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol } = req.body;
+  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$');
+  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0);
   const customerId = result.lastInsertRowid;
 
   // Auto-create a contact record if primary contact name is provided
@@ -593,9 +593,9 @@ app.post('/api/customers', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/customers/:id', auth, adminOnly, (req, res) => {
-  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol } = req.body;
+  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self } = req.body;
   const db = getDb();
-  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', req.params.id);
+  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=?, send_invoice_to_self=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -2354,7 +2354,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
            p.include_timesheets,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
-           c.ap_email, c.email as customer_email, c.currency_symbol,
+           c.ap_email, c.email as customer_email, c.currency_symbol, c.send_invoice_to_self,
            cc.name as contact_name, cc.email as contact_email
     FROM invoices i
     JOIN projects p ON p.id = i.project_id
@@ -2377,16 +2377,20 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   }
 
   const missingApEmail = !invoice.ap_email;
-  const recipientEmail = invoice.ap_email || invoice.contact_email;
+  let recipientEmail = invoice.ap_email || invoice.contact_email;
 
   if (!recipientEmail) {
-    return res.status(400).json({ error: 'No AP email or contact email set for this customer. Add an email in Customers.' });
+    if (invoice.send_invoice_to_self && settings.admin_notification_email) {
+      recipientEmail = settings.admin_notification_email;
+    } else {
+      return res.status(400).json({ error: 'No AP email or contact email set for this customer. Enable "Send invoice to me" in Customer setup, or add an email.' });
+    }
   }
 
   // Build CC list
   const ccList = [];
   if (invoice.contact_email && invoice.contact_email !== recipientEmail) ccList.push(invoice.contact_email);
-  if (settings.admin_notification_email) ccList.push(settings.admin_notification_email);
+  if (settings.admin_notification_email && settings.admin_notification_email !== recipientEmail) ccList.push(settings.admin_notification_email);
 
   // Get line items and timesheet details
   // Find timesheets that have entries stamped with this invoice ID
@@ -2756,16 +2760,19 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     const isLocal = process.platform === 'win32' || !process.env.RENDER;
 
     if (isLocal) {
-      // Local development - try common Chrome paths
+      // Local development - try common Chromium-based browser paths
       const fs = require('fs');
       const possiblePaths = [
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
         process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\Application\\msedge.exe',
       ];
       const chromePath = possiblePaths.find(p => fs.existsSync(p));
       if (!chromePath) {
-        throw new Error('Chrome not found. Please install Google Chrome for local PDF generation.');
+        throw new Error('No compatible browser found. Install Chrome or Edge for PDF generation.');
       }
       browserOptions = {
         executablePath: chromePath,
@@ -4981,9 +4988,12 @@ async function generateInvoicePdf(invoiceId, outputPath) {
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\Application\\msedge.exe',
   ];
   const chromePath = possiblePaths.find(p => fs.existsSync(p));
-  if (!chromePath) throw new Error('Chrome not found for PDF generation');
+  if (!chromePath) throw new Error('No compatible browser found for PDF generation');
 
   browserOptions = { executablePath: chromePath, headless: 'new', args: ['--no-sandbox'] };
   const browser = await puppeteer.launch(browserOptions);

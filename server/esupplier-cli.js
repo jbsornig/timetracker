@@ -86,7 +86,7 @@ async function login() {
   console.log('\n--- TimeTracker Login ---');
   const email = await ask('Email: ');
   const password = await askHidden('Password: ');
-  const result = await apiFetch('/api/auth/login', null, {
+  const result = await apiFetch('/api/login', null, {
     method: 'POST',
     body: { email, password },
   });
@@ -168,9 +168,12 @@ async function generateInvoicePdf(invoice, apiLineItems, settings, outputPath) {
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\Application\\msedge.exe',
   ];
   const chromePath = possiblePaths.find(p => fs.existsSync(p));
-  if (!chromePath) throw new Error('Chrome not found. Install Google Chrome for PDF generation.');
+  if (!chromePath) throw new Error('No compatible browser found. Install Chrome or Edge for PDF generation.');
 
   const browser = await puppeteer.launch({ executablePath: chromePath, headless: 'new', args: ['--no-sandbox'] });
   const page = await browser.newPage();
@@ -223,7 +226,7 @@ async function main() {
   // Step 3: Select invoice
   console.log('\n[3/5] Fetching invoices...');
   const invoices = await apiFetch('/api/invoices', token);
-  const stellantisInvoices = invoices.filter(i => i.supplier_number && i.po_number && i.status !== 'voided');
+  const stellantisInvoices = invoices.filter(i => i.supplier_number === '38850' && i.po_number && i.status !== 'voided');
 
   if (stellantisInvoices.length === 0) {
     console.log('  No Stellantis/FCA invoices found.');
@@ -267,9 +270,12 @@ async function main() {
   // Create output directory
   if (!fs.existsSync(PDF_OUTPUT_DIR)) fs.mkdirSync(PDF_OUTPUT_DIR, { recursive: true });
 
-  // Build filename: PO {po} - {engineer} - {project} - Invoice {number}.pdf
+  // Build filename: PO {po} - {engineer} - {project short name} - Invoice {number}.pdf
   const safeName = (s) => (s || '').replace(/[<>:"/\\|?*]/g, '_').trim();
-  const pdfFilename = `PO ${safeName(selectedInvoice.po_number)} - ${safeName(engineerNames)} - ${safeName(selectedInvoice.project_name)} - Invoice ${safeName(selectedInvoice.invoice_number)}.pdf`;
+  const poNum = (selectedInvoice.po_number || '').replace(/^PO\s*/i, '');
+  // Strip PO prefix from project name if it starts with it
+  const projectShortName = (selectedInvoice.project_name || '').replace(/^PO\s*\d+\s*-\s*/i, '');
+  const pdfFilename = `PO ${safeName(poNum)} - ${safeName(engineerNames)} - ${safeName(projectShortName)} - Invoice ${safeName(selectedInvoice.invoice_number)}.pdf`;
   const pdfPath = path.join(PDF_OUTPUT_DIR, pdfFilename);
 
   await generateInvoicePdf(
@@ -294,16 +300,17 @@ async function main() {
     unitPrice = selectedInvoice.total_hours > 0 ? (selectedInvoice.total_amount / selectedInvoice.total_hours) : 0;
   }
 
-  // Format invoice date as mm/dd/yyyy
-  const invDate = new Date(selectedInvoice.period_end);
+  // Use current date for submission
+  const invDate = new Date();
   const invoiceDate = `${String(invDate.getMonth() + 1).padStart(2, '0')}/${String(invDate.getDate()).padStart(2, '0')}/${invDate.getFullYear()}`;
 
+  const poNumberClean = (selectedInvoice.po_number || '').replace(/^PO\s*/i, '');
   const invoiceData = {
     supplierNumber: selectedInvoice.supplier_number || '38850',
     invoiceNumber: selectedInvoice.invoice_number,
     email: 'jbsornig@utechconsulting.net',
     invoiceDate,
-    poNumber: selectedInvoice.po_number,
+    poNumber: poNumberClean,
     poLineItemNumber: '00001',
     qtyShipped: Math.round(qtyShipped * 1000) / 1000,
     unitPrice: Math.round(unitPrice * 100) / 100,

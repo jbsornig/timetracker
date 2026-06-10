@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '', currency_symbol: '$' };
+const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '', currency_symbol: '$', send_invoice_to_self: false };
 const PAYMENT_TERMS_OPTIONS = ['Immediate', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 75', 'Net 90'];
 const emptyContact = { name: '', title: '', email: '', phone: '' };
 
@@ -339,6 +339,17 @@ export default function Customers() {
                   placeholder="ap@company.com"
                 />
                 <div className="form-hint">Invoices will be emailed to this address</div>
+              </div>
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!form.send_invoice_to_self}
+                    onChange={(e) => setForm({ ...form, send_invoice_to_self: e.target.checked })}
+                  />
+                  Send invoice email to me (no customer email required)
+                </label>
+                <div className="form-hint">When enabled, pressing Email will send the invoice to your admin email even without an AP email</div>
               </div>
             </div>
             <div className="form-group">
