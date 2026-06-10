@@ -99,6 +99,7 @@ export default function Reports() {
   const [reconciliationData, setReconciliationData] = useState(null);
   const [reconciliationForm, setReconciliationForm] = useState({ user_id: '', period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
   const [showReconciliation, setShowReconciliation] = useState(false);
+  const [showVerification, setShowVerification] = useState(false);
   const [overdueData, setOverdueData] = useState([]);
   const [unclearedAdvances, setUnclearedAdvances] = useState([]);
   const [bankSplits, setBankSplits] = useState({});
@@ -1677,15 +1678,15 @@ export default function Reports() {
           {/* Sub-tabs for Engineer Payments */}
           <div className="card no-print" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-              <button className={`btn btn-sm ${!showReconciliation ? 'btn-secondary' : 'btn-secondary'}`} onClick={() => { setVerificationData(null); setSummary1099([]); setShowReconciliation(false); }}>Payment History</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => { load1099Summary(); setVerificationData(null); setShowReconciliation(false); }}>1099 Summary</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => { setSummary1099([]); setShowReconciliation(false); }}>Verification Letter</button>
-              <button className={`btn btn-sm ${showReconciliation ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setShowReconciliation(true); setSummary1099([]); setVerificationData(null); }}>Reconciliation</button>
+              <button className={`btn btn-sm ${!showReconciliation && !showVerification && summary1099.length === 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setVerificationData(null); setSummary1099([]); setShowReconciliation(false); setShowVerification(false); }}>Payment History</button>
+              <button className={`btn btn-sm ${summary1099.length > 0 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { load1099Summary(); setVerificationData(null); setShowReconciliation(false); setShowVerification(false); }}>1099 Summary</button>
+              <button className={`btn btn-sm ${showVerification || verificationData ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setSummary1099([]); setShowReconciliation(false); setShowVerification(true); }}>Verification Letter</button>
+              <button className={`btn btn-sm ${showReconciliation ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setShowReconciliation(true); setSummary1099([]); setVerificationData(null); setShowVerification(false); }}>Reconciliation</button>
             </div>
           </div>
 
           {/* Record Payment Form */}
-          {summary1099.length === 0 && !verificationData && !showReconciliation && (
+          {summary1099.length === 0 && !verificationData && !showReconciliation && !showVerification && (
             <div className="card no-print" style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Record Payment</div>
               <form onSubmit={handleAddEngPayment}>
@@ -1743,7 +1744,7 @@ export default function Reports() {
           )}
 
           {/* Payment History Filter & Table */}
-          {summary1099.length === 0 && !verificationData && !showReconciliation && (
+          {summary1099.length === 0 && !verificationData && !showReconciliation && !showVerification && (
             <div className="card">
               <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Payment History</div>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16 }}>
@@ -2097,7 +2098,7 @@ export default function Reports() {
           )}
 
           {/* Verification Letter */}
-          {!summary1099.length && !showReconciliation && (
+          {showVerification && (
             <div>
               {!verificationData && (
                 <div className="card no-print" style={{ marginTop: 16 }}>
