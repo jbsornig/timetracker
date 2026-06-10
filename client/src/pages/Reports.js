@@ -2129,36 +2129,36 @@ export default function Reports() {
                     <button className="btn btn-secondary" onClick={() => setVerificationData(null)}>Back</button>
                     <button className="btn btn-primary" onClick={() => window.print()}>Print Letter</button>
                   </div>
-                  <div className="card" style={{ maxWidth: 800, margin: '0 auto', padding: 40, fontFamily: 'Georgia, serif', fontSize: 14, lineHeight: 1.8 }}>
+                  <div className="card" style={{ maxWidth: 800, margin: '0 auto', padding: 40, fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.6 }}>
                     {/* Company Header */}
-                    <div style={{ textAlign: 'center', marginBottom: 30 }}>
-                      <div style={{ fontSize: 20, fontWeight: 'bold' }}>{verificationData.company.name}</div>
-                      {verificationData.company.address && <div>{verificationData.company.address}</div>}
-                      <div>
+                    <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                      <div style={{ fontSize: 18, fontWeight: 'bold' }}>{verificationData.company.name}</div>
+                      {verificationData.company.address && <div style={{ fontSize: 12 }}>{verificationData.company.address}</div>}
+                      <div style={{ fontSize: 12 }}>
                         {verificationData.company.phone && <span>{verificationData.company.phone}</span>}
                         {verificationData.company.phone && verificationData.company.email && <span> | </span>}
                         {verificationData.company.email && <span>{verificationData.company.email}</span>}
                       </div>
                     </div>
 
-                    <div style={{ marginBottom: 20 }}>
+                    <div style={{ marginBottom: 16 }}>
                       {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     </div>
 
-                    <div style={{ marginBottom: 20, fontWeight: 'bold' }}>
+                    <div style={{ marginBottom: 16, fontWeight: 'bold' }}>
                       RE: Employment and Payment Verification
                     </div>
 
-                    <div style={{ marginBottom: 16 }}>To Whom It May Concern,</div>
+                    <div style={{ marginBottom: 12 }}>To Whom It May Concern,</div>
 
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={{ marginBottom: 12 }}>
                       This letter is to confirm that <strong>{verificationData.engineer.name}</strong>
                       {verificationData.engineer.engineer_id && <span> (ID: {verificationData.engineer.engineer_id})</span>}
                       {' '}has been engaged as an independent contractor with {verificationData.company.name || 'our company'} since{' '}
-                      {new Date(verificationData.engineer.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.
+                      {new Date((verificationData.engineer.start_date || verificationData.engineer.created_at) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.
                     </div>
 
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={{ marginBottom: 12 }}>
                       For the period of{' '}
                       <strong>{new Date(verificationData.period.start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</strong>
                       {' '}through{' '}
@@ -2166,24 +2166,53 @@ export default function Reports() {
                       the following compensation was provided:
                     </div>
 
-                    <div style={{ margin: '20px 40px', padding: 16, border: '1px solid #ccc', background: '#fafafa' }}>
-                      <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
+                    {/* Monthly Breakdown */}
+                    {verificationData.monthly_details && verificationData.monthly_details.length > 0 && (
+                      <div style={{ margin: '12px 20px' }}>
+                        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2px solid #333' }}>
+                              <th style={{ padding: '4px 8px', textAlign: 'left' }}>Month</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'center' }}>Payments</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'right' }}>Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {verificationData.monthly_details.map(m => (
+                              <tr key={m.month} style={{ borderBottom: '1px solid #ddd' }}>
+                                <td style={{ padding: '3px 8px' }}>{new Date(m.month + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</td>
+                                <td style={{ padding: '3px 8px', textAlign: 'center' }}>{m.payments.length}</td>
+                                <td style={{ padding: '3px 8px', textAlign: 'right' }}>{formatCurrency(m.total)}</td>
+                              </tr>
+                            ))}
+                            <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>
+                              <td style={{ padding: '4px 8px' }}>Total</td>
+                              <td style={{ padding: '4px 8px', textAlign: 'center' }}>{verificationData.payment_count}</td>
+                              <td style={{ padding: '4px 8px', textAlign: 'right' }}>{formatCurrency(verificationData.total_paid)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Summary */}
+                    <div style={{ margin: '12px 20px', padding: 10, border: '1px solid #ccc', background: '#fafafa' }}>
+                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                         <tbody>
-                          <tr><td style={{ padding: '4px 0' }}>Total Compensation:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.total_paid)}</td></tr>
-                          <tr><td style={{ padding: '4px 0' }}>Number of Payments:</td><td style={{ textAlign: 'right' }}>{verificationData.payment_count}</td></tr>
-                          <tr><td style={{ padding: '4px 0' }}>Average Monthly Income:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.avg_monthly)}</td></tr>
-                          <tr><td style={{ padding: '4px 0' }}>Months Active:</td><td style={{ textAlign: 'right' }}>{verificationData.months_active}</td></tr>
+                          <tr><td style={{ padding: '3px 0' }}>Total Compensation:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.total_paid)}</td></tr>
+                          <tr><td style={{ padding: '3px 0' }}>Average Monthly Income:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.avg_monthly)}</td></tr>
+                          <tr><td style={{ padding: '3px 0' }}>Months Active:</td><td style={{ textAlign: 'right' }}>{verificationData.months_active}</td></tr>
                         </tbody>
                       </table>
                     </div>
 
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={{ marginBottom: 12, marginTop: 12 }}>
                       This information is provided for verification purposes only. If you have any questions or require additional information, please do not hesitate to contact us.
                     </div>
 
-                    <div style={{ marginTop: 40 }}>
+                    <div style={{ marginTop: 30 }}>
                       <div>Sincerely,</div>
-                      <div style={{ marginTop: 40, borderTop: '1px solid #000', width: 250, paddingTop: 4 }}>
+                      <div style={{ marginTop: 30, borderTop: '1px solid #000', width: 250, paddingTop: 4 }}>
                         Authorized Representative
                       </div>
                       <div>{verificationData.company.name}</div>

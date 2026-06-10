@@ -4355,7 +4355,7 @@ app.get('/api/engineer-payments/1099-summary', auth, adminOnly, (req, res) => {
 app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, res) => {
   const db = getDb();
   const { period_start, period_end } = req.query;
-  const user = db.prepare('SELECT id, name, engineer_id, email, created_at FROM users WHERE id = ?').get(req.params.userId);
+  const user = db.prepare('SELECT id, name, engineer_id, email, start_date, created_at FROM users WHERE id = ?').get(req.params.userId);
   if (!user) return res.status(404).json({ error: 'Engineer not found' });
 
   const startDate = period_start || `${new Date().getFullYear()}-01-01`;
@@ -4375,6 +4375,18 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
   const months = new Set(payments.map(p => p.payment_date.substring(0, 7))).size || 1;
   const avgMonthly = totalPaid / months;
 
+  // Group payments by month for the monthly breakdown
+  const monthlyBreakdown = {};
+  for (const p of payments) {
+    const monthKey = p.payment_date.substring(0, 7);
+    if (!monthlyBreakdown[monthKey]) {
+      monthlyBreakdown[monthKey] = { month: monthKey, total: 0, payments: [] };
+    }
+    monthlyBreakdown[monthKey].total += p.amount;
+    monthlyBreakdown[monthKey].payments.push(p);
+  }
+  const monthlyDetails = Object.values(monthlyBreakdown).sort((a, b) => a.month.localeCompare(b.month));
+
   // Get company info from settings
   const settings = {};
   db.prepare("SELECT key, value FROM settings").all().forEach(s => { settings[s.key] = s.value; });
@@ -4386,6 +4398,7 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
     payment_count: payments.length,
     avg_monthly: avgMonthly,
     months_active: months,
+    monthly_details: monthlyDetails,
     payments,
     company: {
       name: settings.company_name || '',
