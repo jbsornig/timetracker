@@ -51,6 +51,8 @@ export default function Settings() {
     telegram_bot_token: '',
     telegram_chat_id: '',
     chase_ach_account: '',
+    authorized_signer_name: '',
+    signature_image: '',
   });
   const [smtpPasswordChanged, setSmtpPasswordChanged] = useState(false);
   const [hasExistingPassword, setHasExistingPassword] = useState(false);
@@ -59,6 +61,7 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const fileInputRef = useRef(null);
+  const signatureInputRef = useRef(null);
 
   // Holidays state
   const [holidays, setHolidays] = useState([]);
@@ -262,6 +265,32 @@ export default function Settings() {
     }
   };
 
+  const handleSignatureUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) {
+      setError('Signature image must be less than 500KB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result;
+      if (base64) {
+        handleChange('signature_image', base64);
+        setError('');
+      }
+    };
+    reader.onerror = () => setError('Failed to read signature image');
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveSignature = () => {
+    handleChange('signature_image', '');
+    if (signatureInputRef.current) {
+      signatureInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -432,6 +461,70 @@ export default function Settings() {
               onChange={(e) => handleChange('company_email', e.target.value)}
               placeholder="billing@yourcompany.com"
             />
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">Authorized Signer</div>
+          <p style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
+            Used on verification letters and other official documents.
+          </p>
+
+          <div className="form-group">
+            <label className="form-label">Name</label>
+            <input
+              className="form-input"
+              value={settings.authorized_signer_name}
+              onChange={(e) => handleChange('authorized_signer_name', e.target.value)}
+              placeholder="John Smith"
+              style={{ maxWidth: 300 }}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Signature Image</label>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+              {settings.signature_image ? (
+                <div style={{ position: 'relative' }}>
+                  <img
+                    src={settings.signature_image}
+                    alt="Signature"
+                    style={{
+                      maxWidth: 200,
+                      maxHeight: 60,
+                      objectFit: 'contain',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      padding: 8,
+                      background: 'white',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRemoveSignature}
+                    style={{ position: 'absolute', top: -8, right: -8, background: '#ef4444', color: 'white', border: 'none', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    X
+                  </button>
+                </div>
+              ) : null}
+              <div>
+                <input
+                  ref={signatureInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleSignatureUpload}
+                  style={{ display: 'none' }}
+                  id="signature-upload"
+                />
+                <label htmlFor="signature-upload" className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+                  {settings.signature_image ? 'Change Signature' : 'Upload Signature'}
+                </label>
+                <div className="form-hint" style={{ marginTop: 8 }}>
+                  PNG with transparent background recommended. Max 500KB.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

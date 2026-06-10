@@ -4392,6 +4392,8 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
       address: settings.company_address || '',
       phone: settings.company_phone || '',
       email: settings.company_email || '',
+      authorized_signer_name: settings.authorized_signer_name || '',
+      signature_image: settings.signature_image || '',
     }
   });
 });

@@ -2217,8 +2217,15 @@ export default function Reports() {
 
                     <div style={{ marginTop: 30 }}>
                       <div>Sincerely,</div>
-                      <div style={{ marginTop: 30, borderTop: '1px solid #000', width: 250, paddingTop: 4 }}>
-                        Authorized Representative
+                      {verificationData.company.signature_image && (
+                        <img
+                          src={verificationData.company.signature_image}
+                          alt="Signature"
+                          style={{ maxWidth: 180, maxHeight: 50, marginTop: 10, display: 'block' }}
+                        />
+                      )}
+                      <div style={{ marginTop: verificationData.company.signature_image ? 4 : 30, borderTop: '1px solid #000', width: 250, paddingTop: 4 }}>
+                        {verificationData.company.authorized_signer_name || 'Authorized Representative'}
                       </div>
                       <div>{verificationData.company.name}</div>
                     </div>
