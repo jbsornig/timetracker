@@ -2166,28 +2166,33 @@ export default function Reports() {
                       the following compensation was provided:
                     </div>
 
-                    {/* Monthly Breakdown */}
-                    {verificationData.monthly_details && verificationData.monthly_details.length > 0 && (
+                    {/* Payment Details */}
+                    {verificationData.payments && verificationData.payments.length > 0 && (
                       <div style={{ margin: '12px 20px' }}>
                         <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                           <thead>
                             <tr style={{ borderBottom: '2px solid #333' }}>
-                              <th style={{ padding: '4px 8px', textAlign: 'left' }}>Month</th>
-                              <th style={{ padding: '4px 8px', textAlign: 'center' }}>Payments</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'left' }}>Period</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'center' }}>Date Paid</th>
                               <th style={{ padding: '4px 8px', textAlign: 'right' }}>Amount</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {verificationData.monthly_details.map(m => (
-                              <tr key={m.month} style={{ borderBottom: '1px solid #ddd' }}>
-                                <td style={{ padding: '3px 8px' }}>{new Date(m.month + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</td>
-                                <td style={{ padding: '3px 8px', textAlign: 'center' }}>{m.payments.length}</td>
-                                <td style={{ padding: '3px 8px', textAlign: 'right' }}>{formatCurrency(m.total)}</td>
+                            {verificationData.payments.map((p, i) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #ddd' }}>
+                                <td style={{ padding: '3px 8px' }}>
+                                  {p.period_start
+                                    ? new Date(p.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                                    : new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                                </td>
+                                <td style={{ padding: '3px 8px', textAlign: 'center' }}>
+                                  {new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}
+                                </td>
+                                <td style={{ padding: '3px 8px', textAlign: 'right' }}>{formatCurrency(p.amount)}</td>
                               </tr>
                             ))}
                             <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>
-                              <td style={{ padding: '4px 8px' }}>Total</td>
-                              <td style={{ padding: '4px 8px', textAlign: 'center' }}>{verificationData.payment_count}</td>
+                              <td colSpan={2} style={{ padding: '4px 8px' }}>Total</td>
                               <td style={{ padding: '4px 8px', textAlign: 'right' }}>{formatCurrency(verificationData.total_paid)}</td>
                             </tr>
                           </tbody>

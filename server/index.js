@@ -4372,20 +4372,8 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
   `).all(req.params.userId, startDate, endDate, endDate, startDate);
 
   const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-  const months = new Set(payments.map(p => p.payment_date.substring(0, 7))).size || 1;
-  const avgMonthly = totalPaid / months;
-
-  // Group payments by month for the monthly breakdown
-  const monthlyBreakdown = {};
-  for (const p of payments) {
-    const monthKey = p.payment_date.substring(0, 7);
-    if (!monthlyBreakdown[monthKey]) {
-      monthlyBreakdown[monthKey] = { month: monthKey, total: 0, payments: [] };
-    }
-    monthlyBreakdown[monthKey].total += p.amount;
-    monthlyBreakdown[monthKey].payments.push(p);
-  }
-  const monthlyDetails = Object.values(monthlyBreakdown).sort((a, b) => a.month.localeCompare(b.month));
+  const coveredMonths = new Set(payments.map(p => (p.period_start || p.payment_date).substring(0, 7))).size || 1;
+  const avgMonthly = totalPaid / coveredMonths;
 
   // Get company info from settings
   const settings = {};
@@ -4397,8 +4385,7 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
     total_paid: totalPaid,
     payment_count: payments.length,
     avg_monthly: avgMonthly,
-    months_active: months,
-    monthly_details: monthlyDetails,
+    months_active: coveredMonths,
     payments,
     company: {
       name: settings.company_name || '',
