@@ -937,10 +937,14 @@ export default function Invoices() {
   } else if (receivedFilter === 'not_received') {
     filteredInvoices = filteredInvoices.filter(inv => !inv.received_at);
   }
-  // Apply project status filter (active/inactive)
+  // Apply project status filter (active/inactive) but always show unpaid/partial invoices
   if (projectStatusFilter) {
-    const activeProjectIds = new Set(projects.filter(p => p.status === projectStatusFilter).map(p => p.id));
-    filteredInvoices = filteredInvoices.filter(inv => activeProjectIds.has(inv.project_id));
+    const matchingProjectIds = new Set(projects.filter(p => p.status === projectStatusFilter).map(p => p.id));
+    filteredInvoices = filteredInvoices.filter(inv => {
+      const status = getStatus(inv);
+      if (status === 'unpaid' || status === 'partial') return true;
+      return matchingProjectIds.has(inv.project_id);
+    });
   }
 
   // Sort invoices

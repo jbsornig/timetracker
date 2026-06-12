@@ -109,8 +109,8 @@ export default function Projects() {
     await loadContacts(customerId);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (e, confirmInactive = false) => {
+    if (e) e.preventDefault();
     if (!form.name.trim() || !form.customer_id) {
       setError('Customer and project name are required');
       return;
@@ -125,11 +125,25 @@ export default function Projects() {
         total_cost: form.total_cost ? parseFloat(form.total_cost) : 0,
         monthly_engineer_pay: form.monthly_engineer_pay ? parseFloat(form.monthly_engineer_pay) : 0,
         monthly_invoice_amount: form.monthly_invoice_amount ? parseFloat(form.monthly_invoice_amount) : 0,
+        ...(confirmInactive ? { confirm_inactive: true } : {}),
       };
       if (modal === 'add') {
         await apiFetch('/projects', { method: 'POST', body });
       } else {
-        await apiFetch(`/projects/${form.id}`, { method: 'PUT', body });
+        try {
+          await apiFetch(`/projects/${form.id}`, { method: 'PUT', body });
+        } catch (err) {
+          if (err.message && err.message.includes('open invoice(s)')) {
+            if (window.confirm(err.message)) {
+              await handleSubmit(null, true);
+              return;
+            } else {
+              setSaving(false);
+              return;
+            }
+          }
+          throw err;
+        }
       }
       await loadData();
       setModal(null);

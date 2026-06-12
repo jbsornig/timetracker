@@ -709,8 +709,26 @@ app.post('/api/projects', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, confirm_inactive } = req.body;
   const db = getDb();
+
+  if (status === 'inactive' && !confirm_inactive) {
+    const current = db.prepare('SELECT status FROM projects WHERE id = ?').get(req.params.id);
+    if (current && current.status === 'active') {
+      const openInvoices = db.prepare(`
+        SELECT COUNT(*) as count, COALESCE(SUM(total_amount - amount_paid), 0) as balance
+        FROM invoices WHERE project_id = ? AND status IN ('unpaid', 'partial')
+      `).get(req.params.id);
+      if (openInvoices.count > 0) {
+        return res.status(409).json({
+          error: `This project has ${openInvoices.count} open invoice(s) with $${openInvoices.balance.toFixed(2)} outstanding. Make inactive anyway?`,
+          open_count: openInvoices.count,
+          open_balance: openInvoices.balance
+        });
+      }
+    }
+  }
+
   db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, req.params.id);
   res.json({ success: true });
 });
