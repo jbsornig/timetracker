@@ -967,6 +967,15 @@ export default function Invoices() {
         aVal = (a.total_amount || 0) - (a.amount_paid || 0);
         bVal = (b.total_amount || 0) - (b.amount_paid || 0);
         break;
+      case 'due_date':
+        const getDueDate = (inv) => {
+          if (!inv.created_at) return 0;
+          const days = parseInt((inv.payment_terms || 'Net 30').replace(/\D/g, '')) || 30;
+          return new Date(inv.created_at).getTime() + days * 86400000;
+        };
+        aVal = getDueDate(a);
+        bVal = getDueDate(b);
+        break;
       default:
         aVal = a[sortField];
         bVal = b[sortField];
@@ -1654,6 +1663,7 @@ export default function Invoices() {
               style={{ width: 'auto', minWidth: 130 }}
             >
               <option value="created_at">Invoice Date</option>
+              <option value="due_date">Due Date</option>
               <option value="invoice_number">Invoice #</option>
               <option value="customer_name">Customer</option>
               <option value="total_amount">Total Amount</option>
@@ -1687,6 +1697,7 @@ export default function Invoices() {
                   <SortHeader field="invoice_number">Invoice #</SortHeader>
                   <SortHeader field="customer_name">Customer / Project</SortHeader>
                   <SortHeader field="created_at">Date</SortHeader>
+                  <SortHeader field="due_date">Due</SortHeader>
                   <th>Hours</th>
                   <SortHeader field="total_amount">Total</SortHeader>
                   <th>Paid</th>
@@ -1715,6 +1726,16 @@ export default function Invoices() {
                       </td>
                       <td style={{ fontSize: 13 }}>
                         {invoiceDate}
+                      </td>
+                      <td style={{ fontSize: 13 }}>
+                        {(() => {
+                          if (!inv.created_at) return '—';
+                          const days = parseInt((inv.payment_terms || 'Net 30').replace(/\D/g, '')) || 30;
+                          if (days === 0) return invoiceDate;
+                          const due = new Date(new Date(inv.created_at).getTime() + days * 86400000);
+                          const isOverdue = inv.status !== 'paid' && inv.status !== 'voided' && due < new Date();
+                          return <span style={isOverdue ? { color: '#dc2626', fontWeight: 600 } : {}}>{formatDate(due.toISOString())}</span>;
+                        })()}
                       </td>
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#64748b' }}>
                         {inv.total_hours > 0 ? inv.total_hours.toFixed(2) : '—'}
