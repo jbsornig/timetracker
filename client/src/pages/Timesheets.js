@@ -5,22 +5,25 @@ import Modal from '../components/Modal';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+function toLocalDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function getNextSunday() {
   const d = new Date();
   const day = d.getDay();
-  const diff = 7 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().split('T')[0];
+  if (day === 0) return toLocalDateStr(d);
+  d.setDate(d.getDate() + (7 - day));
+  return toLocalDateStr(d);
 }
 
 function snapToSunday(dateStr) {
   if (!dateStr) return getNextSunday();
   const d = new Date(dateStr + 'T00:00:00');
   const day = d.getDay();
-  if (day === 0) return dateStr; // Already Sunday
-  // Move forward to next Sunday
+  if (day === 0) return dateStr;
   d.setDate(d.getDate() + (7 - day));
-  return d.toISOString().split('T')[0];
+  return toLocalDateStr(d);
 }
 
 function formatDate(dateStr) {

@@ -1052,6 +1052,13 @@ app.post('/api/timesheets', auth, (req, res) => {
       res.json({ id: result.lastInsertRowid });
     } else {
       // Hourly: traditional weekly timesheet with daily entries
+      if (!week_ending) {
+        return res.status(400).json({ error: 'Week ending date is required' });
+      }
+      const weDay = new Date(week_ending + 'T00:00:00').getDay();
+      if (weDay !== 0) {
+        return res.status(400).json({ error: 'Week ending must be a Sunday' });
+      }
       const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending) VALUES (?, ?, ?)').run(user_id, project_id, week_ending);
       // Auto-create 7 entries for the week (Sun through Sat based on week_ending Sunday)
       const weekEnd = new Date(week_ending + 'T00:00:00');
