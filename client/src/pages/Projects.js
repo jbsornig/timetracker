@@ -24,6 +24,7 @@ export default function Projects() {
   const [notifying, setNotifying] = useState(null);
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
+  const [contactFilter, setContactFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -303,6 +304,20 @@ export default function Projects() {
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Contact:</span>
+            <select
+              className="form-select"
+              value={contactFilter}
+              onChange={(e) => setContactFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 180 }}
+            >
+              <option value="">All Contacts</option>
+              {[...new Set(projects.map(p => p.contact_name).filter(Boolean))].sort().map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: '#64748b' }}>Engineer:</span>
             <select
               className="form-select"
@@ -327,6 +342,7 @@ export default function Projects() {
             {projects.filter(p => {
               if (statusFilter && p.status !== statusFilter) return false;
               if (customerFilter && String(p.customer_id) !== customerFilter) return false;
+              if (contactFilter && p.contact_name !== contactFilter) return false;
               if (engineerFilter && !engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter)) return false;
               if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
               if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
@@ -365,6 +381,7 @@ export default function Projects() {
                 {projects.filter(p => {
                   if (statusFilter && p.status !== statusFilter) return false;
                   if (customerFilter && String(p.customer_id) !== customerFilter) return false;
+                  if (contactFilter && p.contact_name !== contactFilter) return false;
                   if (engineerFilter && !engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter)) return false;
                   if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
                   if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
