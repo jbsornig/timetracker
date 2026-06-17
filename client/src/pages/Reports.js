@@ -68,6 +68,9 @@ export default function Reports() {
   const [payrollData, setPayrollData] = useState([]);
   const [payrollHolidays, setPayrollHolidays] = useState([]);
   const [budgetData, setBudgetData] = useState([]);
+  const [budgetCustomerFilter, setBudgetCustomerFilter] = useState('');
+  const [budgetContactFilter, setBudgetContactFilter] = useState('');
+  const [budgetEngineerFilter, setBudgetEngineerFilter] = useState('');
   const [invoicedData, setInvoicedData] = useState([]);
   const [contractHoursData, setContractHoursData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -570,7 +573,14 @@ export default function Reports() {
   );
   payrollTotals.pay = Math.max(0, payrollTotals.grossPay - totalAdvanceDeductions);
 
-  const budgetTotals = budgetData.reduce(
+  const filteredBudgetData = budgetData.filter(row => {
+    if (budgetCustomerFilter && row.customer_name !== budgetCustomerFilter) return false;
+    if (budgetContactFilter && row.contact_name !== budgetContactFilter) return false;
+    if (budgetEngineerFilter && !(row.engineers || '').includes(budgetEngineerFilter)) return false;
+    return true;
+  });
+
+  const budgetTotals = filteredBudgetData.reduce(
     (acc, row) => ({
       po: acc.po + (row.po_amount || 0),
       billed: acc.billed + (row.amount_billed || 0),
@@ -1390,31 +1400,70 @@ export default function Reports() {
             </div>
           ) : (
             <>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>Customer:</span>
+                  <select className="form-select" value={budgetCustomerFilter} onChange={(e) => setBudgetCustomerFilter(e.target.value)} style={{ width: 'auto', minWidth: 150 }}>
+                    <option value="">All</option>
+                    {[...new Set(budgetData.map(r => r.customer_name))].sort().map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>Contact:</span>
+                  <select className="form-select" value={budgetContactFilter} onChange={(e) => setBudgetContactFilter(e.target.value)} style={{ width: 'auto', minWidth: 150 }}>
+                    <option value="">All</option>
+                    {[...new Set(budgetData.map(r => r.contact_name).filter(Boolean))].sort().map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>Engineer:</span>
+                  <select className="form-select" value={budgetEngineerFilter} onChange={(e) => setBudgetEngineerFilter(e.target.value)} style={{ width: 'auto', minWidth: 150 }}>
+                    <option value="">All</option>
+                    {[...new Set(budgetData.flatMap(r => (r.engineers || '').split(',').map(e => e.trim())).filter(Boolean))].sort().map(e => (
+                      <option key={e} value={e}>{e}</option>
+                    ))}
+                  </select>
+                </div>
+                <span style={{ fontSize: 13, color: '#94a3b8', marginLeft: 'auto', alignSelf: 'center' }}>
+                  {filteredBudgetData.length} of {budgetData.length} projects
+                </span>
+              </div>
+
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>Project</th>
                       <th>Customer</th>
+                      <th>Contact</th>
                       <th>PO #</th>
                       <th>PO Amount</th>
                       <th>Hours Used</th>
+                      <th>Hours Rem.</th>
                       <th>Amount Billed</th>
                       <th>Remaining</th>
                       <th style={{ minWidth: 140 }}>Usage</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {budgetData.map((row) => {
+                    {filteredBudgetData.map((row) => {
                       const pct = row.po_amount > 0 ? (row.amount_billed / row.po_amount) * 100 : 0;
                       const cls = pct >= 90 ? 'progress-danger' : pct >= 70 ? 'progress-warn' : 'progress-good';
                       return (
                         <tr key={row.id}>
                           <td><strong>{row.project_name}</strong></td>
                           <td>{row.customer_name}</td>
+                          <td style={{ fontSize: 13 }}>{row.contact_name || '—'}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.po_number || '-'}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(row.po_amount)}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>{(row.total_hours || 0).toFixed(2)}</td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', color: row.hours_remaining !== null && row.hours_remaining < 0 ? 'var(--danger)' : undefined }}>
+                            {row.hours_remaining !== null ? row.hours_remaining.toFixed(2) : '—'}
+                          </td>
                           <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(row.amount_billed)}</td>
                           <td style={{ fontFamily: 'DM Mono, monospace', color: row.remaining < 0 ? 'var(--danger)' : undefined }}>
                             {formatCurrency(row.remaining)}
@@ -1433,8 +1482,9 @@ export default function Reports() {
                   </tbody>
                   <tfoot>
                     <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
-                      <td colSpan={3}>Totals</td>
+                      <td colSpan={4}>Totals</td>
                       <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(budgetTotals.po)}</td>
+                      <td></td>
                       <td></td>
                       <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(budgetTotals.billed)}</td>
                       <td style={{ fontFamily: 'DM Mono, monospace', color: budgetTotals.remaining < 0 ? 'var(--danger)' : undefined }}>

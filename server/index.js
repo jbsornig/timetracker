@@ -3827,21 +3827,35 @@ app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
     SELECT p.id, p.name as project_name, p.po_number, p.project_type,
            CASE WHEN p.project_type = 'fixed_price' THEN p.total_cost ELSE p.po_amount END as po_amount,
            c.name as customer_name,
+           cc.name as contact_name,
            COALESCE(SUM(te.hours), 0) as total_hours,
            COALESCE((SELECT SUM(i.total_amount) FROM invoices i
              WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed,
            CASE WHEN p.project_type = 'fixed_price' THEN p.total_cost ELSE p.po_amount END
              - COALESCE((SELECT SUM(i.total_amount) FROM invoices i
-             WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as remaining
+             WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as remaining,
+           (SELECT GROUP_CONCAT(DISTINCT u.name) FROM engineer_projects ep2
+             JOIN users u ON u.id = ep2.user_id WHERE ep2.project_id = p.id) as engineers,
+           (SELECT ep3.bill_rate FROM engineer_projects ep3 WHERE ep3.project_id = p.id LIMIT 1) as bill_rate
     FROM projects p
     JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
     LEFT JOIN timesheets ts ON ts.project_id = p.id AND ts.status = 'approved'
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
-    LEFT JOIN engineer_projects ep ON ep.project_id = p.id AND ep.user_id = ts.user_id
     GROUP BY p.id
     ORDER BY c.name, p.name
   `).all();
-  res.json(data);
+
+  const result = data.map(row => {
+    let hours_remaining = null;
+    if (row.project_type !== 'fixed_price' && row.bill_rate && row.bill_rate > 0 && row.po_amount > 0) {
+      const totalHoursBudget = row.po_amount / row.bill_rate;
+      hours_remaining = totalHoursBudget - (row.total_hours || 0);
+    }
+    return { ...row, hours_remaining };
+  });
+
+  res.json(result);
 });
 
 // Contract hours report - shows remaining hours (single engineer) or dollars (multiple)
