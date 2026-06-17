@@ -1431,6 +1431,29 @@ export default function Reports() {
                 <span style={{ fontSize: 13, color: '#94a3b8', marginLeft: 'auto', alignSelf: 'center' }}>
                   {filteredBudgetData.length} of {budgetData.length} projects
                 </span>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={async () => {
+                    const recipient = window.prompt('Email report to:', '');
+                    if (!recipient) return;
+                    try {
+                      const result = await apiFetch('/reports/project-budget/email', {
+                        method: 'POST',
+                        body: {
+                          to: recipient,
+                          rows: filteredBudgetData,
+                          totals: budgetTotals,
+                          filters: { customer: budgetCustomerFilter, contact: budgetContactFilter, engineer: budgetEngineerFilter },
+                        },
+                      });
+                      alert(result.message || 'Report sent!');
+                    } catch (e) {
+                      alert('Failed to send: ' + e.message);
+                    }
+                  }}
+                >
+                  Email Report
+                </button>
               </div>
 
               <div className="table-wrap">

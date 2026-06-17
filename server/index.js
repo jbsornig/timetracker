@@ -3858,6 +3858,91 @@ app.get('/api/reports/project-budget', auth, adminOnly, (req, res) => {
   res.json(result);
 });
 
+// Email project budget report
+app.post('/api/reports/project-budget/email', auth, adminOnly, async (req, res) => {
+  const db = getDb();
+  const { to, rows, totals, filters } = req.body;
+  if (!to) return res.status(400).json({ error: 'Recipient email is required' });
+
+  const settings = {};
+  db.prepare("SELECT key, value FROM settings").all().forEach(s => { settings[s.key] = s.value; });
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings.' });
+  }
+
+  const formatCurrency = (amt) => `$${(amt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const filterDesc = [filters.customer, filters.contact, filters.engineer].filter(Boolean).join(' / ') || 'All Projects';
+
+  const tableRows = rows.map(row => {
+    const pct = row.po_amount > 0 ? ((row.amount_billed / row.po_amount) * 100).toFixed(0) : '0';
+    return `<tr>
+      <td style="padding:6px 8px;border:1px solid #ddd;">${row.project_name}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;">${row.customer_name}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;">${row.contact_name || '—'}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;">${row.po_number || '—'}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${formatCurrency(row.po_amount)}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${(row.total_hours || 0).toFixed(2)}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${row.hours_remaining !== null ? row.hours_remaining.toFixed(2) : '—'}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${formatCurrency(row.amount_billed)}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;${row.remaining < 0 ? 'color:#dc2626;' : ''}">${formatCurrency(row.remaining)}</td>
+      <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${pct}%</td>
+    </tr>`;
+  }).join('');
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:900px;margin:0 auto;">
+      <h2 style="color:#1e3a5f;">Project Budget Report</h2>
+      <p style="color:#64748b;">Filter: ${filterDesc} | Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#1e3a5f;color:white;">
+            <th style="padding:8px;text-align:left;">Project</th>
+            <th style="padding:8px;text-align:left;">Customer</th>
+            <th style="padding:8px;text-align:left;">Contact</th>
+            <th style="padding:8px;text-align:left;">PO #</th>
+            <th style="padding:8px;text-align:right;">PO Amount</th>
+            <th style="padding:8px;text-align:right;">Hours Used</th>
+            <th style="padding:8px;text-align:right;">Hours Rem.</th>
+            <th style="padding:8px;text-align:right;">Billed</th>
+            <th style="padding:8px;text-align:right;">Remaining</th>
+            <th style="padding:8px;text-align:center;">Usage</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+        <tfoot>
+          <tr style="background:#f0f0f0;font-weight:bold;">
+            <td colspan="4" style="padding:8px;border:1px solid #ddd;">Totals (${rows.length} projects)</td>
+            <td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(totals.po)}</td>
+            <td style="padding:8px;border:1px solid #ddd;"></td>
+            <td style="padding:8px;border:1px solid #ddd;"></td>
+            <td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(totals.billed)}</td>
+            <td style="padding:8px;border:1px solid #ddd;text-align:right;${totals.remaining < 0 ? 'color:#dc2626;' : ''}">${formatCurrency(totals.remaining)}</td>
+            <td style="padding:8px;border:1px solid #ddd;"></td>
+          </tr>
+        </tfoot>
+      </table>
+      <p style="color:#94a3b8;font-size:12px;margin-top:20px;">Sent from ${settings.company_name || 'TimeTracker'}</p>
+    </div>
+  `;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
+    });
+    await transporter.sendMail({
+      from: settings.smtp_email,
+      to,
+      subject: `Project Budget Report — ${filterDesc} — ${new Date().toLocaleDateString('en-US')}`,
+      html,
+    });
+    res.json({ success: true, message: `Report emailed to ${to}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send email: ' + err.message });
+  }
+});
+
 // Contract hours report - shows remaining hours (single engineer) or dollars (multiple)
 app.get('/api/reports/contract-hours', auth, adminOnly, (req, res) => {
   const db = getDb();
