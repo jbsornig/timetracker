@@ -414,6 +414,11 @@ function initSchema() {
     console.log('✅ Migration: Added total_payment column to engineer_projects');
   }
 
+  if (!epCols.find(c => c.name === 'max_hours')) {
+    db.exec('ALTER TABLE engineer_projects ADD COLUMN max_hours REAL DEFAULT 0');
+    console.log('✅ Migration: Added max_hours column to engineer_projects');
+  }
+
   // Add monthly_pay and monthly_bill columns for fixed_monthly projects
   if (!epCols.find(c => c.name === 'monthly_pay')) {
     db.exec('ALTER TABLE engineer_projects ADD COLUMN monthly_pay REAL DEFAULT 0');

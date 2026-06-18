@@ -768,10 +768,10 @@ app.get('/api/projects/:id/engineers', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/projects/:id/engineers', auth, adminOnly, (req, res) => {
-  const { user_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill } = req.body;
+  const { user_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours } = req.body;
   const db = getDb();
   try {
-    db.prepare('INSERT OR REPLACE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill) VALUES (?, ?, ?, ?, ?, ?, ?)').run(user_id, req.params.id, pay_rate || 0, bill_rate || 0, total_payment || 0, monthly_pay || 0, monthly_bill || 0);
+    db.prepare('INSERT OR REPLACE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(user_id, req.params.id, pay_rate || 0, bill_rate || 0, total_payment || 0, monthly_pay || 0, monthly_bill || 0, max_hours || 0);
     res.json({ success: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1109,6 +1109,34 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
     rows.forEach(r => invoicedEntryIds.add(r.id));
   }
 
+  // Check max_hours limit for hourly projects
+  const epRecord = db.prepare('SELECT max_hours FROM engineer_projects WHERE user_id = ? AND project_id = ?').get(ts.user_id, ts.project_id);
+  let hoursWarning = null;
+  if (epRecord && epRecord.max_hours > 0) {
+    const currentTotal = db.prepare(`
+      SELECT COALESCE(SUM(te.hours), 0) as total
+      FROM timesheet_entries te
+      JOIN timesheets t ON t.id = te.timesheet_id
+      WHERE t.user_id = ? AND t.project_id = ? AND t.id != ?
+    `).get(ts.user_id, ts.project_id, ts.id);
+    const thisTimesheetHours = entries.reduce((sum, e) => {
+      if (invoicedEntryIds.has(e.id)) return sum;
+      if (e.start_time && e.end_time) {
+        const [sh, sm] = e.start_time.split(':').map(Number);
+        const [eh, em] = e.end_time.split(':').map(Number);
+        let h = (eh * 60 + em - sh * 60 - sm) / 60;
+        if (h < 0) h += 24;
+        h = Math.max(0, h - (parseFloat(e.lunch_break) || 0));
+        return sum + h;
+      }
+      return sum;
+    }, 0);
+    const projectedTotal = (currentTotal.total || 0) + thisTimesheetHours;
+    if (projectedTotal > epRecord.max_hours) {
+      hoursWarning = `Warning: This brings total hours to ${projectedTotal.toFixed(2)} which exceeds the ${epRecord.max_hours} hour limit for this engineer.`;
+    }
+  }
+
   const update = db.prepare('UPDATE timesheet_entries SET start_time=?, end_time=?, hours=?, description=?, shift=?, lunch_break=? WHERE id=?');
   const txn = db.transaction(() => {
     for (const e of entries) {
@@ -1129,7 +1157,7 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
     }
   });
   txn();
-  res.json({ success: true });
+  res.json({ success: true, warning: hoursWarning });
 });
 
 app.put('/api/timesheets/:id/submit', auth, async (req, res) => {

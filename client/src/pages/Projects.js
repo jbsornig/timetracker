@@ -16,7 +16,7 @@ export default function Projects() {
   const [saving, setSaving] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectEngineers, setProjectEngineers] = useState([]);
-  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '' });
+  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '' });
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -197,6 +197,7 @@ export default function Projects() {
           total_payment: isFixedPrice ? parseFloat(assignForm.total_payment) : 0,
           monthly_pay: isFixedMonthly ? parseFloat(assignForm.monthly_pay) : 0,
           monthly_bill: isFixedMonthly ? parseFloat(assignForm.monthly_bill) : 0,
+          max_hours: (!isFixedPrice && !isFixedMonthly && assignForm.max_hours) ? parseFloat(assignForm.max_hours) : 0,
         },
       });
       const engs = await apiFetch(`/projects/${selectedProject.id}/engineers`);
@@ -757,7 +758,12 @@ export default function Projects() {
                           <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Bill: ${(eng.monthly_bill || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</div>
                         )}
                         {selectedProject.project_type === 'hourly' && (
-                          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Bill: ${eng.bill_rate?.toFixed(2) || '0.00'}/hr</div>
+                          <>
+                            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Bill: ${eng.bill_rate?.toFixed(2) || '0.00'}/hr</div>
+                            {eng.max_hours > 0 && (
+                              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Max: {eng.max_hours} hrs</div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -859,6 +865,7 @@ export default function Projects() {
                   </div>
                 </div>
               ) : (
+                <>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Pay Rate ($/hr)</label>
@@ -882,7 +889,20 @@ export default function Projects() {
                       placeholder="0.00"
                     />
                   </div>
+                  <div className="form-group">
+                    <label className="form-label">Max Hours</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.5"
+                      value={assignForm.max_hours}
+                      onChange={(e) => setAssignForm({ ...assignForm, max_hours: e.target.value })}
+                      placeholder="0 = unlimited"
+                    />
+                    <div className="form-hint">Leave 0 or blank for no limit</div>
+                  </div>
                 </div>
+                </>
               )}
               <button className="btn btn-primary" type="submit" disabled={saving}>
                 {saving ? 'Adding...' : 'Add to Project'}

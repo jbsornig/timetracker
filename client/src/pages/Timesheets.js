@@ -757,10 +757,13 @@ export default function Timesheets() {
     setSaving(true);
     setError('');
     try {
-      await apiFetch(`/timesheets/${selectedTimesheet.id}/entries`, {
+      const result = await apiFetch(`/timesheets/${selectedTimesheet.id}/entries`, {
         method: 'PUT',
         body: { entries },
       });
+      if (result.warning) {
+        alert(result.warning);
+      }
       const ts = await apiFetch(`/timesheets/${selectedTimesheet.id}`);
       setSelectedTimesheet(ts);
       const mappedEntries = ts.entries.map((e) => ({
