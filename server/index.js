@@ -819,14 +819,19 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     }
   } else {
     compensationHtml = `<li><strong>Pay Rate:</strong> $${parseFloat(assignment.pay_rate || 0).toFixed(2)}/hr</li>`;
-    if (project.po_amount && assignment.bill_rate) {
-      const budgetedHours = project.po_amount / assignment.bill_rate;
-      estTotal = budgetedHours * parseFloat(assignment.pay_rate || 0);
+    const assignedHours = assignment.max_hours > 0
+      ? assignment.max_hours
+      : (project.po_amount && assignment.bill_rate ? project.po_amount / assignment.bill_rate : 0);
+    if (assignedHours > 0) {
+      estTotal = assignedHours * parseFloat(assignment.pay_rate || 0);
     }
   }
 
-  const budgetHtml = project.project_type === 'hourly' && project.po_amount && assignment.bill_rate
-    ? `<li><strong>Budgeted Hours:</strong> ${(project.po_amount / assignment.bill_rate).toFixed(1)} hours</li>`
+  const assignedHoursForDisplay = assignment.max_hours > 0
+    ? assignment.max_hours
+    : (project.po_amount && assignment.bill_rate ? project.po_amount / assignment.bill_rate : 0);
+  const budgetHtml = project.project_type === 'hourly' && assignedHoursForDisplay > 0
+    ? `<li><strong>Assigned Hours:</strong> ${assignedHoursForDisplay.toFixed(1)} hours${assignment.max_hours > 0 ? '' : ' (project total)'}</li>`
     : '';
 
   const estTotalHtml = estTotal > 0

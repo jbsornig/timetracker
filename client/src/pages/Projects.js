@@ -202,7 +202,7 @@ export default function Projects() {
       });
       const engs = await apiFetch(`/projects/${selectedProject.id}/engineers`);
       setProjectEngineers(engs);
-      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '' });
+      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '' });
     } catch (e) {
       setError(e.message);
     } finally {
