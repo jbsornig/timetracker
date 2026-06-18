@@ -806,6 +806,48 @@ export default function Projects() {
             );
           })()}
 
+          {selectedProject.project_type === 'hourly' && selectedProject.po_amount > 0 && (() => {
+            const avgBillRate = projectEngineers.length > 0
+              ? projectEngineers.reduce((sum, eng) => sum + (eng.bill_rate || 0), 0) / projectEngineers.length
+              : 0;
+            const totalBudgetHours = avgBillRate > 0 ? selectedProject.po_amount / avgBillRate : 0;
+            const totalAssignedHours = projectEngineers.reduce((sum, eng) => sum + (eng.max_hours || 0), 0);
+            const remainingHours = totalBudgetHours - totalAssignedHours;
+            const over = totalAssignedHours > 0 && remainingHours < 0;
+            const pending = assignForm.max_hours ? parseFloat(assignForm.max_hours) || 0 : 0;
+            const remainingAfterPending = remainingHours - pending;
+            return (
+              <div style={{ background: over ? '#fef2f2' : '#f0fdf4', border: `1px solid ${over ? '#fecaca' : '#bbf7d0'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                  <span>PO Budget:</span>
+                  <strong>${selectedProject.po_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                </div>
+                {totalBudgetHours > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}>
+                    <span>Total Hours Available (avg ${avgBillRate.toFixed(2)}/hr):</span>
+                    <strong>{totalBudgetHours.toFixed(1)} hrs</strong>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}>
+                  <span>Hours Assigned:</span>
+                  <strong>{totalAssignedHours > 0 ? `${totalAssignedHours.toFixed(1)} hrs` : 'No limits set'}</strong>
+                </div>
+                {totalAssignedHours > 0 && totalBudgetHours > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4, color: over ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
+                    <span>{over ? 'Over Allocated:' : 'Hours Remaining:'}</span>
+                    <span>{over ? '-' : ''}{Math.abs(remainingHours).toFixed(1)} hrs</span>
+                  </div>
+                )}
+                {pending > 0 && totalBudgetHours > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4, color: remainingAfterPending < 0 ? '#dc2626' : '#64748b', fontStyle: 'italic' }}>
+                    <span>After this assignment:</span>
+                    <span>{remainingAfterPending.toFixed(1)} hrs</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
             <div className="card-title" style={{ fontSize: 14 }}>Add Engineer</div>
             <form onSubmit={handleAssignEngineer}>
