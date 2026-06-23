@@ -4178,12 +4178,12 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
       GROUP BY project_id
     ) inv ON inv.project_id = p.id
     LEFT JOIN (
-      SELECT te.project_id, SUM(te.hours * ep.pay_rate) as labor_cost
+      SELECT t.project_id, SUM(te.hours * ep.pay_rate) as labor_cost
       FROM timesheet_entries te
       JOIN timesheets t ON t.id = te.timesheet_id
-      JOIN engineer_projects ep ON ep.project_id = te.project_id AND ep.user_id = t.user_id
+      JOIN engineer_projects ep ON ep.project_id = t.project_id AND ep.user_id = t.user_id
       WHERE t.week_ending >= ? AND t.week_ending <= ?
-      GROUP BY te.project_id
+      GROUP BY t.project_id
     ) labor ON labor.project_id = p.id
     WHERE COALESCE(inv.total_invoiced, 0) > 0 OR COALESCE(labor.labor_cost, 0) > 0
     ORDER BY total_invoiced DESC
@@ -4199,7 +4199,7 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
   const engineerUtilization = db.prepare(`
     SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
            COALESCE(SUM(te.hours), 0) as total_hours,
-           COUNT(DISTINCT te.project_id) as project_count
+           COUNT(DISTINCT t.project_id) as project_count
     FROM users u
     LEFT JOIN timesheets t ON t.user_id = u.id AND t.week_ending >= ? AND t.week_ending <= ?
     LEFT JOIN timesheet_entries te ON te.timesheet_id = t.id
