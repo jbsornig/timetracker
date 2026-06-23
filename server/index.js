@@ -4169,7 +4169,9 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
            c.name as customer_name,
            COALESCE(inv.total_invoiced, 0) as total_invoiced,
            COALESCE(inv.total_collected, 0) as total_collected,
-           COALESCE(labor.labor_cost, 0) as labor_cost
+           COALESCE(labor_hourly.labor_cost, 0) as hourly_labor_cost,
+           COALESCE(labor_fixed.fixed_cost, 0) as fixed_labor_cost,
+           COALESCE(labor_monthly.monthly_cost, 0) as monthly_labor_cost
     FROM projects p
     JOIN customers c ON c.id = p.customer_id
     LEFT JOIN (
@@ -4182,18 +4184,46 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
       FROM timesheet_entries te
       JOIN timesheets t ON t.id = te.timesheet_id
       JOIN engineer_projects ep ON ep.project_id = t.project_id AND ep.user_id = t.user_id
-      WHERE t.week_ending >= ? AND t.week_ending <= ?
+      WHERE t.week_ending >= ? AND t.week_ending <= ? AND ep.pay_rate > 0
       GROUP BY t.project_id
-    ) labor ON labor.project_id = p.id
-    WHERE COALESCE(inv.total_invoiced, 0) > 0 OR COALESCE(labor.labor_cost, 0) > 0
+    ) labor_hourly ON labor_hourly.project_id = p.id
+    LEFT JOIN (
+      SELECT ep.project_id, SUM(ep.total_payment) as fixed_cost
+      FROM engineer_projects ep
+      JOIN projects pr ON pr.id = ep.project_id
+      WHERE pr.project_type = 'fixed_price' AND ep.total_payment > 0
+      GROUP BY ep.project_id
+    ) labor_fixed ON labor_fixed.project_id = p.id
+    LEFT JOIN (
+      SELECT ep.project_id,
+             SUM(ep.monthly_pay * months.month_count) as monthly_cost
+      FROM engineer_projects ep
+      JOIN projects pr ON pr.id = ep.project_id
+      LEFT JOIN (
+        SELECT t2.project_id, t2.user_id, COUNT(DISTINCT substr(t2.week_ending, 1, 7)) as month_count
+        FROM timesheets t2
+        WHERE t2.week_ending >= ? AND t2.week_ending <= ?
+        GROUP BY t2.project_id, t2.user_id
+      ) months ON months.project_id = ep.project_id AND months.user_id = ep.user_id
+      WHERE pr.project_type = 'fixed_monthly' AND ep.monthly_pay > 0
+      GROUP BY ep.project_id
+    ) labor_monthly ON labor_monthly.project_id = p.id
+    WHERE COALESCE(inv.total_invoiced, 0) > 0 OR COALESCE(labor_hourly.labor_cost, 0) > 0
+      OR COALESCE(labor_fixed.fixed_cost, 0) > 0 OR COALESCE(labor_monthly.monthly_cost, 0) > 0
     ORDER BY total_invoiced DESC
-  `).all(yearStart, yearEnd + ' 23:59:59', yearStart, yearEnd);
+  `).all(yearStart, yearEnd + ' 23:59:59', yearStart, yearEnd, yearStart, yearEnd);
 
-  const profitData = projectProfitability.map(p => ({
-    ...p,
-    gross_profit: p.total_invoiced - p.labor_cost,
-    margin_pct: p.total_invoiced > 0 ? ((p.total_invoiced - p.labor_cost) / p.total_invoiced * 100) : 0,
-  }));
+  const profitData = projectProfitability.map(p => {
+    const labor_cost = p.hourly_labor_cost + p.fixed_labor_cost + p.monthly_labor_cost;
+    return {
+      id: p.id, project_name: p.project_name, project_type: p.project_type,
+      po_number: p.po_number, po_amount: p.po_amount, customer_name: p.customer_name,
+      total_invoiced: p.total_invoiced, total_collected: p.total_collected,
+      labor_cost,
+      gross_profit: p.total_invoiced - labor_cost,
+      margin_pct: p.total_invoiced > 0 ? ((p.total_invoiced - labor_cost) / p.total_invoiced * 100) : 0,
+    };
+  });
 
   // 6. Engineer Utilization
   const engineerUtilization = db.prepare(`

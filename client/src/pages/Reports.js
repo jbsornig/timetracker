@@ -111,6 +111,7 @@ export default function Reports() {
   const [yearEndYear, setYearEndYear] = useState(new Date().getFullYear().toString());
   const [yearEndData, setYearEndData] = useState(null);
   const [yearEndExpanded, setYearEndExpanded] = useState({});
+  const [yearEndSort, setYearEndSort] = useState({});
 
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
@@ -240,6 +241,41 @@ export default function Reports() {
 
   const toggleYearEndSection = (key) => {
     setYearEndExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const setYearEndSortFn = (section, field) => {
+    setYearEndSort(prev => {
+      const current = prev[section];
+      if (current && current.field === field) {
+        return { ...prev, [section]: { field, dir: current.dir === 'asc' ? 'desc' : 'asc' } };
+      }
+      return { ...prev, [section]: { field, dir: 'desc' } };
+    });
+  };
+
+  const sortYearEndData = (data, section, defaultSort) => {
+    const sort = yearEndSort[section] || defaultSort;
+    if (!sort) return data;
+    return [...data].sort((a, b) => {
+      let av = a[sort.field], bv = b[sort.field];
+      if (av == null) av = '';
+      if (bv == null) bv = '';
+      if (typeof av === 'string') {
+        const cmp = av.localeCompare(bv);
+        return sort.dir === 'asc' ? cmp : -cmp;
+      }
+      return sort.dir === 'asc' ? av - bv : bv - av;
+    });
+  };
+
+  const SortHeader = ({ section, field, children, style }) => {
+    const sort = yearEndSort[section];
+    const active = sort && sort.field === field;
+    return (
+      <th style={{ ...style, cursor: 'pointer', userSelect: 'none' }} onClick={() => setYearEndSortFn(section, field)}>
+        {children} {active ? (sort.dir === 'asc' ? '▲' : '▼') : <span style={{ color: '#cbd5e1' }}>⇅</span>}
+      </th>
+    );
   };
 
   const loadEngineers = async () => {
@@ -2393,17 +2429,17 @@ export default function Reports() {
                       <table style={{ fontSize: 13 }}>
                         <thead>
                           <tr>
-                            <th>Contractor</th>
+                            <SortHeader section="1099" field="engineer_name">Contractor</SortHeader>
                             <th>ID</th>
-                            <th style={{ textAlign: 'right' }}>Total Paid</th>
-                            <th style={{ textAlign: 'center' }}>Payments</th>
-                            <th>First Payment</th>
-                            <th>Last Payment</th>
+                            <SortHeader section="1099" field="total_paid" style={{ textAlign: 'right' }}>Total Paid</SortHeader>
+                            <SortHeader section="1099" field="payment_count" style={{ textAlign: 'center' }}>Payments</SortHeader>
+                            <SortHeader section="1099" field="first_payment">First Payment</SortHeader>
+                            <SortHeader section="1099" field="last_payment">Last Payment</SortHeader>
                             <th style={{ textAlign: 'center' }}>1099 Required</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {yearEndData.contractors1099.map(c => (
+                          {sortYearEndData(yearEndData.contractors1099, '1099').map(c => (
                             <tr key={c.user_id}>
                               <td><strong>{c.engineer_name}</strong></td>
                               <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{c.engineer_id || '—'}</td>
@@ -2456,15 +2492,15 @@ export default function Reports() {
                       <table style={{ fontSize: 13 }}>
                         <thead>
                           <tr>
-                            <th>Customer</th>
-                            <th style={{ textAlign: 'center' }}>Invoices</th>
-                            <th style={{ textAlign: 'right' }}>Total Invoiced</th>
-                            <th style={{ textAlign: 'right' }}>Collected</th>
-                            <th style={{ textAlign: 'right' }}>Outstanding</th>
+                            <SortHeader section="revenue" field="customer_name">Customer</SortHeader>
+                            <SortHeader section="revenue" field="invoice_count" style={{ textAlign: 'center' }}>Invoices</SortHeader>
+                            <SortHeader section="revenue" field="total_invoiced" style={{ textAlign: 'right' }}>Total Invoiced</SortHeader>
+                            <SortHeader section="revenue" field="total_collected" style={{ textAlign: 'right' }}>Collected</SortHeader>
+                            <SortHeader section="revenue" field="outstanding" style={{ textAlign: 'right' }}>Outstanding</SortHeader>
                           </tr>
                         </thead>
                         <tbody>
-                          {yearEndData.revenueByCustomer.map(c => (
+                          {sortYearEndData(yearEndData.revenueByCustomer, 'revenue').map(c => (
                             <tr key={c.customer_id}>
                               <td><strong>{c.customer_name}</strong></td>
                               <td style={{ textAlign: 'center' }}>{c.invoice_count}</td>
@@ -2512,19 +2548,19 @@ export default function Reports() {
                         <table style={{ fontSize: 13 }}>
                           <thead>
                             <tr>
-                              <th>Invoice #</th>
-                              <th>Customer</th>
-                              <th>Project</th>
-                              <th>Invoice Date</th>
-                              <th>Due Date</th>
-                              <th style={{ textAlign: 'right' }}>Total</th>
-                              <th style={{ textAlign: 'right' }}>Paid</th>
-                              <th style={{ textAlign: 'right' }}>Balance</th>
-                              <th>Status</th>
+                              <SortHeader section="ar" field="invoice_number">Invoice #</SortHeader>
+                              <SortHeader section="ar" field="customer_name">Customer</SortHeader>
+                              <SortHeader section="ar" field="project_name">Project</SortHeader>
+                              <SortHeader section="ar" field="created_at">Invoice Date</SortHeader>
+                              <SortHeader section="ar" field="due_date">Due Date</SortHeader>
+                              <SortHeader section="ar" field="total_amount" style={{ textAlign: 'right' }}>Total</SortHeader>
+                              <SortHeader section="ar" field="amount_paid" style={{ textAlign: 'right' }}>Paid</SortHeader>
+                              <SortHeader section="ar" field="balance" style={{ textAlign: 'right' }}>Balance</SortHeader>
+                              <SortHeader section="ar" field="days_overdue">Status</SortHeader>
                             </tr>
                           </thead>
                           <tbody>
-                            {yearEndData.accountsReceivable.map(inv => (
+                            {sortYearEndData(yearEndData.accountsReceivable, 'ar').map(inv => (
                               <tr key={inv.id}>
                                 <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{inv.invoice_number}</td>
                                 <td>{inv.customer_name}</td>
@@ -2637,17 +2673,17 @@ export default function Reports() {
                       <table style={{ fontSize: 13 }}>
                         <thead>
                           <tr>
-                            <th>Project</th>
-                            <th>Customer</th>
-                            <th>Type</th>
-                            <th style={{ textAlign: 'right' }}>Revenue</th>
-                            <th style={{ textAlign: 'right' }}>Labor Cost</th>
-                            <th style={{ textAlign: 'right' }}>Gross Profit</th>
-                            <th style={{ textAlign: 'right' }}>Margin</th>
+                            <SortHeader section="profit" field="project_name">Project</SortHeader>
+                            <SortHeader section="profit" field="customer_name">Customer</SortHeader>
+                            <SortHeader section="profit" field="project_type">Type</SortHeader>
+                            <SortHeader section="profit" field="total_invoiced" style={{ textAlign: 'right' }}>Revenue</SortHeader>
+                            <SortHeader section="profit" field="labor_cost" style={{ textAlign: 'right' }}>Labor Cost</SortHeader>
+                            <SortHeader section="profit" field="gross_profit" style={{ textAlign: 'right' }}>Gross Profit</SortHeader>
+                            <SortHeader section="profit" field="margin_pct" style={{ textAlign: 'right' }}>Margin</SortHeader>
                           </tr>
                         </thead>
                         <tbody>
-                          {yearEndData.projectProfitability.map(p => (
+                          {sortYearEndData(yearEndData.projectProfitability, 'profit').map(p => (
                             <tr key={p.id}>
                               <td><strong>{p.project_name}</strong></td>
                               <td>{p.customer_name}</td>
@@ -2698,16 +2734,16 @@ export default function Reports() {
                       <table style={{ fontSize: 13 }}>
                         <thead>
                           <tr>
-                            <th>Engineer</th>
+                            <SortHeader section="utilization" field="engineer_name">Engineer</SortHeader>
                             <th>ID</th>
-                            <th style={{ textAlign: 'center' }}>Projects</th>
-                            <th style={{ textAlign: 'right' }}>Hours Worked</th>
-                            <th style={{ textAlign: 'right' }}>Budgeted Hours</th>
-                            <th style={{ textAlign: 'right' }}>Utilization</th>
+                            <SortHeader section="utilization" field="project_count" style={{ textAlign: 'center' }}>Projects</SortHeader>
+                            <SortHeader section="utilization" field="total_hours" style={{ textAlign: 'right' }}>Hours Worked</SortHeader>
+                            <SortHeader section="utilization" field="budgeted_hours" style={{ textAlign: 'right' }}>Budgeted Hours</SortHeader>
+                            <SortHeader section="utilization" field="utilization_pct" style={{ textAlign: 'right' }}>Utilization</SortHeader>
                           </tr>
                         </thead>
                         <tbody>
-                          {yearEndData.engineerUtilization.map(e => (
+                          {sortYearEndData(yearEndData.engineerUtilization, 'utilization').map(e => (
                             <tr key={e.user_id}>
                               <td><strong>{e.engineer_name}</strong></td>
                               <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{e.engineer_id || '—'}</td>
@@ -2776,16 +2812,16 @@ export default function Reports() {
                         <table style={{ fontSize: 12 }}>
                           <thead>
                             <tr>
-                              <th>Invoice #</th>
-                              <th>Customer</th>
-                              <th>Due Date</th>
-                              <th style={{ textAlign: 'center' }}>Days Overdue</th>
-                              <th style={{ textAlign: 'right' }}>Balance</th>
+                              <SortHeader section="aged" field="invoice_number">Invoice #</SortHeader>
+                              <SortHeader section="aged" field="customer_name">Customer</SortHeader>
+                              <SortHeader section="aged" field="due_date">Due Date</SortHeader>
+                              <SortHeader section="aged" field="days_overdue" style={{ textAlign: 'center' }}>Days Overdue</SortHeader>
+                              <SortHeader section="aged" field="balance" style={{ textAlign: 'right' }}>Balance</SortHeader>
                               <th>Aging</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {yearEndData.agedReceivables.details.sort((a, b) => b.days_overdue - a.days_overdue).map(inv => (
+                            {sortYearEndData(yearEndData.agedReceivables.details, 'aged', { field: 'days_overdue', dir: 'desc' }).map(inv => (
                               <tr key={inv.id}>
                                 <td style={{ fontFamily: 'DM Mono, monospace' }}>{inv.invoice_number}</td>
                                 <td>{inv.customer_name}</td>
@@ -2833,14 +2869,14 @@ export default function Reports() {
                       <table style={{ fontSize: 13 }}>
                         <thead>
                           <tr>
-                            <th>Customer</th>
-                            <th style={{ textAlign: 'right' }}>Revenue</th>
-                            <th style={{ textAlign: 'right' }}>% of Total</th>
+                            <SortHeader section="concentration" field="customer_name">Customer</SortHeader>
+                            <SortHeader section="concentration" field="total_invoiced" style={{ textAlign: 'right' }}>Revenue</SortHeader>
+                            <SortHeader section="concentration" field="pct_of_revenue" style={{ textAlign: 'right' }}>% of Total</SortHeader>
                             <th style={{ minWidth: 200 }}>Concentration</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {yearEndData.customerConcentration.map(c => (
+                          {sortYearEndData(yearEndData.customerConcentration, 'concentration').map(c => (
                             <tr key={c.customer_id}>
                               <td><strong>{c.customer_name}</strong></td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(c.total_invoiced)}</td>
@@ -2884,15 +2920,15 @@ export default function Reports() {
                       <table style={{ fontSize: 13 }}>
                         <thead>
                           <tr>
-                            <th>Month</th>
-                            <th style={{ textAlign: 'right' }}>Invoiced</th>
-                            <th style={{ textAlign: 'right' }}>Collected</th>
-                            <th style={{ textAlign: 'right' }}>Contractor Pay</th>
-                            <th style={{ textAlign: 'right' }}>Net Income</th>
+                            <SortHeader section="pl" field="month_num">Month</SortHeader>
+                            <SortHeader section="pl" field="invoiced" style={{ textAlign: 'right' }}>Invoiced</SortHeader>
+                            <SortHeader section="pl" field="collected" style={{ textAlign: 'right' }}>Collected</SortHeader>
+                            <SortHeader section="pl" field="contractor_payments" style={{ textAlign: 'right' }}>Contractor Pay</SortHeader>
+                            <SortHeader section="pl" field="net_income" style={{ textAlign: 'right' }}>Net Income</SortHeader>
                           </tr>
                         </thead>
                         <tbody>
-                          {yearEndData.monthlyPL.map(m => (
+                          {sortYearEndData(yearEndData.monthlyPL, 'pl').map(m => (
                             <tr key={m.month_num}>
                               <td><strong>{m.month}</strong></td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(m.invoiced)}</td>
@@ -2940,18 +2976,18 @@ export default function Reports() {
                         <table style={{ fontSize: 13 }}>
                           <thead>
                             <tr>
-                              <th>Project</th>
-                              <th>Customer</th>
-                              <th>Type</th>
+                              <SortHeader section="carryover" field="project_name">Project</SortHeader>
+                              <SortHeader section="carryover" field="customer_name">Customer</SortHeader>
+                              <SortHeader section="carryover" field="project_type">Type</SortHeader>
                               <th>PO #</th>
-                              <th style={{ textAlign: 'right' }}>PO Amount</th>
-                              <th style={{ textAlign: 'right' }}>Billed</th>
-                              <th style={{ textAlign: 'right' }}>Remaining Budget</th>
-                              <th style={{ textAlign: 'right' }}>Uncollected</th>
+                              <SortHeader section="carryover" field="po_amount" style={{ textAlign: 'right' }}>PO Amount</SortHeader>
+                              <SortHeader section="carryover" field="amount_billed" style={{ textAlign: 'right' }}>Billed</SortHeader>
+                              <SortHeader section="carryover" field="remaining_budget" style={{ textAlign: 'right' }}>Remaining Budget</SortHeader>
+                              <SortHeader section="carryover" field="uncollected" style={{ textAlign: 'right' }}>Uncollected</SortHeader>
                             </tr>
                           </thead>
                           <tbody>
-                            {yearEndData.openProjects.map(p => (
+                            {sortYearEndData(yearEndData.openProjects, 'carryover').map(p => (
                               <tr key={p.id}>
                                 <td><strong>{p.project_name}</strong></td>
                                 <td>{p.customer_name}</td>
