@@ -107,6 +107,11 @@ export default function Reports() {
   const [unclearedAdvances, setUnclearedAdvances] = useState([]);
   const [bankSplits, setBankSplits] = useState({});
 
+  // Year-End Reports state
+  const [yearEndYear, setYearEndYear] = useState(new Date().getFullYear().toString());
+  const [yearEndData, setYearEndData] = useState(null);
+  const [yearEndExpanded, setYearEndExpanded] = useState({});
+
   const monthOptions = getMonthOptions();
   const yearOptions = getYearOptions();
 
@@ -120,6 +125,8 @@ export default function Reports() {
       loadEngPayments();
     } else if (activeTab === 'overdue') {
       loadOverdueInvoices();
+    } else if (activeTab === 'year-end') {
+      loadYearEndData();
     }
   }, [activeTab]);
 
@@ -216,6 +223,23 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadYearEndData = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiFetch(`/reports/year-end?year=${yearEndYear}`);
+      setYearEndData(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleYearEndSection = (key) => {
+    setYearEndExpanded(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const loadEngineers = async () => {
@@ -663,6 +687,13 @@ export default function Reports() {
             onClick={() => setActiveTab('overdue')}
           >
             Overdue Invoices
+          </button>
+          <button
+            className={`btn ${activeTab === 'year-end' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('year-end')}
+            style={{ marginLeft: 'auto', borderColor: '#7c3aed', color: activeTab === 'year-end' ? undefined : '#7c3aed' }}
+          >
+            Year-End Reports
           </button>
         </div>
       </div>
@@ -2306,6 +2337,660 @@ export default function Reports() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'year-end' && (
+        <div>
+          <div className="card no-print" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 18 }}>Year-End Reports</div>
+                <div style={{ fontSize: 13, color: '#64748b' }}>Tax preparation and annual business summary</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <label className="form-label" style={{ margin: 0, fontSize: 13 }}>Tax Year:</label>
+                <select className="form-select" value={yearEndYear} onChange={(e) => setYearEndYear(e.target.value)} style={{ width: 100 }}>
+                  {yearOptions.map(y => <option key={y.label} value={y.label}>{y.label}</option>)}
+                </select>
+                <button className="btn btn-primary" onClick={loadYearEndData} disabled={loading}>
+                  {loading ? 'Loading...' : 'Generate'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {!yearEndData && !loading && (
+            <div className="card" style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+              Select a year and click Generate to build all year-end reports.
+            </div>
+          )}
+
+          {loading && <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Loading year-end data...</div>}
+
+          {yearEndData && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+              {/* 1. 1099 Contractor Summary */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['1099'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('1099')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>1099 Contractor Summary</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {yearEndData.contractors1099.filter(c => c.total_paid >= 600).length} contractors require 1099
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['1099'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['1099'] && (
+                  <div style={{ padding: 20 }}>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Contractor</th>
+                            <th>ID</th>
+                            <th style={{ textAlign: 'right' }}>Total Paid</th>
+                            <th style={{ textAlign: 'center' }}>Payments</th>
+                            <th>First Payment</th>
+                            <th>Last Payment</th>
+                            <th style={{ textAlign: 'center' }}>1099 Required</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yearEndData.contractors1099.map(c => (
+                            <tr key={c.user_id}>
+                              <td><strong>{c.engineer_name}</strong></td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{c.engineer_id || '—'}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(c.total_paid)}</td>
+                              <td style={{ textAlign: 'center' }}>{c.payment_count}</td>
+                              <td style={{ fontSize: 12 }}>{formatDate(c.first_payment)}</td>
+                              <td style={{ fontSize: 12 }}>{formatDate(c.last_payment)}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                {c.total_paid >= 600
+                                  ? <span style={{ color: '#dc2626', fontWeight: 600 }}>YES</span>
+                                  : <span style={{ color: '#94a3b8' }}>No</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                            <td colSpan={2}>Total</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.contractors1099.reduce((s, c) => s + c.total_paid, 0))}</td>
+                            <td style={{ textAlign: 'center' }}>{yearEndData.contractors1099.reduce((s, c) => s + c.payment_count, 0)}</td>
+                            <td colSpan={3}></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                      1099-NEC required for contractors paid $600+ during the tax year. Due January 31.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Revenue by Customer */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['revenue'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('revenue')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Revenue by Customer</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {formatCurrency(yearEndData.revenueByCustomer.reduce((s, c) => s + c.total_invoiced, 0))} total invoiced
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['revenue'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['revenue'] && (
+                  <div style={{ padding: 20 }}>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Customer</th>
+                            <th style={{ textAlign: 'center' }}>Invoices</th>
+                            <th style={{ textAlign: 'right' }}>Total Invoiced</th>
+                            <th style={{ textAlign: 'right' }}>Collected</th>
+                            <th style={{ textAlign: 'right' }}>Outstanding</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yearEndData.revenueByCustomer.map(c => (
+                            <tr key={c.customer_id}>
+                              <td><strong>{c.customer_name}</strong></td>
+                              <td style={{ textAlign: 'center' }}>{c.invoice_count}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(c.total_invoiced)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(c.total_collected)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: c.outstanding > 0 ? '#dc2626' : '#16a34a' }}>{formatCurrency(c.outstanding)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                            <td>Total</td>
+                            <td style={{ textAlign: 'center' }}>{yearEndData.revenueByCustomer.reduce((s, c) => s + c.invoice_count, 0)}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.revenueByCustomer.reduce((s, c) => s + c.total_invoiced, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(yearEndData.revenueByCustomer.reduce((s, c) => s + c.total_collected, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.revenueByCustomer.reduce((s, c) => s + c.outstanding, 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Accounts Receivable */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['ar'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('ar')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Accounts Receivable</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {formatCurrency(yearEndData.accountsReceivable.reduce((s, i) => s + i.balance, 0))} outstanding as of 12/31/{yearEndData.year}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['ar'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['ar'] && (
+                  <div style={{ padding: 20 }}>
+                    {yearEndData.accountsReceivable.length === 0 ? (
+                      <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>No outstanding receivables.</div>
+                    ) : (
+                      <div className="table-wrap">
+                        <table style={{ fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th>Invoice #</th>
+                              <th>Customer</th>
+                              <th>Project</th>
+                              <th>Invoice Date</th>
+                              <th>Due Date</th>
+                              <th style={{ textAlign: 'right' }}>Total</th>
+                              <th style={{ textAlign: 'right' }}>Paid</th>
+                              <th style={{ textAlign: 'right' }}>Balance</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {yearEndData.accountsReceivable.map(inv => (
+                              <tr key={inv.id}>
+                                <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{inv.invoice_number}</td>
+                                <td>{inv.customer_name}</td>
+                                <td style={{ fontSize: 12 }}>{inv.project_name}</td>
+                                <td style={{ fontSize: 12 }}>{formatDate(inv.created_at)}</td>
+                                <td style={{ fontSize: 12 }}>{formatDate(inv.due_date)}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(inv.total_amount)}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(inv.amount_paid)}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(inv.balance)}</td>
+                                <td>
+                                  <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: inv.days_overdue > 0 ? '#fecaca' : '#dcfce7', color: inv.days_overdue > 0 ? '#991b1b' : '#166534' }}>
+                                    {inv.days_overdue > 0 ? `${inv.days_overdue}d overdue` : 'Current'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                              <td colSpan={5}>Total ({yearEndData.accountsReceivable.length} invoices)</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.accountsReceivable.reduce((s, i) => s + i.total_amount, 0))}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.accountsReceivable.reduce((s, i) => s + i.amount_paid, 0))}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.accountsReceivable.reduce((s, i) => s + i.balance, 0))}</td>
+                              <td></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Income by Quarter */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['quarterly'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('quarterly')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Income by Quarter</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {formatCurrency(yearEndData.incomeByQuarter.reduce((s, q) => s + q.total_collected, 0))} collected for the year
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['quarterly'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['quarterly'] && (
+                  <div style={{ padding: 20 }}>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Quarter</th>
+                            <th style={{ textAlign: 'center' }}>Invoices</th>
+                            <th style={{ textAlign: 'right' }}>Invoiced</th>
+                            <th style={{ textAlign: 'right' }}>Collected</th>
+                            <th style={{ textAlign: 'right' }}>Contractor Pay</th>
+                            <th style={{ textAlign: 'right' }}>Net Income</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yearEndData.incomeByQuarter.map(q => (
+                            <tr key={q.quarter}>
+                              <td><strong>{q.quarter}</strong></td>
+                              <td style={{ textAlign: 'center' }}>{q.invoice_count}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(q.total_invoiced)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(q.total_collected)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#dc2626' }}>{formatCurrency(q.total_paid)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: q.net_income >= 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency(q.net_income)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                            <td>Annual</td>
+                            <td style={{ textAlign: 'center' }}>{yearEndData.incomeByQuarter.reduce((s, q) => s + q.invoice_count, 0)}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.incomeByQuarter.reduce((s, q) => s + q.total_invoiced, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(yearEndData.incomeByQuarter.reduce((s, q) => s + q.total_collected, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#dc2626' }}>{formatCurrency(yearEndData.incomeByQuarter.reduce((s, q) => s + q.total_paid, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(yearEndData.incomeByQuarter.reduce((s, q) => s + q.net_income, 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                      Net Income = Collected Revenue - Contractor Payments. Useful for estimated quarterly tax payments.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 5. Project Profitability */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['profit'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('profit')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Project Profitability</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {yearEndData.projectProfitability.length} projects with activity
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['profit'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['profit'] && (
+                  <div style={{ padding: 20 }}>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Project</th>
+                            <th>Customer</th>
+                            <th>Type</th>
+                            <th style={{ textAlign: 'right' }}>Revenue</th>
+                            <th style={{ textAlign: 'right' }}>Labor Cost</th>
+                            <th style={{ textAlign: 'right' }}>Gross Profit</th>
+                            <th style={{ textAlign: 'right' }}>Margin</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yearEndData.projectProfitability.map(p => (
+                            <tr key={p.id}>
+                              <td><strong>{p.project_name}</strong></td>
+                              <td>{p.customer_name}</td>
+                              <td style={{ fontSize: 11 }}>
+                                <span className={`badge ${p.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`}>{p.project_type === 'fixed_price' ? 'Fixed' : p.project_type === 'fixed_monthly' ? 'Monthly' : 'Hourly'}</span>
+                              </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(p.total_invoiced)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}>{formatCurrency(p.labor_cost)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: p.gross_profit >= 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency(p.gross_profit)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: p.margin_pct >= 0 ? '#16a34a' : '#dc2626' }}>{p.margin_pct.toFixed(1)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                            <td colSpan={3}>Total</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.projectProfitability.reduce((s, p) => s + p.total_invoiced, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}>{formatCurrency(yearEndData.projectProfitability.reduce((s, p) => s + p.labor_cost, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(yearEndData.projectProfitability.reduce((s, p) => s + p.gross_profit, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>
+                              {(() => { const rev = yearEndData.projectProfitability.reduce((s, p) => s + p.total_invoiced, 0); const prof = yearEndData.projectProfitability.reduce((s, p) => s + p.gross_profit, 0); return rev > 0 ? (prof / rev * 100).toFixed(1) + '%' : '—'; })()}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 6. Engineer Utilization */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['utilization'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('utilization')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Engineer Utilization</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {yearEndData.engineerUtilization.reduce((s, e) => s + e.total_hours, 0).toFixed(0)} total hours logged
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['utilization'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['utilization'] && (
+                  <div style={{ padding: 20 }}>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Engineer</th>
+                            <th>ID</th>
+                            <th style={{ textAlign: 'center' }}>Projects</th>
+                            <th style={{ textAlign: 'right' }}>Hours Worked</th>
+                            <th style={{ textAlign: 'right' }}>Budgeted Hours</th>
+                            <th style={{ textAlign: 'right' }}>Utilization</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yearEndData.engineerUtilization.map(e => (
+                            <tr key={e.user_id}>
+                              <td><strong>{e.engineer_name}</strong></td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{e.engineer_id || '—'}</td>
+                              <td style={{ textAlign: 'center' }}>{e.project_count}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{e.total_hours.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{e.budgeted_hours ? e.budgeted_hours.toFixed(0) : '—'}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>
+                                {e.utilization_pct !== null ? (
+                                  <span style={{ color: e.utilization_pct > 100 ? '#dc2626' : e.utilization_pct > 80 ? '#16a34a' : '#f59e0b' }}>
+                                    {e.utilization_pct.toFixed(0)}%
+                                  </span>
+                                ) : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                            <td colSpan={2}>Total</td>
+                            <td></td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{yearEndData.engineerUtilization.reduce((s, e) => s + e.total_hours, 0).toFixed(2)}</td>
+                            <td colSpan={2}></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 7. Aged Receivables */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['aged'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('aged')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Aged Receivables</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {formatCurrency(Object.values(yearEndData.agedReceivables.buckets).reduce((s, v) => s + v, 0) - (yearEndData.agedReceivables.buckets.current || 0))} overdue
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['aged'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['aged'] && (
+                  <div style={{ padding: 20 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 16 }}>
+                      {[
+                        { label: 'Current', key: 'current', color: '#10b981' },
+                        { label: '1-30 Days', key: '1-30', color: '#f59e0b' },
+                        { label: '31-60 Days', key: '31-60', color: '#f97316' },
+                        { label: '61-90 Days', key: '61-90', color: '#ef4444' },
+                        { label: '90+ Days', key: '90+', color: '#dc2626' },
+                      ].map(bucket => (
+                        <div key={bucket.key} style={{ padding: 12, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 8 }}>
+                          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>{bucket.label}</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: bucket.color, fontFamily: 'DM Mono, monospace' }}>
+                            {formatCurrency(yearEndData.agedReceivables.buckets[bucket.key] || 0)}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#94a3b8' }}>{yearEndData.agedReceivables.counts[bucket.key] || 0} inv.</div>
+                        </div>
+                      ))}
+                    </div>
+                    {yearEndData.agedReceivables.details.length > 0 && (
+                      <div className="table-wrap">
+                        <table style={{ fontSize: 12 }}>
+                          <thead>
+                            <tr>
+                              <th>Invoice #</th>
+                              <th>Customer</th>
+                              <th>Due Date</th>
+                              <th style={{ textAlign: 'center' }}>Days Overdue</th>
+                              <th style={{ textAlign: 'right' }}>Balance</th>
+                              <th>Aging</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {yearEndData.agedReceivables.details.sort((a, b) => b.days_overdue - a.days_overdue).map(inv => (
+                              <tr key={inv.id}>
+                                <td style={{ fontFamily: 'DM Mono, monospace' }}>{inv.invoice_number}</td>
+                                <td>{inv.customer_name}</td>
+                                <td>{formatDate(inv.due_date)}</td>
+                                <td style={{ textAlign: 'center', fontWeight: 600 }}>{inv.days_overdue}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(inv.balance)}</td>
+                                <td>
+                                  <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: inv.aging === '90+' ? '#fecaca' : '#fef3c7', color: inv.aging === '90+' ? '#991b1b' : '#92400e' }}>
+                                    {inv.aging} days
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                      Invoices overdue 90+ days may be candidates for write-off. Consult your accountant.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 8. Customer Concentration */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['concentration'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('concentration')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Customer Concentration</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {yearEndData.customerConcentration.length} customers
+                      {yearEndData.customerConcentration.length > 0 && yearEndData.customerConcentration[0].pct_of_revenue > 50 &&
+                        <span style={{ color: '#f59e0b', marginLeft: 8 }}>Top customer is {yearEndData.customerConcentration[0].pct_of_revenue.toFixed(0)}% of revenue</span>
+                      }
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['concentration'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['concentration'] && (
+                  <div style={{ padding: 20 }}>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Customer</th>
+                            <th style={{ textAlign: 'right' }}>Revenue</th>
+                            <th style={{ textAlign: 'right' }}>% of Total</th>
+                            <th style={{ minWidth: 200 }}>Concentration</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yearEndData.customerConcentration.map(c => (
+                            <tr key={c.customer_id}>
+                              <td><strong>{c.customer_name}</strong></td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(c.total_invoiced)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{c.pct_of_revenue.toFixed(1)}%</td>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div className="progress-bar" style={{ flex: 1 }}>
+                                    <div className={`progress-fill ${c.pct_of_revenue > 50 ? 'progress-danger' : c.pct_of_revenue > 30 ? 'progress-warn' : 'progress-good'}`} style={{ width: `${Math.min(c.pct_of_revenue, 100)}%` }} />
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                      Revenue concentration risk: if any single customer exceeds 30-50% of revenue, consider diversification.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 9. Monthly P&L Summary */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['pl'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('pl')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Monthly P&L Summary</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {formatCurrency(yearEndData.monthlyPL.reduce((s, m) => s + m.net_income, 0))} annual net income
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['pl'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['pl'] && (
+                  <div style={{ padding: 20 }}>
+                    <div className="table-wrap">
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Month</th>
+                            <th style={{ textAlign: 'right' }}>Invoiced</th>
+                            <th style={{ textAlign: 'right' }}>Collected</th>
+                            <th style={{ textAlign: 'right' }}>Contractor Pay</th>
+                            <th style={{ textAlign: 'right' }}>Net Income</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {yearEndData.monthlyPL.map(m => (
+                            <tr key={m.month_num}>
+                              <td><strong>{m.month}</strong></td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(m.invoiced)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(m.collected)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#dc2626' }}>{formatCurrency(m.contractor_payments)}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: m.net_income >= 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency(m.net_income)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                            <td>Annual Total</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.monthlyPL.reduce((s, m) => s + m.invoiced, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(yearEndData.monthlyPL.reduce((s, m) => s + m.collected, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#dc2626' }}>{formatCurrency(yearEndData.monthlyPL.reduce((s, m) => s + m.contractor_payments, 0))}</td>
+                            <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>{formatCurrency(yearEndData.monthlyPL.reduce((s, m) => s + m.net_income, 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 10. Open Projects Carryover */}
+              <div className="card" style={{ padding: 0 }}>
+                <div
+                  style={{ padding: '14px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: yearEndExpanded['carryover'] ? '1px solid var(--border)' : 'none' }}
+                  onClick={() => toggleYearEndSection('carryover')}
+                >
+                  <div>
+                    <span style={{ fontWeight: 600 }}>Open Projects Carryover</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 12 }}>
+                      {yearEndData.openProjects.length} active projects carrying into next year
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 18, color: '#94a3b8' }}>{yearEndExpanded['carryover'] ? '▾' : '▸'}</span>
+                </div>
+                {yearEndExpanded['carryover'] && (
+                  <div style={{ padding: 20 }}>
+                    {yearEndData.openProjects.length === 0 ? (
+                      <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>No active projects.</div>
+                    ) : (
+                      <div className="table-wrap">
+                        <table style={{ fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th>Project</th>
+                              <th>Customer</th>
+                              <th>Type</th>
+                              <th>PO #</th>
+                              <th style={{ textAlign: 'right' }}>PO Amount</th>
+                              <th style={{ textAlign: 'right' }}>Billed</th>
+                              <th style={{ textAlign: 'right' }}>Remaining Budget</th>
+                              <th style={{ textAlign: 'right' }}>Uncollected</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {yearEndData.openProjects.map(p => (
+                              <tr key={p.id}>
+                                <td><strong>{p.project_name}</strong></td>
+                                <td>{p.customer_name}</td>
+                                <td style={{ fontSize: 11 }}>
+                                  <span className={`badge ${p.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`}>{p.project_type === 'fixed_price' ? 'Fixed' : p.project_type === 'fixed_monthly' ? 'Monthly' : 'Hourly'}</span>
+                                </td>
+                                <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{p.po_number || '—'}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(p.po_amount)}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(p.amount_billed)}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: p.remaining_budget < 0 ? '#dc2626' : '#16a34a' }}>{formatCurrency(p.remaining_budget)}</td>
+                                <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: p.uncollected > 0 ? '#f59e0b' : '#94a3b8' }}>{formatCurrency(p.uncollected)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ background: 'var(--surface2)', fontWeight: 600 }}>
+                              <td colSpan={4}>Total</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.openProjects.reduce((s, p) => s + (p.po_amount || 0), 0))}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.openProjects.reduce((s, p) => s + p.amount_billed, 0))}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.openProjects.reduce((s, p) => s + p.remaining_budget, 0))}</td>
+                              <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(yearEndData.openProjects.reduce((s, p) => s + p.uncollected, 0))}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Print All Button */}
+              <div className="no-print" style={{ textAlign: 'center', padding: 16 }}>
+                <button className="btn btn-secondary" onClick={() => {
+                  setYearEndExpanded({ '1099': true, revenue: true, ar: true, quarterly: true, profit: true, utilization: true, aged: true, concentration: true, pl: true, carryover: true });
+                  setTimeout(() => window.print(), 100);
+                }}>
+                  Print All Reports
+                </button>
+              </div>
             </div>
           )}
         </div>

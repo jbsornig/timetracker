@@ -4072,6 +4072,234 @@ app.get('/api/reports/overdue-invoices', auth, adminOnly, (req, res) => {
   res.json(results);
 });
 
+// ─── YEAR-END REPORTS ─────────────────────────────────────────────────────────
+
+app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const year = parseInt(req.query.year) || new Date().getFullYear();
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+
+  // 1. 1099 Contractor Summary
+  const contractors1099 = db.prepare(`
+    SELECT ep.user_id, u.name as engineer_name, u.engineer_id,
+           SUM(ep.amount) as total_paid,
+           COUNT(*) as payment_count,
+           MIN(ep.payment_date) as first_payment,
+           MAX(ep.payment_date) as last_payment
+    FROM engineer_payments ep
+    JOIN users u ON u.id = ep.user_id
+    WHERE ep.payment_date >= ? AND ep.payment_date <= ?
+    GROUP BY ep.user_id
+    ORDER BY total_paid DESC
+  `).all(yearStart, yearEnd);
+
+  // 2. Revenue by Customer
+  const revenueByCustomer = db.prepare(`
+    SELECT c.id as customer_id, c.name as customer_name,
+           COUNT(i.id) as invoice_count,
+           SUM(i.total_amount) as total_invoiced,
+           SUM(i.amount_paid) as total_collected,
+           SUM(i.total_amount - i.amount_paid) as outstanding
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.created_at >= ? AND i.created_at <= ? AND i.voided_date IS NULL
+    GROUP BY c.id
+    ORDER BY total_invoiced DESC
+  `).all(yearStart, yearEnd + ' 23:59:59');
+
+  // 3. Accounts Receivable (outstanding as of year-end)
+  const accountsReceivable = db.prepare(`
+    SELECT i.*, p.name as project_name, p.po_number,
+           c.name as customer_name, c.payment_terms
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.status IN ('unpaid', 'partial') AND i.voided_date IS NULL
+      AND i.created_at <= ?
+    ORDER BY i.created_at
+  `).all(yearEnd + ' 23:59:59');
+
+  const arData = accountsReceivable.map(inv => {
+    const balance = (inv.total_amount || 0) - (inv.amount_paid || 0);
+    const terms = inv.payment_terms || 'Net 30';
+    let days = 30;
+    if (terms === 'Immediate') days = 0;
+    else { const m = terms.match(/Net\s*(\d+)/i); if (m) days = parseInt(m[1], 10); }
+    const created = new Date(inv.created_at.replace(' ', 'T'));
+    const dueDate = new Date(created);
+    dueDate.setDate(dueDate.getDate() + days);
+    const refDate = new Date(yearEnd + 'T00:00:00');
+    const daysOverdue = Math.floor((refDate - dueDate) / (1000 * 60 * 60 * 24));
+    return {
+      id: inv.id, invoice_number: inv.invoice_number, customer_name: inv.customer_name,
+      project_name: inv.project_name, po_number: inv.po_number,
+      created_at: inv.created_at, total_amount: inv.total_amount,
+      amount_paid: inv.amount_paid, balance, due_date: dueDate.toISOString().split('T')[0],
+      days_overdue: daysOverdue,
+      aging: daysOverdue <= 0 ? 'current' : daysOverdue <= 30 ? '1-30' : daysOverdue <= 60 ? '31-60' : daysOverdue <= 90 ? '61-90' : '90+',
+    };
+  });
+
+  // 4. Income by Quarter
+  const incomeByQuarter = [1, 2, 3, 4].map(q => {
+    const qStart = `${year}-${String((q - 1) * 3 + 1).padStart(2, '0')}-01`;
+    const qEndMonth = q * 3;
+    const qEndDay = new Date(year, qEndMonth, 0).getDate();
+    const qEnd = `${year}-${String(qEndMonth).padStart(2, '0')}-${String(qEndDay).padStart(2, '0')}`;
+    const row = db.prepare(`
+      SELECT COUNT(id) as invoice_count,
+             COALESCE(SUM(total_amount), 0) as total_invoiced,
+             COALESCE(SUM(amount_paid), 0) as total_collected
+      FROM invoices
+      WHERE created_at >= ? AND created_at <= ? AND voided_date IS NULL
+    `).get(qStart, qEnd + ' 23:59:59');
+    const payments = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total_paid
+      FROM engineer_payments
+      WHERE payment_date >= ? AND payment_date <= ?
+    `).get(qStart, qEnd);
+    return { quarter: `Q${q}`, start: qStart, end: qEnd, ...row, total_paid: payments.total_paid, net_income: row.total_collected - payments.total_paid };
+  });
+
+  // 5. Project Profitability
+  const projectProfitability = db.prepare(`
+    SELECT p.id, p.name as project_name, p.project_type, p.po_number, p.po_amount,
+           c.name as customer_name,
+           COALESCE(inv.total_invoiced, 0) as total_invoiced,
+           COALESCE(inv.total_collected, 0) as total_collected,
+           COALESCE(labor.labor_cost, 0) as labor_cost
+    FROM projects p
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN (
+      SELECT project_id, SUM(total_amount) as total_invoiced, SUM(amount_paid) as total_collected
+      FROM invoices WHERE created_at >= ? AND created_at <= ? AND voided_date IS NULL
+      GROUP BY project_id
+    ) inv ON inv.project_id = p.id
+    LEFT JOIN (
+      SELECT te.project_id, SUM(te.hours * ep.pay_rate) as labor_cost
+      FROM timesheet_entries te
+      JOIN timesheets t ON t.id = te.timesheet_id
+      JOIN engineer_projects ep ON ep.project_id = te.project_id AND ep.user_id = t.user_id
+      WHERE t.week_ending >= ? AND t.week_ending <= ?
+      GROUP BY te.project_id
+    ) labor ON labor.project_id = p.id
+    WHERE COALESCE(inv.total_invoiced, 0) > 0 OR COALESCE(labor.labor_cost, 0) > 0
+    ORDER BY total_invoiced DESC
+  `).all(yearStart, yearEnd + ' 23:59:59', yearStart, yearEnd);
+
+  const profitData = projectProfitability.map(p => ({
+    ...p,
+    gross_profit: p.total_invoiced - p.labor_cost,
+    margin_pct: p.total_invoiced > 0 ? ((p.total_invoiced - p.labor_cost) / p.total_invoiced * 100) : 0,
+  }));
+
+  // 6. Engineer Utilization
+  const engineerUtilization = db.prepare(`
+    SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+           COALESCE(SUM(te.hours), 0) as total_hours,
+           COUNT(DISTINCT te.project_id) as project_count
+    FROM users u
+    LEFT JOIN timesheets t ON t.user_id = u.id AND t.week_ending >= ? AND t.week_ending <= ?
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = t.id
+    WHERE u.role = 'engineer'
+    GROUP BY u.id
+    ORDER BY total_hours DESC
+  `).all(yearStart, yearEnd);
+
+  const engBudgeted = db.prepare(`
+    SELECT ep.user_id, SUM(ep.max_hours) as total_budgeted
+    FROM engineer_projects ep
+    JOIN projects p ON p.id = ep.project_id
+    WHERE p.status = 'active' AND ep.max_hours > 0
+    GROUP BY ep.user_id
+  `).all();
+  const budgetMap = Object.fromEntries(engBudgeted.map(r => [r.user_id, r.total_budgeted]));
+
+  const utilizationData = engineerUtilization.map(e => ({
+    ...e,
+    budgeted_hours: budgetMap[e.user_id] || null,
+    utilization_pct: budgetMap[e.user_id] ? (e.total_hours / budgetMap[e.user_id] * 100) : null,
+  }));
+
+  // 7. Aged Receivables (same as AR but grouped into buckets)
+  const agedBuckets = { current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  const agedCounts = { current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+  arData.forEach(inv => {
+    agedBuckets[inv.aging] += inv.balance;
+    agedCounts[inv.aging]++;
+  });
+
+  // 8. Customer Concentration
+  const totalRevenue = revenueByCustomer.reduce((s, c) => s + (c.total_invoiced || 0), 0);
+  const customerConcentration = revenueByCustomer.map(c => ({
+    ...c,
+    pct_of_revenue: totalRevenue > 0 ? (c.total_invoiced / totalRevenue * 100) : 0,
+  }));
+
+  // 9. Monthly P&L Summary
+  const monthlyPL = Array.from({ length: 12 }, (_, i) => {
+    const month = i + 1;
+    const mStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const mEndDay = new Date(year, month, 0).getDate();
+    const mEnd = `${year}-${String(month).padStart(2, '0')}-${String(mEndDay).padStart(2, '0')}`;
+    const rev = db.prepare(`
+      SELECT COALESCE(SUM(total_amount), 0) as invoiced, COALESCE(SUM(amount_paid), 0) as collected
+      FROM invoices WHERE created_at >= ? AND created_at <= ? AND voided_date IS NULL
+    `).get(mStart, mEnd + ' 23:59:59');
+    const pay = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total_paid
+      FROM engineer_payments WHERE payment_date >= ? AND payment_date <= ?
+    `).get(mStart, mEnd);
+    return {
+      month: new Date(year, i).toLocaleDateString('en-US', { month: 'long' }),
+      month_num: month,
+      invoiced: rev.invoiced,
+      collected: rev.collected,
+      contractor_payments: pay.total_paid,
+      net_income: rev.collected - pay.total_paid,
+    };
+  });
+
+  // 10. Open Projects Carryover
+  const openProjects = db.prepare(`
+    SELECT p.id, p.name as project_name, p.project_type, p.po_number, p.po_amount, p.status,
+           c.name as customer_name,
+           COALESCE(inv.amount_billed, 0) as amount_billed,
+           COALESCE(inv.amount_collected, 0) as amount_collected
+    FROM projects p
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN (
+      SELECT project_id, SUM(total_amount) as amount_billed, SUM(amount_paid) as amount_collected
+      FROM invoices WHERE voided_date IS NULL
+      GROUP BY project_id
+    ) inv ON inv.project_id = p.id
+    WHERE p.status = 'active'
+    ORDER BY p.name
+  `).all();
+
+  const carryoverData = openProjects.map(p => ({
+    ...p,
+    remaining_budget: (p.po_amount || 0) - (p.amount_billed || 0),
+    uncollected: (p.amount_billed || 0) - (p.amount_collected || 0),
+  }));
+
+  res.json({
+    year,
+    contractors1099,
+    revenueByCustomer,
+    accountsReceivable: arData,
+    incomeByQuarter,
+    projectProfitability: profitData,
+    engineerUtilization: utilizationData,
+    agedReceivables: { buckets: agedBuckets, counts: agedCounts, details: arData.filter(i => i.days_overdue > 0) },
+    customerConcentration,
+    monthlyPL,
+    openProjects: carryoverData,
+  });
+});
+
 // ─── HISTORICAL IMPORT ───────────────────────────────────────────────────────
 
 app.post('/api/import/historical', auth, adminOnly, (req, res) => {
