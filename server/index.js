@@ -2946,6 +2946,220 @@ app.get('/api/balances', auth, adminOnly, (req, res) => {
   });
 });
 
+// ─── EDI 810 GENERATOR ────────────────────────────────────────────────────────
+
+app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
+  try {
+    const db = getDb();
+    const invoice = db.prepare(`
+      SELECT i.*, p.name as project_name, p.po_number, p.location, p.project_type,
+             p.total_cost,
+             c.name as customer_name, c.supplier_number
+      FROM invoices i
+      JOIN projects p ON p.id = i.project_id
+      JOIN customers c ON c.id = p.customer_id
+      WHERE i.id = ?
+    `).get(req.params.id);
+
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+    if (!invoice.supplier_number) {
+      return res.status(400).json({ error: 'Customer has no supplier number configured. Set it in Customer settings.' });
+    }
+    if (!invoice.po_number) {
+      return res.status(400).json({ error: 'Project has no PO number. Set it in Project settings.' });
+    }
+
+    const settings = {};
+    const rows = db.prepare("SELECT key, value FROM settings").all();
+    for (const row of rows) settings[row.key] = row.value;
+
+    const isFixedPrice = invoice.project_type === 'fixed_price';
+    const isFixedMonthly = invoice.project_type === 'fixed_monthly';
+
+    // Get line items from stamped timesheet entries
+    const timesheets = db.prepare(`
+      SELECT DISTINCT ts.*, u.name as engineer_name, ep.bill_rate, ep.monthly_bill, ep.total_payment
+      FROM timesheets ts
+      JOIN users u ON u.id = ts.user_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+      WHERE ts.project_id = ?
+      AND (
+        (te.invoice_id = ?)
+        OR (ts.invoice_id = ?)
+      )
+      ORDER BY u.name, ts.week_ending
+    `).all(invoice.project_id, req.params.id, req.params.id);
+
+    // Build line items
+    const lineItems = [];
+    let totalEngineerPayments = 0;
+    let totalEngineerAmountClaimed = 0;
+
+    if (isFixedPrice) {
+      const engineerTotals = db.prepare('SELECT SUM(total_payment) as total FROM engineer_projects WHERE project_id = ?').get(invoice.project_id);
+      totalEngineerPayments = engineerTotals?.total || 0;
+    }
+
+    for (const ts of timesheets) {
+      if (isFixedPrice) {
+        let engineerAmt = ts.amount || 0;
+        if ((engineerAmt === 0 || engineerAmt === null) && ts.percentage && ts.total_payment) {
+          engineerAmt = (ts.percentage / 100) * ts.total_payment;
+        }
+        totalEngineerAmountClaimed += engineerAmt;
+        if (engineerAmt > 0 || ts.percentage > 0) {
+          lineItems.push({ engineer: ts.engineer_name, amount: engineerAmt, is_fixed_price: true });
+        }
+      } else if (isFixedMonthly) {
+        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ?')
+          .all(ts.id, req.params.id);
+        const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+        if (hrs > 0) {
+          const existing = lineItems.find(li => li.engineer === ts.engineer_name);
+          if (existing) {
+            existing.hours += hrs;
+          } else {
+            lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.monthly_bill || 0, amount: ts.monthly_bill || 0 });
+          }
+        }
+      } else {
+        const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ?')
+          .all(ts.id, req.params.id);
+        const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+        const amt = hrs * (ts.bill_rate || 0);
+        if (hrs > 0) {
+          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate, amount: amt });
+        }
+      }
+    }
+
+    // For fixed price, recalculate amounts based on project total cost
+    if (isFixedPrice && totalEngineerPayments > 0) {
+      const percentageClaimed = totalEngineerAmountClaimed / totalEngineerPayments;
+      const customerTotal = percentageClaimed * (invoice.total_cost || 0);
+      lineItems.forEach(item => {
+        if (item.is_fixed_price) {
+          const portion = item.amount / totalEngineerAmountClaimed;
+          item.amount = portion * customerTotal;
+        }
+      });
+    }
+
+    // Generate the EDI 810 content
+    const ediContent = generateEdi810({
+      invoice,
+      lineItems,
+      supplierCode: invoice.supplier_number,
+      plantCode: invoice.location || '',
+      poNumber: invoice.po_number,
+      companyName: settings.company_name || 'U-Tech Consulting',
+    });
+
+    // Set filename per EMTS requirements (no spaces, no dashes, unique)
+    const dateStamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+    const filename = `810_${invoice.supplier_number}_${invoice.invoice_number}_${dateStamp}.edi`;
+
+    res.setHeader('Content-Type', 'application/edi-x12');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(ediContent);
+  } catch (err) {
+    console.error('EDI 810 generation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber, companyName }) {
+  const SEG_TERM = '~';
+  const ELEM_SEP = '*';
+
+  const invoiceDate = invoice.created_at
+    ? invoice.created_at.slice(0, 10).replace(/-/g, '')
+    : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const invoiceNumber = invoice.invoice_number.slice(0, 15);
+  const controlNumber = String(invoice.id).padStart(9, '0');
+  const gsControlNumber = String(invoice.id).padStart(4, '0');
+
+  const segments = [];
+
+  // ISA - Interchange Control Header
+  const isaSenderId = supplierCode.padEnd(15, ' ');
+  const isaReceiverId = '04012'.padEnd(15, ' ');
+  const now = new Date();
+  const isaDate = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const isaTime = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+  segments.push(`ISA${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}ZZ${ELEM_SEP}${isaSenderId}${ELEM_SEP}ZZ${ELEM_SEP}${isaReceiverId}${ELEM_SEP}${isaDate}${ELEM_SEP}${isaTime}${ELEM_SEP}U${ELEM_SEP}00200${ELEM_SEP}${controlNumber}${ELEM_SEP}0${ELEM_SEP}P${ELEM_SEP}>${SEG_TERM}`);
+
+  // GS - Functional Group Header
+  segments.push(`GS${ELEM_SEP}IN${ELEM_SEP}${supplierCode}${ELEM_SEP}04012${ELEM_SEP}${invoiceDate}${ELEM_SEP}${isaTime}${ELEM_SEP}${gsControlNumber}${ELEM_SEP}X${ELEM_SEP}002040${SEG_TERM}`);
+
+  // ST - Transaction Set Header
+  segments.push(`ST${ELEM_SEP}810${ELEM_SEP}0001${SEG_TERM}`);
+
+  // BIG - Beginning Segment for Invoice
+  segments.push(`BIG${ELEM_SEP}${invoiceDate}${ELEM_SEP}${invoiceNumber}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}DI${SEG_TERM}`);
+
+  // CUR - Currency
+  segments.push(`CUR${ELEM_SEP}SE${ELEM_SEP}USD${SEG_TERM}`);
+
+  // N1 - Supplier Name (SU)
+  segments.push(`N1${ELEM_SEP}SU${ELEM_SEP}${companyName.slice(0, 35)}${ELEM_SEP}92${ELEM_SEP}${supplierCode}${SEG_TERM}`);
+
+  // N1 - Ship To (ST) - Plant
+  if (plantCode) {
+    segments.push(`N1${ELEM_SEP}ST${ELEM_SEP}${ELEM_SEP}92${ELEM_SEP}${plantCode}${SEG_TERM}`);
+  }
+
+  // DTM - Date/Time Reference (invoice period)
+  if (invoice.period_start) {
+    const dtmStart = invoice.period_start.replace(/-/g, '');
+    segments.push(`DTM${ELEM_SEP}092${ELEM_SEP}${dtmStart}${SEG_TERM}`);
+  }
+  if (invoice.period_end) {
+    const dtmEnd = invoice.period_end.replace(/-/g, '');
+    segments.push(`DTM${ELEM_SEP}093${ELEM_SEP}${dtmEnd}${SEG_TERM}`);
+  }
+
+  // IT1 - Line Items
+  let lineCount = 0;
+  let totalCents = 0;
+
+  for (const item of lineItems) {
+    lineCount++;
+    const amount = Math.round((item.amount || 0) * 100);
+    totalCents += amount;
+    const unitPrice = item.rate
+      ? item.rate.toFixed(2)
+      : item.amount ? item.amount.toFixed(2) : '0.00';
+    const quantity = item.hours ? item.hours.toFixed(2) : '1';
+    const uom = item.hours ? 'HR' : 'EA';
+
+    // IT1: line#, qty, uom, unit price, basis, qualifier, PO number
+    segments.push(`IT1${ELEM_SEP}${lineCount}${ELEM_SEP}${quantity}${ELEM_SEP}${uom}${ELEM_SEP}${unitPrice}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}PO${ELEM_SEP}${poNumber}${SEG_TERM}`);
+
+    // REF - Packing slip (for services, use PO number per FCA spec)
+    segments.push(`REF${ELEM_SEP}PK${ELEM_SEP}${poNumber.slice(0, 16)}${SEG_TERM}`);
+  }
+
+  // TDS - Total Monetary Value Summary (in cents)
+  segments.push(`TDS${ELEM_SEP}${totalCents}${SEG_TERM}`);
+
+  // CTT - Transaction Totals
+  segments.push(`CTT${ELEM_SEP}${lineCount}${SEG_TERM}`);
+
+  // SE - Transaction Set Trailer
+  const segCount = segments.length - 2 + 1; // count from ST to SE inclusive
+  segments.push(`SE${ELEM_SEP}${segCount}${ELEM_SEP}0001${SEG_TERM}`);
+
+  // GE - Functional Group Trailer
+  segments.push(`GE${ELEM_SEP}1${ELEM_SEP}${gsControlNumber}${SEG_TERM}`);
+
+  // IEA - Interchange Control Trailer
+  segments.push(`IEA${ELEM_SEP}1${ELEM_SEP}${controlNumber}${SEG_TERM}`);
+
+  return segments.join('\n');
+}
+
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
 
 app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {

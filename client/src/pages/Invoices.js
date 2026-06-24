@@ -447,7 +447,6 @@ export default function Invoices() {
   const [adviceResults, setAdviceResults] = useState(null);
   const [adviceSelected, setAdviceSelected] = useState({});
   const [adviceProcessing, setAdviceProcessing] = useState(false);
-  const [esupplierModal, setEsupplierModal] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -884,9 +883,31 @@ export default function Invoices() {
     }
   };
 
-  const handleEsupplierSubmit = async (invoice) => {
-    setEsupplierModal(invoice);
+  const handleDownloadEdi810 = async (invoice) => {
+    try {
+      const base = process.env.REACT_APP_API_URL || '';
+      const token = localStorage.getItem('tt_token');
+      const response = await fetch(`${base}/api/invoices/${invoice.id}/edi-810`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to generate EDI 810');
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = response.headers.get('content-disposition')?.match(/filename="(.+)"/)?.[1] || `810_${invoice.invoice_number}.edi`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('EDI 810 Error: ' + e.message);
+    }
   };
+
 
   const handleReceived = async (invoice) => {
     try {
@@ -1768,7 +1789,7 @@ export default function Invoices() {
                         <button className="btn btn-secondary btn-sm" onClick={() => viewInvoice(inv)} style={{ marginRight: 4 }}>View</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => handleEmail(inv)} disabled={emailingId === inv.id} style={{ marginRight: 4 }}>{emailingId === inv.id ? 'Sending...' : 'Email'}</button>
                         {inv.supplier_number && inv.po_number && (
-                          <button className="btn btn-sm" onClick={() => handleEsupplierSubmit(inv)} style={{ marginRight: 4, background: '#1e3a5f', color: 'white' }}>eSupplier</button>
+                          <button className="btn btn-sm" onClick={() => handleDownloadEdi810(inv)} style={{ marginRight: 4, background: '#065f46', color: 'white' }}>EDI 810</button>
                         )}
                         <button
                           className={`btn btn-sm ${inv.received_at ? 'btn-success' : 'btn-secondary'}`}
@@ -2111,42 +2132,6 @@ export default function Invoices() {
         </Modal>
       )}
 
-      {/* eSupplier Submit Modal */}
-      {esupplierModal && (
-        <Modal title="Submit to eSupplierConnect" onClose={() => setEsupplierModal(null)}>
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ margin: '0 0 8px' }}>
-              Submit Invoice <strong>#{esupplierModal.invoice_number}</strong> for <strong>{esupplierModal.project_name}</strong> to eSupplierConnect.
-            </p>
-            <p style={{ margin: '0 0 12px', fontSize: 13, color: '#64748b' }}>
-              PO: {esupplierModal.po_number} | Amount: {formatCurrency(esupplierModal.total_amount)}
-            </p>
-          </div>
-          <div style={{ background: '#f1f5f9', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-            <p style={{ margin: '0 0 8px', fontWeight: 600, fontSize: 14 }}>Run this from your local machine:</p>
-            <code style={{ display: 'block', background: '#1e293b', color: '#e2e8f0', padding: 12, borderRadius: 4, fontSize: 13, fontFamily: 'DM Mono, monospace', wordBreak: 'break-all' }}>
-              cd timetracker/server && node esupplier-cli.js
-            </code>
-            <p style={{ margin: '12px 0 0', fontSize: 12, color: '#64748b' }}>
-              The tool will authenticate with production, generate the invoice PDF, and open a browser to fill the CAP form automatically. You verify and click Submit.
-            </p>
-          </div>
-          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
-            <strong>What it does:</strong>
-            <ol style={{ margin: '4px 0 0', paddingLeft: 20 }}>
-              <li>Logs into eSupplierConnect</li>
-              <li>Navigates to Corporate Accounts Payable</li>
-              <li>Fills invoice form (supplier #, PO, dates, amounts)</li>
-              <li>Attaches generated PDF</li>
-              <li>Adds line item (PO, hours/qty, rate)</li>
-              <li>Pauses for you to verify and submit</li>
-            </ol>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-secondary" onClick={() => setEsupplierModal(null)}>Close</button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
