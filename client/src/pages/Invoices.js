@@ -1788,7 +1788,7 @@ export default function Invoices() {
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => viewInvoice(inv)} style={{ marginRight: 4 }}>View</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => handleEmail(inv)} disabled={emailingId === inv.id} style={{ marginRight: 4 }}>{emailingId === inv.id ? 'Sending...' : 'Email'}</button>
-                        {inv.edi_invoicing && inv.po_number && (
+                        {!!inv.edi_invoicing && inv.po_number && (
                           <button className="btn btn-sm" onClick={() => handleDownloadEdi810(inv)} style={{ marginRight: 4, background: '#065f46', color: 'white' }}>EDI 810</button>
                         )}
                         <button
