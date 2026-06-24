@@ -232,6 +232,11 @@ function initSchema() {
     db.exec('ALTER TABLE customers ADD COLUMN send_invoice_to_self INTEGER DEFAULT 0');
     console.log('✅ Migration: Added send_invoice_to_self column to customers');
   }
+  // Add edi_invoicing column to customers
+  if (!customerCols.find(c => c.name === 'edi_invoicing')) {
+    db.exec('ALTER TABLE customers ADD COLUMN edi_invoicing INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added edi_invoicing column to customers');
+  }
 
   // Add include_timesheets column to projects if missing
   const projectCols2 = db.prepare("PRAGMA table_info(projects)").all();

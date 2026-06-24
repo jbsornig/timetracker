@@ -579,9 +579,9 @@ app.get('/api/customers', auth, (req, res) => {
 });
 
 app.post('/api/customers', auth, adminOnly, (req, res) => {
-  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self } = req.body;
+  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0);
+  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0);
   const customerId = result.lastInsertRowid;
 
   // Auto-create a contact record if primary contact name is provided
@@ -593,9 +593,9 @@ app.post('/api/customers', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/customers/:id', auth, adminOnly, (req, res) => {
-  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self } = req.body;
+  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing } = req.body;
   const db = getDb();
-  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=?, send_invoice_to_self=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, req.params.id);
+  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=?, send_invoice_to_self=?, edi_invoicing=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -1256,7 +1256,7 @@ app.get('/api/invoices', auth, adminOnly, (req, res) => {
   const db = getDb();
   const invoices = db.prepare(`
     SELECT i.*, p.name as project_name, p.po_number, c.name as customer_name,
-           c.supplier_number, c.address as customer_address, c.payment_terms, cc.name as contact_name,
+           c.supplier_number, c.address as customer_address, c.payment_terms, c.edi_invoicing, cc.name as contact_name,
            (SELECT GROUP_CONCAT(DISTINCT u.name) FROM timesheets ts
             JOIN users u ON u.id = ts.user_id
             WHERE ts.project_id = i.project_id AND ts.status = 'approved') as engineers
