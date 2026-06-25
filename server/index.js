@@ -3088,7 +3088,7 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   const now = new Date();
   const isaDate = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   const isaTime = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-  segments.push(`ISA${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}22${ELEM_SEP}${isaSenderId}${ELEM_SEP}ZZ${ELEM_SEP}${isaReceiverId}${ELEM_SEP}${isaDate}${ELEM_SEP}${isaTime}${ELEM_SEP}U${ELEM_SEP}00200${ELEM_SEP}${controlNumber}${ELEM_SEP}0${ELEM_SEP}P${ELEM_SEP}>${SEG_TERM}`);
+  segments.push(`ISA${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}ZZ${ELEM_SEP}${isaSenderId}${ELEM_SEP}ZZ${ELEM_SEP}${isaReceiverId}${ELEM_SEP}${isaDate}${ELEM_SEP}${isaTime}${ELEM_SEP}U${ELEM_SEP}00200${ELEM_SEP}${controlNumber}${ELEM_SEP}0${ELEM_SEP}P${ELEM_SEP}>${SEG_TERM}`);
 
   // GS - Functional Group Header
   segments.push(`GS${ELEM_SEP}IN${ELEM_SEP}${supplierCode}${ELEM_SEP}04012${ELEM_SEP}${invoiceDate}${ELEM_SEP}${isaTime}${ELEM_SEP}${gsControlNumber}${ELEM_SEP}X${ELEM_SEP}002040${SEG_TERM}`);
