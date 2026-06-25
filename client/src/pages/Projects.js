@@ -371,6 +371,7 @@ export default function Projects() {
                   <th onClick={() => handleSort('po_number')} style={{ cursor: 'pointer', userSelect: 'none' }}>PO #{sortIndicator('po_number')}</th>
                   <th>Budget</th>
                   <th>Billed</th>
+                  <th>Paid</th>
                   <th>Remaining</th>
                   <th onClick={() => handleSort('progress')} style={{ cursor: 'pointer', userSelect: 'none' }}>Progress{sortIndicator('progress')}</th>
                   <th>Status</th>
@@ -418,9 +419,11 @@ export default function Projects() {
                   const isFixedMonthly = p.project_type === 'fixed_monthly';
                   const budget = isFixedPrice ? (p.total_cost || 0) : (p.po_amount || 0);
                   const billed = p.amount_billed || 0;
+                  const paid = p.amount_paid || 0;
                   const remaining = budget - billed;
                   const pct = budget > 0 ? (billed / budget) * 100 : 0;
                   const cls = pct >= 90 ? 'progress-danger' : pct >= 70 ? 'progress-warn' : 'progress-good';
+                  const fullyPaid = budget > 0 && billed >= budget && paid >= billed;
                   return (
                     <tr key={p.id}>
                       <td><strong>{p.name}</strong><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{p.location || ''}</span></td>
@@ -437,6 +440,9 @@ export default function Projects() {
                       <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{p.po_number || '—'}</td>
                       <td>${budget.toLocaleString()}</td>
                       <td>${billed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ color: paid >= billed && billed > 0 ? '#16a34a' : paid > 0 ? '#d97706' : undefined }}>
+                        ${paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
                       <td style={{ color: remaining < 0 ? '#ef4444' : undefined }}>
                         ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
@@ -450,6 +456,9 @@ export default function Projects() {
                       </td>
                       <td>
                         <span className={`badge badge-${p.status === 'active' ? 'active' : 'inactive'}`}>{p.status}</span>
+                        {fullyPaid && p.status === 'active' && (
+                          <span title="Fully billed and paid — safe to close" style={{ marginLeft: 4, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>Ready</span>
+                        )}
                       </td>
                       <td style={{ fontSize: 12, color: '#64748b' }}>
                         {p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}

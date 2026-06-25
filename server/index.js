@@ -639,12 +639,14 @@ app.get('/api/projects', auth, (req, res) => {
   const db = getDb();
   let projects;
   if (req.user.role === 'admin') {
-    // For admin, compute amount_billed from actual invoices (what was billed to customer)
+    // For admin, compute amount_billed and amount_paid from actual invoices
     projects = db.prepare(`
       SELECT p.*, c.name as customer_name, cc.name as contact_name,
         COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN 0 ELSE te.hours END), 0) as hours_used,
         COALESCE((SELECT SUM(i.total_amount) FROM invoices i
-          WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed
+          WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed,
+        COALESCE((SELECT SUM(i.amount_paid) FROM invoices i
+          WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_paid
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
