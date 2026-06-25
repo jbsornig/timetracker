@@ -3072,6 +3072,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
 function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber, companyName }) {
   const SEG_TERM = '~';
   const ELEM_SEP = '*';
+  poNumber = poNumber.replace(/^PO\s*/i, '').trim();
 
   const invoiceDate = invoice.created_at
     ? invoice.created_at.slice(0, 10).replace(/-/g, '')
