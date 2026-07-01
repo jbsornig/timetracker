@@ -2892,8 +2892,9 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
           const po = invoice.po_number || 'N-A';
           const name = invoice.project_name || '';
           const nameIncludesPo = po !== 'N-A' && name.includes(po);
-          const parts = [`Inv ${invoice.invoice_number}`];
+          const parts = [];
           if (!nameIncludesPo) parts.push(po);
+          parts.push(`Inv ${invoice.invoice_number}`);
           parts.push(name);
           parts.push(`${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}`);
           return parts.join(' - ') + '.pdf';
