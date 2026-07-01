@@ -2543,16 +2543,20 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   };
 
   const hasHours = lineItems.some(item => item.hours > 0);
-  const lineItemRows = lineItems.map(item => `
+  const lineItemRows = lineItems.map(item => {
+    const qty = item.hours > 0 ? item.hours.toFixed(2) : '1';
+    const rate = item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `
     <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${item.hours.toFixed(2)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${qty}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${item.rate.toFixed(2)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rate}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
   const totalHoursRow = hasHours && lineItems.length > 1 ? `
     <tr style="border-top: 2px solid #000; font-weight: bold;">
       <td style="border: 1px solid #ccc; padding: 8px;">${lineItems.reduce((s, i) => s + (i.hours || 0), 0).toFixed(2)}</td>
@@ -2562,10 +2566,10 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   ` : '';
   const lineItemsHtml = lineItems.length > 0 ? lineItemRows + totalHoursRow : `
     <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${(invoice.total_hours || 0).toFixed(2)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.total_hours > 0 ? invoice.total_hours.toFixed(2) : '1'}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${periodRange}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">—</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${invoice.total_hours > 0 ? '—' : cs + (invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
@@ -2884,7 +2888,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       subject: `Invoice #${invoice.invoice_number} from ${settings.company_name || 'UTech TimeTracker'} - ${invoice.project_name}`,
       html: emailBody,
       attachments: [{
-        filename: `${invoice.po_number || 'N-A'} - ${invoice.project_name} - ${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}.pdf`,
+        filename: `Inv ${invoice.invoice_number} - ${invoice.po_number || 'N-A'} - ${invoice.project_name} - ${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}.pdf`,
         content: pdfBuffer,
         contentType: 'application/pdf'
       }]
