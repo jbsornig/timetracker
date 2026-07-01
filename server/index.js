@@ -704,14 +704,14 @@ app.get('/api/projects', auth, (req, res) => {
 });
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0);
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '');
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, confirm_inactive } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, confirm_inactive } = req.body;
   const db = getDb();
 
   if (status === 'inactive' && !confirm_inactive) {
@@ -731,7 +731,7 @@ app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
     }
   }
 
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', req.params.id);
   res.json({ success: true });
 });
 
@@ -2970,7 +2970,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
     const db = getDb();
     const invoice = db.prepare(`
       SELECT i.*, p.name as project_name, p.po_number, p.location, p.project_type,
-             p.total_cost,
+             p.total_cost, p.edi_uom,
              c.name as customer_name, c.supplier_number
       FROM invoices i
       JOIN projects p ON p.id = i.project_id
@@ -3071,6 +3071,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
       plantCode: invoice.location || '',
       poNumber: invoice.po_number,
       companyName: settings.company_name || 'U-Tech Consulting',
+      ediUom: invoice.edi_uom || '',
     });
 
     // Set filename per EMTS requirements (no spaces, no dashes, unique)
@@ -3086,7 +3087,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
   }
 });
 
-function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber, companyName }) {
+function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber, companyName, ediUom }) {
   const SEG_TERM = '~';
   const ELEM_SEP = '*';
   poNumber = poNumber.replace(/^PO\s*/i, '').trim();
@@ -3146,16 +3147,46 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
     lineCount++;
     const amount = Math.round((item.amount || 0) * 100);
     totalCents += amount;
-    const unitPrice = item.rate
-      ? item.rate.toFixed(2)
-      : item.amount ? item.amount.toFixed(2) : '0.00';
-    const quantity = item.hours ? item.hours.toFixed(2) : '1';
-    const uom = item.hours ? 'HR' : 'EA';
 
-    // IT1: line#, qty, uom, unit price, basis, qualifier, PO number
+    let quantity, unitPrice, uom;
+
+    if (ediUom) {
+      uom = ediUom;
+      switch (ediUom) {
+        case 'HR':
+          quantity = item.hours ? item.hours.toFixed(2) : '1';
+          unitPrice = item.rate ? item.rate.toFixed(2) : '0.00';
+          break;
+        case 'MON':
+          quantity = '1';
+          unitPrice = item.amount ? item.amount.toFixed(2) : '0.00';
+          break;
+        case 'EA':
+          quantity = item.hours ? item.hours.toFixed(2) : '1';
+          unitPrice = item.rate ? item.rate.toFixed(2) : item.amount ? item.amount.toFixed(2) : '0.00';
+          break;
+        case 'LO':
+        case 'PCE':
+          if (item.hours && item.rate) {
+            quantity = item.hours.toFixed(2);
+            unitPrice = item.rate.toFixed(2);
+          } else {
+            quantity = '1';
+            unitPrice = item.amount ? item.amount.toFixed(2) : '0.00';
+          }
+          break;
+        default:
+          quantity = item.hours ? item.hours.toFixed(2) : '1';
+          unitPrice = item.rate ? item.rate.toFixed(2) : item.amount ? item.amount.toFixed(2) : '0.00';
+      }
+    } else {
+      uom = item.hours ? 'HR' : 'EA';
+      quantity = item.hours ? item.hours.toFixed(2) : '1';
+      unitPrice = item.rate ? item.rate.toFixed(2) : item.amount ? item.amount.toFixed(2) : '0.00';
+    }
+
     segments.push(`IT1${ELEM_SEP}${lineCount}${ELEM_SEP}${quantity}${ELEM_SEP}${uom}${ELEM_SEP}${unitPrice}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}PO${ELEM_SEP}${poNumber}${SEG_TERM}`);
 
-    // REF - Packing slip (for services, use PO number per FCA spec)
     segments.push(`REF${ELEM_SEP}PK${ELEM_SEP}${poNumber.slice(0, 16)}${SEG_TERM}`);
   }
 

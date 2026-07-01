@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '' };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -85,6 +85,7 @@ export default function Projects() {
       monthly_engineer_pay: project.monthly_engineer_pay || '',
       monthly_invoice_amount: project.monthly_invoice_amount || '',
       internal: project.internal === 1,
+      edi_uom: project.edi_uom || '',
     });
     setError('');
     if (project.customer_id) {
@@ -685,6 +686,24 @@ export default function Projects() {
                 </select>
               </div>
             </div>
+            {!!customers.find(c => String(c.id) === String(form.customer_id) && c.edi_invoicing) && (
+              <div className="form-group" style={{ marginTop: 8 }}>
+                <label className="form-label">EDI Unit of Measure</label>
+                <select
+                  className="form-select"
+                  value={form.edi_uom}
+                  onChange={(e) => setForm({ ...form, edi_uom: e.target.value })}
+                >
+                  <option value="">None (no EDI)</option>
+                  <option value="HR">HR - Hourly (hours worked / hourly rate)</option>
+                  <option value="MON">MON - Monthly (qty 1 / monthly amount)</option>
+                  <option value="EA">EA - Each (number of items / per-unit price)</option>
+                  <option value="LO">LO - Lot (fixed: qty 1 / total, or hourly: hours / rate)</option>
+                  <option value="PCE">PCE - Piece (qty 1 / total amount)</option>
+                </select>
+                <div className="form-hint">Unit of measure assigned by FCA on the PO — controls EDI 810 line item format</div>
+              </div>
+            )}
             <div className="form-group" style={{ marginTop: 8 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input

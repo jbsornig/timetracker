@@ -1025,10 +1025,10 @@ export default function Reports() {
                       <tr>
                         <th className="no-print" style={{ width: 30 }}>
                           <input type="checkbox"
-                            checked={payrollSummary.length > 0 && payrollSummary.filter(r => r.total_pay > 0 && !alreadyPaidUserIds.has(r.user_id)).every(r => paidSelections[r.engineer_name])}
+                            checked={payrollSummary.length > 0 && payrollSummary.filter(r => (r.total_pay > 0 || r.advance_deduction > 0) && !alreadyPaidUserIds.has(r.user_id)).every(r => paidSelections[r.engineer_name])}
                             onChange={(e) => {
                               const next = {};
-                              if (e.target.checked) payrollSummary.forEach(r => { if (r.total_pay > 0 && !alreadyPaidUserIds.has(r.user_id)) next[r.engineer_name] = true; });
+                              if (e.target.checked) payrollSummary.forEach(r => { if ((r.total_pay > 0 || r.advance_deduction > 0) && !alreadyPaidUserIds.has(r.user_id)) next[r.engineer_name] = true; });
                               setPaidSelections(next);
                             }}
                           />
@@ -1050,7 +1050,7 @@ export default function Reports() {
                           <td className="no-print">
                             <input type="checkbox"
                               checked={!!paidSelections[row.engineer_name]}
-                              disabled={row.total_pay <= 0 || isPaid}
+                              disabled={(row.total_pay <= 0 && row.advance_deduction <= 0) || isPaid}
                               onChange={(e) => setPaidSelections({ ...paidSelections, [row.engineer_name]: e.target.checked })}
                             />
                           </td>
