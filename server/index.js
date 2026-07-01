@@ -2889,9 +2889,10 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       html: emailBody,
       attachments: [{
         filename: (() => {
-          const po = invoice.po_number || 'N-A';
+          const rawPo = invoice.po_number || 'N-A';
+          const po = rawPo !== 'N-A' && !/^PO\s*/i.test(rawPo) ? `PO ${rawPo}` : rawPo;
           const name = invoice.project_name || '';
-          const nameIncludesPo = po !== 'N-A' && name.includes(po);
+          const nameIncludesPo = rawPo !== 'N-A' && name.includes(rawPo);
           const parts = [];
           if (!nameIncludesPo) parts.push(po);
           parts.push(`Inv ${invoice.invoice_number}`);
