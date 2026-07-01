@@ -2888,7 +2888,16 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       subject: `Invoice #${invoice.invoice_number} from ${settings.company_name || 'UTech TimeTracker'} - ${invoice.project_name}`,
       html: emailBody,
       attachments: [{
-        filename: `Inv ${invoice.invoice_number} - ${invoice.po_number || 'N-A'} - ${invoice.project_name} - ${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}.pdf`,
+        filename: (() => {
+          const po = invoice.po_number || 'N-A';
+          const name = invoice.project_name || '';
+          const nameIncludesPo = po !== 'N-A' && name.includes(po);
+          const parts = [`Inv ${invoice.invoice_number}`];
+          if (!nameIncludesPo) parts.push(po);
+          parts.push(name);
+          parts.push(`${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}`);
+          return parts.join(' - ') + '.pdf';
+        })(),
         content: pdfBuffer,
         contentType: 'application/pdf'
       }]
