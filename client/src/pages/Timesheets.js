@@ -314,6 +314,8 @@ export default function Timesheets() {
   const [dateFilter, setDateFilter] = useState(filterFromDashboard ? 'all' : 'current'); // 'all', 'current', or 'YYYY-MM'
   const [sortColumn, setSortColumn] = useState('period');
   const [sortDirection, setSortDirection] = useState('desc');
+  const [monthConfirmed, setMonthConfirmed] = useState(null);
+  const [confirmingMonth, setConfirmingMonth] = useState(false);
 
   // Generate month options for date filter (current month + past 12 months)
   const getMonthOptions = () => {
@@ -520,6 +522,48 @@ export default function Timesheets() {
       loadTimesheets();
     }
   }, [filter, loading, loadTimesheets]);
+
+  // Month confirmation for engineers
+  const getCurrentMonth = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const loadMonthConfirmation = useCallback(async () => {
+    if (isAdmin) return;
+    try {
+      const data = await apiFetch(`/month-confirmation?month=${getCurrentMonth()}`);
+      setMonthConfirmed(data);
+    } catch (e) { /* ignore */ }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!loading) loadMonthConfirmation();
+  }, [loading, loadMonthConfirmation]);
+
+  const handleConfirmMonth = async () => {
+    setConfirmingMonth(true);
+    try {
+      await apiFetch('/month-confirmation', { method: 'POST', body: { month: getCurrentMonth() } });
+      await loadMonthConfirmation();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setConfirmingMonth(false);
+    }
+  };
+
+  const handleUndoConfirmMonth = async () => {
+    setConfirmingMonth(true);
+    try {
+      await apiFetch('/month-confirmation', { method: 'DELETE', body: { month: getCurrentMonth() } });
+      await loadMonthConfirmation();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setConfirmingMonth(false);
+    }
+  };
 
   // Check if we should open the new timesheet modal (from Dashboard button)
   useEffect(() => {
@@ -1407,6 +1451,30 @@ export default function Timesheets() {
         </div>
         {!isAdmin && <button className="btn btn-primary" onClick={openNew}>+ New Timesheet</button>}
       </div>
+
+      {!isAdmin && monthConfirmed && !monthConfirmed.confirmed && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ color: '#166534', fontSize: 14 }}>
+            Have you completed all your time entries for <strong>{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</strong>?
+          </span>
+          <button className="btn btn-primary" style={{ fontSize: 13, padding: '6px 14px' }} onClick={handleConfirmMonth} disabled={confirmingMonth}>
+            {confirmingMonth ? 'Confirming...' : 'Confirm Month Complete'}
+          </button>
+        </div>
+      )}
+      {!isAdmin && monthConfirmed && monthConfirmed.confirmed && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, opacity: 0.8 }}>
+          <span style={{ color: '#475569', fontSize: 13 }}>
+            You confirmed <strong>{new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</strong> is complete.
+            <span style={{ marginLeft: 6, fontSize: 11, color: '#16a34a' }}>
+              (confirmed {new Date(monthConfirmed.confirmed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+            </span>
+          </span>
+          <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={handleUndoConfirmMonth} disabled={confirmingMonth}>
+            Undo
+          </button>
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>

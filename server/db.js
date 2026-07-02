@@ -723,6 +723,17 @@ function initSchema() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS month_confirmations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      month TEXT NOT NULL,
+      confirmed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, month),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
 }
 
 function replaceDatabase(newDbPath) {

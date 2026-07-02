@@ -72,6 +72,14 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
   const [reminderSelections, setReminderSelections] = useState({});
   const [sendingReminders, setSendingReminders] = useState(false);
   const [reminderResult, setReminderResult] = useState(null);
+  const [monthConfirmations, setMonthConfirmations] = useState(null);
+
+  useEffect(() => {
+    if (!submissionMonth) return;
+    apiFetch(`/month-confirmations/summary?month=${submissionMonth}`)
+      .then(data => setMonthConfirmations(data))
+      .catch(() => setMonthConfirmations(null));
+  }, [submissionMonth]);
 
   if (loadingStatus) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading submission status...</div>;
 
@@ -131,6 +139,21 @@ function SubmissionStatusTab({ submissionMonth, setSubmissionMonth, submissionSt
           </span>
         )}
       </div>
+
+      {monthConfirmations && monthConfirmations.total_engineers > 0 && (
+        <div style={{ background: monthConfirmations.confirmed_count === monthConfirmations.total_engineers ? '#f0fdf4' : '#fffbeb', border: `1px solid ${monthConfirmations.confirmed_count === monthConfirmations.total_engineers ? '#86efac' : '#fde68a'}`, borderRadius: 8, padding: '10px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: monthConfirmations.engineers.some(e => !e.confirmed_at) ? 8 : 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: monthConfirmations.confirmed_count === monthConfirmations.total_engineers ? '#166534' : '#92400e' }}>
+              Month Confirmations: {monthConfirmations.confirmed_count} / {monthConfirmations.total_engineers} engineers confirmed
+            </span>
+          </div>
+          {monthConfirmations.engineers.some(e => !e.confirmed_at) && (
+            <div style={{ fontSize: 12, color: '#92400e' }}>
+              Outstanding: {monthConfirmations.engineers.filter(e => !e.confirmed_at).map(e => e.name).join(', ')}
+            </div>
+          )}
+        </div>
+      )}
 
       {submissionStatus && (
         <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>

@@ -1184,6 +1184,17 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
   if (req.user.role !== 'admin' && ts.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
   db.prepare("UPDATE timesheets SET status='submitted', submitted_at=CURRENT_TIMESTAMP WHERE id=?").run(req.params.id);
 
+  // Auto-clear month confirmation if submitting time for a confirmed month
+  const weekEnd = new Date((ts.week_ending || ts.period_end) + 'T00:00:00');
+  const tsMonth = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, '0')}`;
+  db.prepare('DELETE FROM month_confirmations WHERE user_id = ? AND month = ?').run(ts.user_id, tsMonth);
+  const weekStart = new Date(weekEnd);
+  weekStart.setDate(weekStart.getDate() - 6);
+  const startMonth = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}`;
+  if (startMonth !== tsMonth) {
+    db.prepare('DELETE FROM month_confirmations WHERE user_id = ? AND month = ?').run(ts.user_id, startMonth);
+  }
+
   // Calculate amount based on project type
   const isFixedPrice = ts.project_type === 'fixed_price';
   const amount = isFixedPrice ? (ts.amount || 0) : (ts.total_hours * (ts.bill_rate || 0));
@@ -1250,6 +1261,49 @@ app.delete('/api/timesheets/:id', auth, (req, res) => {
   db.prepare('DELETE FROM timesheet_entries WHERE timesheet_id = ?').run(req.params.id);
   db.prepare('DELETE FROM timesheets WHERE id = ?').run(req.params.id);
   res.json({ success: true });
+});
+
+// ─── MONTH CONFIRMATIONS ─────────────────────────────────────────────────────
+
+app.get('/api/month-confirmation', auth, (req, res) => {
+  const { month } = req.query;
+  if (!month) return res.status(400).json({ error: 'month parameter required' });
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM month_confirmations WHERE user_id = ? AND month = ?').get(req.user.id, month);
+  res.json({ confirmed: !!row, confirmed_at: row ? row.confirmed_at : null });
+});
+
+app.post('/api/month-confirmation', auth, (req, res) => {
+  const { month } = req.body;
+  if (!month) return res.status(400).json({ error: 'month is required' });
+  const db = getDb();
+  db.prepare('INSERT OR REPLACE INTO month_confirmations (user_id, month, confirmed_at) VALUES (?, ?, ?)').run(req.user.id, month, new Date().toISOString());
+  res.json({ success: true, confirmed_at: new Date().toISOString() });
+});
+
+app.delete('/api/month-confirmation', auth, (req, res) => {
+  const { month } = req.body;
+  if (!month) return res.status(400).json({ error: 'month is required' });
+  const db = getDb();
+  db.prepare('DELETE FROM month_confirmations WHERE user_id = ? AND month = ?').run(req.user.id, month);
+  res.json({ success: true });
+});
+
+app.get('/api/month-confirmations/summary', auth, adminOnly, (req, res) => {
+  const { month } = req.query;
+  if (!month) return res.status(400).json({ error: 'month parameter required' });
+  const db = getDb();
+  const engineers = db.prepare(`
+    SELECT DISTINCT u.id as user_id, u.name, mc.confirmed_at
+    FROM users u
+    JOIN engineer_projects ep ON ep.user_id = u.id
+    JOIN projects p ON p.id = ep.project_id
+    LEFT JOIN month_confirmations mc ON mc.user_id = u.id AND mc.month = ?
+    WHERE u.role = 'engineer' AND p.status = 'active'
+    ORDER BY u.name
+  `).all(month);
+  const confirmed_count = engineers.filter(e => e.confirmed_at).length;
+  res.json({ month, total_engineers: engineers.length, confirmed_count, engineers });
 });
 
 // ─── INVOICES ────────────────────────────────────────────────────────────────
