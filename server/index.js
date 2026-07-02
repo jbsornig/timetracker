@@ -2890,14 +2890,16 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       attachments: [{
         filename: (() => {
           const rawPo = invoice.po_number || 'N-A';
-          const po = rawPo !== 'N-A' && !/^PO\s*/i.test(rawPo) ? `PO ${rawPo}` : rawPo;
-          const name = invoice.project_name || '';
-          const nameIncludesPo = rawPo !== 'N-A' && name.includes(rawPo);
+          const poNum = rawPo.replace(/^PO\s*/i, '').trim();
+          const po = rawPo !== 'N-A' ? `PO ${poNum}` : 'N-A';
+          let name = invoice.project_name || '';
+          if (poNum && name.includes(poNum)) {
+            const escaped = poNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            name = name.replace(new RegExp(`\\s*-?\\s*(?:PO\\s*)?${escaped}\\s*-?\\s*`), ' ').trim();
+          }
           const fileDate = (dateStr) => formatDate(dateStr).replace(/\//g, '_');
-          const parts = [];
-          if (!nameIncludesPo) parts.push(po);
-          parts.push(`Inv ${invoice.invoice_number}`);
-          parts.push(name);
+          const parts = [po, `Inv ${invoice.invoice_number}`];
+          if (name) parts.push(name);
           parts.push(`${fileDate(invoice.period_start)} to ${fileDate(invoice.period_end)}`);
           return parts.join(' - ') + '.pdf';
         })(),
