@@ -2893,11 +2893,12 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
           const po = rawPo !== 'N-A' && !/^PO\s*/i.test(rawPo) ? `PO ${rawPo}` : rawPo;
           const name = invoice.project_name || '';
           const nameIncludesPo = rawPo !== 'N-A' && name.includes(rawPo);
+          const fileDate = (dateStr) => formatDate(dateStr).replace(/\//g, '_');
           const parts = [];
           if (!nameIncludesPo) parts.push(po);
           parts.push(`Inv ${invoice.invoice_number}`);
           parts.push(name);
-          parts.push(`${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}`);
+          parts.push(`${fileDate(invoice.period_start)} to ${fileDate(invoice.period_end)}`);
           return parts.join(' - ') + '.pdf';
         })(),
         content: pdfBuffer,
