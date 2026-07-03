@@ -703,7 +703,7 @@ app.get('/api/projects', auth, (req, res) => {
   res.json(projects);
 });
 
-// Parse FCA PO PDF and extract project fields
+// Parse PO PDF (FCA or Mercedes) and extract project fields
 const poUpload = multer({ dest: require('os').tmpdir(), limits: { fileSize: 5 * 1024 * 1024 } });
 app.post('/api/parse-po', auth, adminOnly, poUpload.single('file'), async (req, res) => {
   try {
@@ -715,83 +715,159 @@ app.post('/api/parse-po', auth, adminOnly, poUpload.single('file'), async (req, 
     fs.unlinkSync(req.file.path);
     const text = pdf.text;
 
-    const poMatch = text.match(/Purchase Order:\s*(\d+)/);
-    const plantMatch = text.match(/Plant Code:\s*(\d+)/);
-    const dateMatch = text.match(/Original Document Date:\s*([\d/]+)/);
+    const isMercedes = text.includes('Mercedes-Benz') || text.includes('MBUSI') || text.includes('Document Number:\n');
+    const isFCA = text.includes('Plant Code:') || text.includes('Chrysler') || text.includes('Stellantis');
 
-    let description = '';
-    let uom = '';
-    let quantity = '';
-    let unitPrice = '';
-    let netAmount = '';
-
-    // UOM pattern: qty immediately followed by UOM code then price (no spaces in PDF text)
-    const uomMatch = text.match(/([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//);
-    if (uomMatch) {
-      quantity = parseFloat(uomMatch[1].replace(/,/g, '')).toString();
-      uom = uomMatch[2];
-      unitPrice = uomMatch[3].replace(/,/g, '');
+    let result;
+    if (isMercedes && !isFCA) {
+      result = parseMercedesPoPdf(text);
+    } else {
+      result = parseFcaPoPdf(text);
     }
 
-    // Description: line after item number in the item table
-    const descMatch = text.match(/Item\s*Material[\s\S]*?\n\d+(.+?)(?:\n|Delivery date)/);
-    if (descMatch) description = descMatch[1].trim();
-
-    // Net amount: last USD amount pair (unit price USD net amount USD)
-    const amounts = [...text.matchAll(/([\d,.]+)\s*USD/g)];
-    if (amounts.length >= 2) {
-      netAmount = amounts[amounts.length - 1][1].replace(/,/g, '');
-    } else if (amounts.length === 1) {
-      netAmount = amounts[0][1].replace(/,/g, '');
-    }
-
-    // Requester: appears after "Requester\n" — name on next line, email may follow phone
-    let requesterName = '';
-    let requesterEmail = '';
-    const reqSection = text.match(/Requester\n([\s\S]*?)(?:Vendor Address|$)/);
-    if (reqSection) {
-      const lines = reqSection[1].split('\n').map(l => l.trim()).filter(Boolean);
-      if (lines.length > 0 && !lines[0].startsWith('Vendor')) {
-        requesterName = lines[0];
-      }
-      const emailLine = lines.find(l => l.includes('@'));
-      if (emailLine) requesterEmail = emailLine;
-    }
-    // Fallback: NAME - X EMAIL - pattern in Standard Text
-    if (!requesterName) {
-      const nameMatch = text.match(/NAME\s*-\s*(.+?)(?:\s+EMAIL|\n)/i);
-      if (nameMatch) requesterName = nameMatch[1].trim();
-    }
-    if (!requesterEmail) {
-      const emailMatch = text.match(/EMAIL\s*-\s*\n?([\w.@]+)/i);
-      if (emailMatch) requesterEmail = emailMatch[1].trim();
-    }
-
-    // Delivery address for location
-    const deliveryMatch = text.match(/Delivery Address:\s*\n?\s*(.+?)(?:\n|Plant Code)/s);
-    let location = '';
-    if (deliveryMatch) {
-      location = deliveryMatch[1].replace(/\n/g, ', ').replace(/\s+/g, ' ').trim();
-    }
-
-    res.json({
-      po_number: poMatch ? poMatch[1] : '',
-      name: description,
-      edi_plant_code: plantMatch ? plantMatch[1] : '',
-      edi_uom: uom,
-      po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
-      unit_price: unitPrice,
-      quantity: quantity,
-      location: location,
-      po_date: dateMatch ? dateMatch[1] : '',
-      requester_name: requesterName,
-      requester_email: requesterEmail,
-    });
+    res.json(result);
   } catch (err) {
     if (req.file) { try { require('fs').unlinkSync(req.file.path); } catch(e) {} }
     res.status(500).json({ error: 'Failed to parse PO PDF: ' + err.message });
   }
 });
+
+function parseFcaPoPdf(text) {
+  const poMatch = text.match(/Purchase Order:\s*(\d+)/);
+  const plantMatch = text.match(/Plant Code:\s*(\d+)/);
+  const dateMatch = text.match(/Original Document Date:\s*([\d/]+)/);
+
+  let description = '';
+  let uom = '';
+  let quantity = '';
+  let unitPrice = '';
+  let netAmount = '';
+
+  const uomMatch = text.match(/([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//);
+  if (uomMatch) {
+    quantity = parseFloat(uomMatch[1].replace(/,/g, '')).toString();
+    uom = uomMatch[2];
+    unitPrice = uomMatch[3].replace(/,/g, '');
+  }
+
+  const descMatch = text.match(/Item\s*Material[\s\S]*?\n\d+(.+?)(?:\n|Delivery date)/);
+  if (descMatch) description = descMatch[1].trim();
+
+  const amounts = [...text.matchAll(/([\d,.]+)\s*USD/g)];
+  if (amounts.length >= 2) {
+    netAmount = amounts[amounts.length - 1][1].replace(/,/g, '');
+  } else if (amounts.length === 1) {
+    netAmount = amounts[0][1].replace(/,/g, '');
+  }
+
+  let requesterName = '';
+  let requesterEmail = '';
+  const reqSection = text.match(/Requester\n([\s\S]*?)(?:Vendor Address|$)/);
+  if (reqSection) {
+    const lines = reqSection[1].split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length > 0 && !lines[0].startsWith('Vendor')) {
+      requesterName = lines[0];
+    }
+    const emailLine = lines.find(l => l.includes('@'));
+    if (emailLine) requesterEmail = emailLine;
+  }
+  if (!requesterName) {
+    const nameMatch = text.match(/NAME\s*-\s*(.+?)(?:\s+EMAIL|\n)/i);
+    if (nameMatch) requesterName = nameMatch[1].trim();
+  }
+  if (!requesterEmail) {
+    const emailMatch = text.match(/EMAIL\s*-\s*\n?([\w.@]+)/i);
+    if (emailMatch) requesterEmail = emailMatch[1].trim();
+  }
+
+  const deliveryMatch = text.match(/Delivery Address:\s*\n?\s*(.+?)(?:\n|Plant Code)/s);
+  let location = '';
+  if (deliveryMatch) {
+    location = deliveryMatch[1].replace(/\n/g, ', ').replace(/\s+/g, ' ').trim();
+  }
+
+  return {
+    po_number: poMatch ? poMatch[1] : '',
+    name: description,
+    edi_plant_code: plantMatch ? plantMatch[1] : '',
+    edi_uom: uom,
+    po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
+    unit_price: unitPrice,
+    quantity: quantity,
+    location: location,
+    po_date: dateMatch ? dateMatch[1] : '',
+    requester_name: requesterName,
+    requester_email: requesterEmail,
+  };
+}
+
+function parseMercedesPoPdf(text) {
+  let poNumber = '', poDate = '', description = '', quantity = '', unitPrice = '', netAmount = '';
+  let requesterName = '', requesterEmail = '';
+
+  const isNewFormat = text.includes('Document Number:\n');
+
+  if (isNewFormat) {
+    const docMatch = text.match(/Document Number:\s*\n(\d+)/);
+    if (docMatch) poNumber = docMatch[1];
+
+    const dateMatch = text.match(/Date:([\d]+-\w+-\d+)/);
+    if (dateMatch) poDate = dateMatch[1];
+
+    const contactMatch = text.match(/Your technical contact person:\s*\n(.+)\n([+\d ]+)\n([\w.@-]+)/);
+    if (contactMatch) {
+      requesterName = contactMatch[1].trim();
+      requesterEmail = contactMatch[3].trim();
+    }
+
+    const descMatch = text.match(/Item 1\s+\nDescription\n(.+)\nQuantity/);
+    if (descMatch) description = descMatch[1].trim();
+
+    const netMatch = text.match(/Total Net Value\s*\n([\d,.]+)\s*USD/);
+    if (netMatch) netAmount = netMatch[1].replace(/,/g, '');
+
+    const qtyMatch = text.match(/Quantity\s*\n([\d,.]+)\s+/);
+    if (qtyMatch) quantity = parseFloat(qtyMatch[1].replace(/,/g, '')).toString();
+
+    const priceMatch = text.match(/Price Per Unit\s*\n([\d,.]+)\s*USD/);
+    if (priceMatch) unitPrice = priceMatch[1].replace(/,/g, '');
+  } else {
+    const docMatch = text.match(/Document no\.\s*Date\s*\n(\d{10})(\d{2}\/\d{2}\/\d{4})/);
+    if (docMatch) { poNumber = docMatch[1]; poDate = docMatch[2]; }
+
+    const nameMatch = text.match(/Name:\s+(.+)/);
+    if (nameMatch) requesterName = nameMatch[1].trim();
+    const emailMatch = text.match(/Email:\s+([\w.@-]+)/);
+    if (emailMatch) requesterEmail = emailMatch[1].trim();
+
+    const itemMatch = text.match(/\d{5}(.+)\n\s*([\d,.]+)\s+\w[\w. ]*\s+([\d,.]+)\d\s+\w+\s+([\d,.]+)/);
+    if (itemMatch) {
+      description = itemMatch[1].trim();
+      quantity = parseFloat(itemMatch[2].replace(/,/g, '')).toString();
+      unitPrice = itemMatch[3].replace(/,/g, '');
+      netAmount = itemMatch[4].replace(/,/g, '');
+    }
+
+    if (!netAmount) {
+      const totalMatch = text.match(/Total net value excl\. tax\s+([\d,.]+)/);
+      if (totalMatch) netAmount = totalMatch[1].replace(/,/g, '');
+    }
+  }
+
+  return {
+    po_number: poNumber,
+    name: description,
+    edi_plant_code: '',
+    edi_uom: '',
+    po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
+    unit_price: unitPrice,
+    quantity: quantity,
+    location: 'MBUSI Tuscaloosa',
+    po_date: poDate,
+    requester_name: requesterName,
+    requester_email: requesterEmail,
+  };
+}
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
   const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code } = req.body;
