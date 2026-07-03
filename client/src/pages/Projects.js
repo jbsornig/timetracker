@@ -664,7 +664,7 @@ export default function Projects() {
                   : 'Engineers bill a percentage of their total payment'}
               </div>
             </div>
-            {!!customers.find(c => String(c.id) === String(form.customer_id) && c.edi_invoicing) && (
+            {form.customer_id && (
               <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <label style={{ cursor: importingPo ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, background: '#16a34a', color: '#fff', padding: '8px 16px', borderRadius: 6, fontWeight: 600, fontSize: 13 }}>
                   {importingPo ? 'Parsing...' : 'Import from PO PDF'}
@@ -676,7 +676,7 @@ export default function Projects() {
                     disabled={importingPo}
                   />
                 </label>
-                <span style={{ fontSize: 13, color: '#4b5563' }}>Upload an FCA PO PDF to auto-fill project fields</span>
+                <span style={{ fontSize: 13, color: '#4b5563' }}>Upload a PO PDF to auto-fill project fields</span>
               </div>
             )}
             <div className="form-row">
