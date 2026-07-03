@@ -121,7 +121,7 @@ export default function Projects() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('tt_token');
       const resp = await fetch((process.env.REACT_APP_API_URL || '') + '/api/parse-po', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
