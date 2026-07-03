@@ -132,10 +132,53 @@ export default function Projects() {
         throw new Error(err.error || 'Failed to parse PO');
       }
       const data = await resp.json();
+
+      // Build project name: "PO 62147937 - Description"
+      const poNum = data.po_number || '';
+      const desc = data.name || '';
+      let projectName = '';
+      if (poNum && desc) {
+        const poPrefix = poNum.toUpperCase().includes('PO') ? poNum : `PO ${poNum}`;
+        projectName = `${poPrefix} - ${desc}`;
+      } else if (poNum) {
+        projectName = poNum.toUpperCase().includes('PO') ? poNum : `PO ${poNum}`;
+      } else {
+        projectName = desc;
+      }
+
+      // Find or create customer contact from requester
+      let contactId = '';
+      const customerId = form.customer_id;
+      if (data.requester_name && customerId) {
+        const existing = contacts.find(c =>
+          c.name.toLowerCase() === data.requester_name.toLowerCase() ||
+          (c.email && data.requester_email && c.email.toLowerCase() === data.requester_email.toLowerCase())
+        );
+        if (existing) {
+          contactId = existing.id;
+        } else {
+          const createResp = await apiFetch(`/customers/${customerId}/contacts`, {
+            method: 'POST',
+            body: JSON.stringify({
+              name: data.requester_name,
+              email: data.requester_email || '',
+              title: '',
+              phone: '',
+            }),
+          });
+          if (createResp && createResp.id) {
+            contactId = createResp.id;
+            await loadContacts(customerId);
+          }
+        }
+      }
+
       setForm(prev => ({
         ...prev,
-        po_number: data.po_number || prev.po_number,
-        name: data.name || prev.name,
+        po_number: poNum || prev.po_number,
+        name: projectName || prev.name,
+        description: desc || prev.description,
+        contact_id: contactId || prev.contact_id,
         edi_plant_code: data.edi_plant_code || prev.edi_plant_code,
         edi_uom: data.edi_uom || prev.edi_uom,
         po_amount: data.po_amount || prev.po_amount,
