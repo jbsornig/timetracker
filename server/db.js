@@ -522,10 +522,14 @@ function initSchema() {
     console.log('✅ Migration: Added amount column to timesheets (post-recreation)');
   }
 
-  // Add edi_uom column to projects for EDI 810 unit of measure
+  // Add edi_uom and edi_plant_code columns to projects for EDI 810
   if (!projectCols3.find(c => c.name === 'edi_uom')) {
     db.exec("ALTER TABLE projects ADD COLUMN edi_uom TEXT DEFAULT ''");
     console.log('✅ Migration: Added edi_uom column to projects');
+  }
+  if (!projectCols3.find(c => c.name === 'edi_plant_code')) {
+    db.exec("ALTER TABLE projects ADD COLUMN edi_plant_code TEXT DEFAULT ''");
+    console.log('✅ Migration: Added edi_plant_code column to projects');
   }
 
   // Add internal flag to projects
