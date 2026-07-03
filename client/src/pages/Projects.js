@@ -27,6 +27,7 @@ export default function Projects() {
   const [contactFilter, setContactFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [importingPo, setImportingPo] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -110,6 +111,42 @@ export default function Projects() {
   const handleCustomerChange = async (customerId) => {
     setForm({ ...form, customer_id: customerId, contact_id: '' });
     await loadContacts(customerId);
+  };
+
+  const handleImportPo = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImportingPo(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const token = localStorage.getItem('token');
+      const resp = await fetch((process.env.REACT_APP_API_URL || '') + '/api/parse-po', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || 'Failed to parse PO');
+      }
+      const data = await resp.json();
+      setForm(prev => ({
+        ...prev,
+        po_number: data.po_number || prev.po_number,
+        name: data.name || prev.name,
+        edi_plant_code: data.edi_plant_code || prev.edi_plant_code,
+        edi_uom: data.edi_uom || prev.edi_uom,
+        po_amount: data.po_amount || prev.po_amount,
+        location: data.location || prev.location,
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setImportingPo(false);
+      e.target.value = '';
+    }
   };
 
   const handleSubmit = async (e, confirmInactive = false) => {
@@ -584,6 +621,21 @@ export default function Projects() {
                   : 'Engineers bill a percentage of their total payment'}
               </div>
             </div>
+            {!!customers.find(c => String(c.id) === String(form.customer_id) && c.edi_invoicing) && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <label style={{ cursor: importingPo ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, background: '#16a34a', color: '#fff', padding: '8px 16px', borderRadius: 6, fontWeight: 600, fontSize: 13 }}>
+                  {importingPo ? 'Parsing...' : 'Import from PO PDF'}
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    style={{ display: 'none' }}
+                    onChange={handleImportPo}
+                    disabled={importingPo}
+                  />
+                </label>
+                <span style={{ fontSize: 13, color: '#4b5563' }}>Upload an FCA PO PDF to auto-fill project fields</span>
+              </div>
+            )}
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">PO Number</label>

@@ -703,6 +703,96 @@ app.get('/api/projects', auth, (req, res) => {
   res.json(projects);
 });
 
+// Parse FCA PO PDF and extract project fields
+const poUpload = multer({ dest: require('os').tmpdir(), limits: { fileSize: 5 * 1024 * 1024 } });
+app.post('/api/parse-po', auth, adminOnly, poUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const fs = require('fs');
+    const pdfParse = require('pdf-parse');
+    const dataBuffer = fs.readFileSync(req.file.path);
+    const pdf = await pdfParse(dataBuffer);
+    fs.unlinkSync(req.file.path);
+    const text = pdf.text;
+
+    const poMatch = text.match(/Purchase Order:\s*(\d+)/);
+    const plantMatch = text.match(/Plant Code:\s*(\d+)/);
+    const dateMatch = text.match(/Original Document Date:\s*([\d/]+)/);
+
+    let description = '';
+    let uom = '';
+    let quantity = '';
+    let unitPrice = '';
+    let netAmount = '';
+
+    // UOM pattern: qty immediately followed by UOM code then price (no spaces in PDF text)
+    const uomMatch = text.match(/([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//);
+    if (uomMatch) {
+      quantity = parseFloat(uomMatch[1].replace(/,/g, '')).toString();
+      uom = uomMatch[2];
+      unitPrice = uomMatch[3].replace(/,/g, '');
+    }
+
+    // Description: line after item number in the item table
+    const descMatch = text.match(/Item\s*Material[\s\S]*?\n\d+(.+?)(?:\n|Delivery date)/);
+    if (descMatch) description = descMatch[1].trim();
+
+    // Net amount: last USD amount pair (unit price USD net amount USD)
+    const amounts = [...text.matchAll(/([\d,.]+)\s*USD/g)];
+    if (amounts.length >= 2) {
+      netAmount = amounts[amounts.length - 1][1].replace(/,/g, '');
+    } else if (amounts.length === 1) {
+      netAmount = amounts[0][1].replace(/,/g, '');
+    }
+
+    // Requester: appears after "Requester\n" — name on next line, email may follow phone
+    let requesterName = '';
+    let requesterEmail = '';
+    const reqSection = text.match(/Requester\n([\s\S]*?)(?:Vendor Address|$)/);
+    if (reqSection) {
+      const lines = reqSection[1].split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length > 0 && !lines[0].startsWith('Vendor')) {
+        requesterName = lines[0];
+      }
+      const emailLine = lines.find(l => l.includes('@'));
+      if (emailLine) requesterEmail = emailLine;
+    }
+    // Fallback: NAME - X EMAIL - pattern in Standard Text
+    if (!requesterName) {
+      const nameMatch = text.match(/NAME\s*-\s*(.+?)(?:\s+EMAIL|\n)/i);
+      if (nameMatch) requesterName = nameMatch[1].trim();
+    }
+    if (!requesterEmail) {
+      const emailMatch = text.match(/EMAIL\s*-\s*\n?([\w.@]+)/i);
+      if (emailMatch) requesterEmail = emailMatch[1].trim();
+    }
+
+    // Delivery address for location
+    const deliveryMatch = text.match(/Delivery Address:\s*\n?\s*(.+?)(?:\n|Plant Code)/s);
+    let location = '';
+    if (deliveryMatch) {
+      location = deliveryMatch[1].replace(/\n/g, ', ').replace(/\s+/g, ' ').trim();
+    }
+
+    res.json({
+      po_number: poMatch ? poMatch[1] : '',
+      name: description,
+      edi_plant_code: plantMatch ? plantMatch[1] : '',
+      edi_uom: uom,
+      po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
+      unit_price: unitPrice,
+      quantity: quantity,
+      location: location,
+      po_date: dateMatch ? dateMatch[1] : '',
+      requester_name: requesterName,
+      requester_email: requesterEmail,
+    });
+  } catch (err) {
+    if (req.file) { try { require('fs').unlinkSync(req.file.path); } catch(e) {} }
+    res.status(500).json({ error: 'Failed to parse PO PDF: ' + err.message });
+  }
+});
+
 app.post('/api/projects', auth, adminOnly, (req, res) => {
   const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code } = req.body;
   const db = getDb();
