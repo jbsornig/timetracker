@@ -4858,7 +4858,7 @@ app.post('/api/import/historical', auth, adminOnly, (req, res) => {
       // Import invoices
       if (invoices && invoices.length > 0) {
         const insertInvoice = db.prepare(
-          "INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, status, notes) VALUES (?, ?, ?, ?, ?, ?, 'paid', ?)"
+          "INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, amount_paid, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', ?)"
         );
         // Get next HIST number
         const lastHist = db.prepare("SELECT invoice_number FROM invoices WHERE invoice_number LIKE 'HIST-%' ORDER BY id DESC LIMIT 1").get();
@@ -4876,7 +4876,7 @@ app.post('/api/import/historical', auth, adminOnly, (req, res) => {
           }
           const invoiceNumber = 'HIST-' + histNum;
           histNum++;
-          insertInvoice.run(projectId, invoiceNumber, inv.period_start, inv.period_end, inv.hours || 0, inv.amount, inv.notes);
+          insertInvoice.run(projectId, invoiceNumber, inv.period_start, inv.period_end, inv.hours || 0, inv.amount, inv.amount, inv.notes);
           results.invoices_imported++;
         }
       }
