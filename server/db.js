@@ -276,6 +276,16 @@ function initSchema() {
   // Update existing invoices with 'draft' status to 'unpaid'
   db.exec("UPDATE invoices SET status = 'unpaid' WHERE status = 'draft'");
 
+  // Fix historical invoices: set amount_paid = total_amount for paid invoices with amount_paid = 0
+  const fixedPaid = db.prepare(`
+    UPDATE invoices
+    SET amount_paid = total_amount
+    WHERE status = 'paid' AND (amount_paid IS NULL OR amount_paid = 0) AND total_amount > 0
+  `).run();
+  if (fixedPaid.changes > 0) {
+    console.log(`✅ Migration: Fixed amount_paid for ${fixedPaid.changes} paid invoices`);
+  }
+
   // Create payments table if not exists (for existing databases)
   db.exec(`
     CREATE TABLE IF NOT EXISTS payments (
