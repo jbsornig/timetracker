@@ -3330,9 +3330,10 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   const ELEM_SEP = '~';
   poNumber = poNumber.replace(/^PO\s*/i, '').trim();
 
-  const invoiceDate = invoice.created_at
+  const invoiceDateRaw = invoice.created_at
     ? invoice.created_at.slice(0, 10).replace(/-/g, '')
     : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const invoiceDate = invoiceDateRaw.slice(2);
   const invoiceNumber = invoice.invoice_number.slice(0, 15);
   const controlNumber = String(invoice.id).padStart(9, '0');
   const gsControlNumber = String(invoice.id).padStart(4, '0');
@@ -3360,7 +3361,7 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   segments.push(`CUR${ELEM_SEP}SE${ELEM_SEP}USD${SEG_TERM}`);
 
   // N1 - Supplier Name (SU)
-  segments.push(`N1${ELEM_SEP}SU${ELEM_SEP}${companyName.slice(0, 60)}${ELEM_SEP}92${ELEM_SEP}${supplierCode}${SEG_TERM}`);
+  segments.push(`N1${ELEM_SEP}SU${ELEM_SEP}${companyName.slice(0, 35)}${ELEM_SEP}92${ELEM_SEP}${supplierCode}${SEG_TERM}`);
 
   // N1 - Ship To (ST) - Plant
   if (plantCode) {
@@ -3371,11 +3372,11 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
 
   // DTM - Date/Time Reference (invoice period)
   if (invoice.period_start) {
-    const dtmStart = invoice.period_start.replace(/-/g, '');
+    const dtmStart = invoice.period_start.replace(/-/g, '').slice(2);
     segments.push(`DTM${ELEM_SEP}092${ELEM_SEP}${dtmStart}${SEG_TERM}`);
   }
   if (invoice.period_end) {
-    const dtmEnd = invoice.period_end.replace(/-/g, '');
+    const dtmEnd = invoice.period_end.replace(/-/g, '').slice(2);
     segments.push(`DTM${ELEM_SEP}093${ELEM_SEP}${dtmEnd}${SEG_TERM}`);
   }
 
