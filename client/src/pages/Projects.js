@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '' };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '' };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -88,6 +88,8 @@ export default function Projects() {
       internal: project.internal === 1,
       edi_uom: project.edi_uom || '',
       edi_plant_code: project.edi_plant_code || '',
+      edi_po_quantity: project.edi_po_quantity || '',
+      edi_unit_price: project.edi_unit_price || '',
     });
     setError('');
     if (project.customer_id) {
@@ -181,6 +183,8 @@ export default function Projects() {
         contact_id: contactId || prev.contact_id,
         edi_plant_code: data.edi_plant_code || prev.edi_plant_code,
         edi_uom: data.edi_uom || prev.edi_uom,
+        edi_po_quantity: data.edi_po_quantity || prev.edi_po_quantity,
+        edi_unit_price: data.edi_unit_price || prev.edi_unit_price,
         po_amount: data.po_amount || prev.po_amount,
         location: data.location || prev.location,
       }));
@@ -810,7 +814,30 @@ export default function Projects() {
                     />
                   </div>
                 </div>
-                <div className="form-hint">UOM and plant code from the FCA PO — used in EDI 810 generation</div>
+                <div className="form-row" style={{ marginTop: 8 }}>
+                  <div className="form-group">
+                    <label className="form-label">EDI PO Quantity</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      value={form.edi_po_quantity}
+                      onChange={(e) => setForm({ ...form, edi_po_quantity: e.target.value })}
+                      placeholder="e.g. 4725"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">EDI Unit Price</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.01"
+                      value={form.edi_unit_price}
+                      onChange={(e) => setForm({ ...form, edi_unit_price: e.target.value })}
+                      placeholder="e.g. 1.00"
+                    />
+                  </div>
+                </div>
+                <div className="form-hint">UOM, plant code, PO quantity and unit price from the FCA PO — used in EDI 810 generation</div>
               </>
             )}
             <div className="form-group" style={{ marginTop: 8 }}>

@@ -542,6 +542,16 @@ function initSchema() {
     console.log('✅ Migration: Added edi_plant_code column to projects');
   }
 
+  // Add edi_po_quantity and edi_unit_price columns to projects for EA/MON EDI line items
+  if (!projectCols3.find(c => c.name === 'edi_po_quantity')) {
+    db.exec("ALTER TABLE projects ADD COLUMN edi_po_quantity REAL DEFAULT 0");
+    console.log('✅ Migration: Added edi_po_quantity column to projects');
+  }
+  if (!projectCols3.find(c => c.name === 'edi_unit_price')) {
+    db.exec("ALTER TABLE projects ADD COLUMN edi_unit_price REAL DEFAULT 0");
+    console.log('✅ Migration: Added edi_unit_price column to projects');
+  }
+
   // Add internal flag to projects
   const projectCols4 = db.prepare("PRAGMA table_info(projects)").all();
   if (!projectCols4.find(c => c.name === 'internal')) {

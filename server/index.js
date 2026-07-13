@@ -794,6 +794,8 @@ function parseFcaPoPdf(text) {
     po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
     unit_price: unitPrice,
     quantity: quantity,
+    edi_po_quantity: quantity,
+    edi_unit_price: unitPrice,
     location: location,
     po_date: dateMatch ? dateMatch[1] : '',
     requester_name: requesterName,
@@ -870,14 +872,14 @@ function parseMercedesPoPdf(text) {
 }
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '');
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, confirm_inactive } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, confirm_inactive } = req.body;
   const db = getDb();
 
   if (status === 'inactive' && !confirm_inactive) {
@@ -897,7 +899,7 @@ app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
     }
   }
 
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=?, edi_po_quantity=?, edi_unit_price=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -3193,7 +3195,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
     const db = getDb();
     const invoice = db.prepare(`
       SELECT i.*, p.name as project_name, p.po_number, p.location, p.project_type,
-             p.total_cost, p.edi_uom, p.edi_plant_code,
+             p.total_cost, p.edi_uom, p.edi_plant_code, p.edi_po_quantity, p.edi_unit_price,
              c.name as customer_name, c.supplier_number
       FROM invoices i
       JOIN projects p ON p.id = i.project_id
@@ -3295,6 +3297,8 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
       poNumber: invoice.po_number,
       companyName: settings.company_name || 'U-Tech Consulting',
       ediUom: invoice.edi_uom || '',
+      poQuantity: invoice.edi_po_quantity || 0,
+      poUnitPrice: invoice.edi_unit_price || 0,
     });
 
     // Set filename per EMTS requirements (no spaces, no dashes, unique)
@@ -3310,7 +3314,18 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
   }
 });
 
-function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber, companyName, ediUom }) {
+const STELLANTIS_PLANT_NAMES = {
+  '4001': 'CG CHRYSLER MANUFACTURING',
+  '4012': 'JEFFERSON NORTH ASSEMBLY',
+  '4025': 'STERLING HEIGHTS ASSEMBLY',
+  '2452': 'WARREN TRUCK ASSEMBLY',
+  '2459': 'TOLEDO SUPPLIER PARK',
+  '2462': 'TOLEDO ASSEMBLY NORTH',
+  '2470': 'MACK DETROIT ASSEMBLY',
+  '9103': 'WINDSOR ASSEMBLY',
+};
+
+function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber, companyName, ediUom, poQuantity, poUnitPrice }) {
   const SEG_TERM = '~';
   const ELEM_SEP = '*';
   poNumber = poNumber.replace(/^PO\s*/i, '').trim();
@@ -3330,7 +3345,7 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   const now = new Date();
   const isaDate = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   const isaTime = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-  segments.push(`ISA${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}ZZ${ELEM_SEP}${isaSenderId}${ELEM_SEP}ZZ${ELEM_SEP}${isaReceiverId}${ELEM_SEP}${isaDate}${ELEM_SEP}${isaTime}${ELEM_SEP}U${ELEM_SEP}00200${ELEM_SEP}${controlNumber}${ELEM_SEP}0${ELEM_SEP}P${ELEM_SEP}>${SEG_TERM}`);
+  segments.push(`ISA${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}00${ELEM_SEP}          ${ELEM_SEP}ZZ${ELEM_SEP}${isaSenderId}${ELEM_SEP}ZZ${ELEM_SEP}${isaReceiverId}${ELEM_SEP}${isaDate}${ELEM_SEP}${isaTime}${ELEM_SEP}U${ELEM_SEP}00204${ELEM_SEP}${controlNumber}${ELEM_SEP}0${ELEM_SEP}P${ELEM_SEP}>${SEG_TERM}`);
 
   // GS - Functional Group Header
   segments.push(`GS${ELEM_SEP}IN${ELEM_SEP}${supplierCode}${ELEM_SEP}04012${ELEM_SEP}${invoiceDate}${ELEM_SEP}${isaTime}${ELEM_SEP}${gsControlNumber}${ELEM_SEP}X${ELEM_SEP}002040${SEG_TERM}`);
@@ -3345,11 +3360,13 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   segments.push(`CUR${ELEM_SEP}SE${ELEM_SEP}USD${SEG_TERM}`);
 
   // N1 - Supplier Name (SU)
-  segments.push(`N1${ELEM_SEP}SU${ELEM_SEP}${companyName.slice(0, 35)}${ELEM_SEP}92${ELEM_SEP}${supplierCode}${SEG_TERM}`);
+  segments.push(`N1${ELEM_SEP}SU${ELEM_SEP}${companyName.slice(0, 60)}${ELEM_SEP}92${ELEM_SEP}${supplierCode}${SEG_TERM}`);
 
   // N1 - Ship To (ST) - Plant
   if (plantCode) {
-    segments.push(`N1${ELEM_SEP}ST${ELEM_SEP}${ELEM_SEP}92${ELEM_SEP}${plantCode}${SEG_TERM}`);
+    const paddedPlantCode = plantCode.padStart(5, '0');
+    const plantName = STELLANTIS_PLANT_NAMES[plantCode] || STELLANTIS_PLANT_NAMES[paddedPlantCode] || '';
+    segments.push(`N1${ELEM_SEP}ST${ELEM_SEP}${plantName}${ELEM_SEP}92${ELEM_SEP}${paddedPlantCode}${SEG_TERM}`);
   }
 
   // DTM - Date/Time Reference (invoice period)
@@ -3385,8 +3402,13 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
           unitPrice = item.amount ? item.amount.toFixed(2) : '0.00';
           break;
         case 'EA':
-          quantity = item.hours ? item.hours.toFixed(2) : '1';
-          unitPrice = item.rate ? item.rate.toFixed(2) : item.amount ? item.amount.toFixed(2) : '0.00';
+          if (poQuantity && poUnitPrice) {
+            quantity = String(poQuantity);
+            unitPrice = Number(poUnitPrice).toFixed(2);
+          } else {
+            quantity = item.hours ? item.hours.toFixed(2) : '1';
+            unitPrice = item.rate ? item.rate.toFixed(2) : item.amount ? item.amount.toFixed(2) : '0.00';
+          }
           break;
         case 'LO':
         case 'PCE':
@@ -3429,7 +3451,7 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   // IEA - Interchange Control Trailer
   segments.push(`IEA${ELEM_SEP}1${ELEM_SEP}${controlNumber}${SEG_TERM}`);
 
-  return segments.join('\n');
+  return segments.join('');
 }
 
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
