@@ -890,8 +890,8 @@ export default function Invoices() {
           invoice_ids: selectedIds,
           payment_date: paymentDate,
           payment_method: 'ACH',
-          reference_number: 'Payment Advice Import',
-          notes: 'Imported from payment advice file',
+          reference_number: adviceResults.paymentInfo?.document_number || 'Payment Advice Import',
+          notes: adviceResults.paymentInfo ? `${adviceResults.paymentInfo.source} payment doc ${adviceResults.paymentInfo.document_number}` : 'Imported from payment advice file',
         },
       });
       await loadData();
@@ -1518,11 +1518,21 @@ export default function Invoices() {
                 Choose File...
                 <input type="file" accept=".xlsx,.xls" onChange={handleAdviceUpload} style={{ display: 'none' }} />
               </label>
-              <span style={{ marginLeft: 12, fontSize: 13, color: '#64748b' }}>Supports .xlsx files (e.g., Mercedes payment advice)</span>
+              <span style={{ marginLeft: 12, fontSize: 13, color: '#64748b' }}>Supports .xlsx/.xls files (Mercedes and Stellantis/FCA payment advice)</span>
             </div>
 
             {adviceResults && (
               <div>
+                {adviceResults.paymentInfo && (
+                  <div style={{ marginBottom: 16, padding: 12, background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{adviceResults.paymentInfo.source} Payment</div>
+                    <div style={{ fontSize: 13, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                      <span>Doc #: <strong>{adviceResults.paymentInfo.document_number}</strong></span>
+                      <span>Total: <strong>{formatCurrency(adviceResults.paymentInfo.total_amount)}</strong></span>
+                      {adviceResults.paymentInfo.value_date && <span>Date: <strong>{adviceResults.paymentInfo.value_date}</strong></span>}
+                    </div>
+                  </div>
+                )}
                 {adviceResults.matches.length > 0 && (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: '#16a34a' }}>

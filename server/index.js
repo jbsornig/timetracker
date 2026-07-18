@@ -2459,92 +2459,212 @@ app.post('/api/invoices/import-payment-advice', auth, adminOnly, adviceUpload.si
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-    // Find header row
-    let headerIdx = -1;
-    for (let i = 0; i < Math.min(5, rows.length); i++) {
-      if (rows[i] && rows[i].some(cell => String(cell || '').toLowerCase().includes('document'))) {
-        headerIdx = i;
-        break;
-      }
-    }
-    if (headerIdx === -1) return res.status(400).json({ error: 'Could not find header row in file' });
-
-    const headers = rows[headerIdx].map(h => String(h || '').toLowerCase().trim());
-    const invoiceNumCol = headers.findIndex(h => h.includes('your document'));
-    const amountCol = headers.findIndex(h => h === 'amount');
-    const dateCol = headers.findIndex(h => h.includes('document date'));
-    const refCol = headers.findIndex(h => h.includes('our document'));
-
-    if (invoiceNumCol === -1 || amountCol === -1) {
-      return res.status(400).json({ error: 'Could not find required columns (Your Document No., Amount)' });
-    }
+    const isStellantis = rows.length > 0 && String(rows[0][0] || '').includes('Vendor Payment Details');
 
     const db = getDb();
-    const matches = [];
-    const unmatched = [];
+    let matches = [];
+    let unmatched = [];
+    let paymentInfo = {};
 
-    for (let i = headerIdx + 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || !row[invoiceNumCol]) continue;
-
-      const invoiceNum = String(row[invoiceNumCol]).trim();
-      if (!invoiceNum || invoiceNum.toLowerCase() === 'total amount') continue;
-
-      let amount = row[amountCol];
-      if (typeof amount === 'string') {
-        amount = amount.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
-        amount = parseFloat(amount);
-      }
-      amount = Math.abs(amount || 0);
-
-      let paymentDate = null;
-      if (dateCol !== -1 && row[dateCol]) {
-        const d = row[dateCol];
-        if (d instanceof Date) {
-          paymentDate = d.toISOString().split('T')[0];
-        } else if (typeof d === 'number') {
-          const excelDate = XLSX.SSF.parse_date_code(d);
-          paymentDate = `${excelDate.y}-${String(excelDate.m).padStart(2, '0')}-${String(excelDate.d).padStart(2, '0')}`;
-        } else {
-          const parsed = new Date(String(d));
-          if (!isNaN(parsed)) paymentDate = parsed.toISOString().split('T')[0];
-        }
-      }
-
-      const reference = refCol !== -1 && row[refCol] ? String(row[refCol]).trim() : null;
-
-      const invoice = db.prepare("SELECT i.*, p.name as project_name, c.name as customer_name FROM invoices i JOIN projects p ON p.id = i.project_id JOIN customers c ON c.id = p.customer_id WHERE i.invoice_number = ?").get(invoiceNum);
-
-      if (invoice) {
-        const balance = (invoice.total_amount || 0) - (invoice.amount_paid || 0);
-        matches.push({
-          invoice_id: invoice.id,
-          invoice_number: invoice.invoice_number,
-          project_name: invoice.project_name,
-          customer_name: invoice.customer_name,
-          invoice_amount: invoice.total_amount,
-          amount_paid_already: invoice.amount_paid || 0,
-          balance_due: balance,
-          advice_amount: amount,
-          payment_date: paymentDate,
-          reference,
-          status: invoice.status,
-          already_paid: invoice.status === 'paid',
-        });
-      } else {
-        unmatched.push({ invoice_number: invoiceNum, amount, payment_date: paymentDate, reference });
-      }
+    if (isStellantis) {
+      ({ matches, unmatched, paymentInfo } = parseStellantisPaymentAdvice(rows, db));
+    } else {
+      ({ matches, unmatched } = parseMercedesPaymentAdvice(rows, db));
     }
 
-    // Clean up uploaded file
     require('fs').unlinkSync(req.file.path);
-
-    res.json({ matches, unmatched });
+    res.json({ matches, unmatched, paymentInfo, source: isStellantis ? 'stellantis' : 'mercedes' });
   } catch (err) {
     console.error('Error parsing payment advice:', err);
     res.status(500).json({ error: 'Failed to parse file: ' + err.message });
   }
 });
+
+function parseMercedesPaymentAdvice(rows, db) {
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    if (rows[i] && rows[i].some(cell => String(cell || '').toLowerCase().includes('document'))) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) throw new Error('Could not find header row in file');
+
+  const headers = rows[headerIdx].map(h => String(h || '').toLowerCase().trim());
+  const invoiceNumCol = headers.findIndex(h => h.includes('your document'));
+  const amountCol = headers.findIndex(h => h === 'amount');
+  const dateCol = headers.findIndex(h => h.includes('document date'));
+  const refCol = headers.findIndex(h => h.includes('our document'));
+
+  if (invoiceNumCol === -1 || amountCol === -1) {
+    throw new Error('Could not find required columns (Your Document No., Amount)');
+  }
+
+  const matches = [];
+  const unmatched = [];
+
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !row[invoiceNumCol]) continue;
+
+    const invoiceNum = String(row[invoiceNumCol]).trim();
+    if (!invoiceNum || invoiceNum.toLowerCase() === 'total amount') continue;
+
+    let amount = row[amountCol];
+    if (typeof amount === 'string') {
+      amount = amount.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
+      amount = parseFloat(amount);
+    }
+    amount = Math.abs(amount || 0);
+
+    let paymentDate = null;
+    if (dateCol !== -1 && row[dateCol]) {
+      const d = row[dateCol];
+      if (d instanceof Date) {
+        paymentDate = d.toISOString().split('T')[0];
+      } else if (typeof d === 'number') {
+        const excelDate = XLSX.SSF.parse_date_code(d);
+        paymentDate = `${excelDate.y}-${String(excelDate.m).padStart(2, '0')}-${String(excelDate.d).padStart(2, '0')}`;
+      } else {
+        const parsed = new Date(String(d));
+        if (!isNaN(parsed)) paymentDate = parsed.toISOString().split('T')[0];
+      }
+    }
+
+    const reference = refCol !== -1 && row[refCol] ? String(row[refCol]).trim() : null;
+
+    const invoice = db.prepare("SELECT i.*, p.name as project_name, c.name as customer_name FROM invoices i JOIN projects p ON p.id = i.project_id JOIN customers c ON c.id = p.customer_id WHERE i.invoice_number = ?").get(invoiceNum);
+
+    if (invoice) {
+      const balance = (invoice.total_amount || 0) - (invoice.amount_paid || 0);
+      matches.push({
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        project_name: invoice.project_name,
+        customer_name: invoice.customer_name,
+        invoice_amount: invoice.total_amount,
+        amount_paid_already: invoice.amount_paid || 0,
+        balance_due: balance,
+        advice_amount: amount,
+        payment_date: paymentDate,
+        reference,
+        status: invoice.status,
+        already_paid: invoice.status === 'paid',
+      });
+    } else {
+      unmatched.push({ invoice_number: invoiceNum, amount, payment_date: paymentDate, reference });
+    }
+  }
+
+  return { matches, unmatched };
+}
+
+function parseStellantisPaymentAdvice(rows, db) {
+  let paymentDocNumber = '';
+  let totalAmountPaid = 0;
+  let valueDateStr = null;
+
+  for (let i = 0; i < Math.min(7, rows.length); i++) {
+    const label = String(rows[i][0] || '').trim();
+    const val = rows[i][1];
+    if (label.includes('Payment Doc')) paymentDocNumber = String(val || '');
+    if (label.includes('Amount Paid')) totalAmountPaid = parseFloat(val) || 0;
+    if (label.includes('Value Date')) {
+      if (typeof val === 'number') {
+        const d = XLSX.SSF.parse_date_code(val);
+        valueDateStr = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+      } else if (val) {
+        const parsed = new Date(String(val));
+        if (!isNaN(parsed)) valueDateStr = parsed.toISOString().split('T')[0];
+      }
+    }
+  }
+
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    if (rows[i] && rows[i][0] && String(rows[i][0]).toUpperCase() === 'REFERENCE') {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) throw new Error('Could not find REFERENCE header row in Stellantis file');
+
+  const headers = rows[headerIdx].map(h => String(h || '').toUpperCase().trim());
+  const refCol = headers.indexOf('REFERENCE');
+  const netAmtCol = headers.indexOf('NETAMT');
+  const poCol = headers.indexOf('PO');
+  const plantCol = headers.indexOf('PLANT');
+
+  if (refCol === -1 || netAmtCol === -1) {
+    throw new Error('Could not find required columns (REFERENCE, NETAMT)');
+  }
+
+  const invoiceGroups = {};
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row[refCol] == null) continue;
+
+    const invoiceNum = String(row[refCol]).trim();
+    if (!invoiceNum) continue;
+
+    const netAmt = Math.abs(parseFloat(row[netAmtCol]) || 0);
+    const po = poCol !== -1 && row[poCol] ? String(row[poCol]).trim() : '';
+    const plant = plantCol !== -1 && row[plantCol] ? String(row[plantCol]).trim() : '';
+
+    if (!invoiceGroups[invoiceNum]) {
+      invoiceGroups[invoiceNum] = { totalAmount: netAmt, pos: new Set(), plants: new Set() };
+    }
+    if (po) invoiceGroups[invoiceNum].pos.add(po);
+    if (plant) invoiceGroups[invoiceNum].plants.add(plant);
+  }
+
+  const matches = [];
+  const unmatched = [];
+
+  for (const [invoiceNum, group] of Object.entries(invoiceGroups)) {
+    const invoice = db.prepare("SELECT i.*, p.name as project_name, c.name as customer_name FROM invoices i JOIN projects p ON p.id = i.project_id JOIN customers c ON c.id = p.customer_id WHERE i.invoice_number = ?").get(invoiceNum);
+
+    if (invoice) {
+      const balance = (invoice.total_amount || 0) - (invoice.amount_paid || 0);
+      matches.push({
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        project_name: invoice.project_name,
+        customer_name: invoice.customer_name,
+        invoice_amount: invoice.total_amount,
+        amount_paid_already: invoice.amount_paid || 0,
+        balance_due: balance,
+        advice_amount: group.totalAmount,
+        payment_date: valueDateStr,
+        reference: paymentDocNumber,
+        po_numbers: [...group.pos].join(', '),
+        plant_codes: [...group.plants].join(', '),
+        status: invoice.status,
+        already_paid: invoice.status === 'paid',
+      });
+    } else {
+      unmatched.push({
+        invoice_number: invoiceNum,
+        amount: group.totalAmount,
+        payment_date: valueDateStr,
+        reference: paymentDocNumber,
+        po_numbers: [...group.pos].join(', '),
+        plant_codes: [...group.plants].join(', '),
+      });
+    }
+  }
+
+  return {
+    matches,
+    unmatched,
+    paymentInfo: {
+      document_number: paymentDocNumber,
+      total_amount: totalAmountPaid,
+      value_date: valueDateStr,
+      source: 'Stellantis/FCA',
+    },
+  };
+}
 
 // Void an invoice
 app.put('/api/invoices/:id/void', auth, adminOnly, (req, res) => {
