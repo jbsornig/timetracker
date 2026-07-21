@@ -11,6 +11,7 @@ export default function Dashboard({ setPage }) {
   const [messages, setMessages] = useState([]);
   const [payments, setPayments] = useState([]);
   const [holidayInfo, setHolidayInfo] = useState(null);
+  const [overpayments, setOverpayments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,7 +24,8 @@ export default function Dashboard({ setPage }) {
       apiFetch('/dashboard-messages'),
       user.role !== 'admin' ? apiFetch('/my-payments') : Promise.resolve([]),
       user.role !== 'admin' ? apiFetch('/my-holidays') : Promise.resolve(null),
-    ]).then(([p, t, b, e, m, pay, hol]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setPayments(pay || []); setHolidayInfo(hol); setLoading(false); }).catch(() => setLoading(false));
+      user.role === 'admin' ? apiFetch(`/reports/overpayments?year=${year}`) : Promise.resolve([]),
+    ]).then(([p, t, b, e, m, pay, hol, op]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setPayments(pay || []); setHolidayInfo(hol); setOverpayments(op || []); setLoading(false); }).catch(() => setLoading(false));
   }, [user]);
 
   const dismissMessage = async (id) => {
@@ -77,6 +79,43 @@ export default function Dashboard({ setPage }) {
         {pending > 0 && (
           <div className="alert alert-info" style={{ cursor: 'pointer' }} onClick={() => { localStorage.setItem('timesheetFilter', 'submitted'); setPage('timesheets'); }}>
             ⏳ You have <strong>{pending} timesheet{pending > 1 ? 's' : ''}</strong> waiting for approval. Click to review.
+          </div>
+        )}
+
+        {overpayments.length > 0 && (
+          <div className="card" style={{ borderLeft: '4px solid #dc2626', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 18 }}>&#9888;</span>
+              <div className="card-title" style={{ margin: 0, color: '#dc2626' }}>Engineer Overpayments</div>
+            </div>
+            <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 12px' }}>
+              The following engineers have been paid more than the amount owed based on approved/submitted timesheets this year.
+            </p>
+            <div className="table-wrap">
+              <table style={{ fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th>Engineer</th>
+                    <th style={{ textAlign: 'right' }}>Total Owed</th>
+                    <th style={{ textAlign: 'right' }}>Total Paid</th>
+                    <th style={{ textAlign: 'right' }}>Overpayment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overpayments.map(op => (
+                    <tr key={op.engineer_id}>
+                      <td><strong>{op.engineer_name}</strong>{op.engineer_code ? <span style={{ color: '#94a3b8', marginLeft: 8, fontSize: 11 }}>({op.engineer_code})</span> : ''}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>${op.total_owed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>${op.total_paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#dc2626' }}>${op.total_overpaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
+              Run a Reconciliation Report under Engineer Payments for details.
+            </div>
           </div>
         )}
 

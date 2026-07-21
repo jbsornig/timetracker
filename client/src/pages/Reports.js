@@ -88,6 +88,7 @@ export default function Reports() {
   const [paidForPeriod, setPaidForPeriod] = useState([]);
 
   // Engineer payments state
+  const [overpayments, setOverpayments] = useState([]);
   const [engPayments, setEngPayments] = useState([]);
   const [engPayFilter, setEngPayFilter] = useState({ user_id: '', period_start: '', period_end: '', payment_type: '' });
   const [engPayForm, setEngPayForm] = useState({ user_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], payment_type: 'advance', period_start: '', period_end: '', reference_number: '', payment_method: '', notes: '' });
@@ -124,6 +125,7 @@ export default function Reports() {
     } else if (activeTab === 'engineer-payments') {
       loadEngineers();
       loadEngPayments();
+      apiFetch(`/reports/overpayments?year=${new Date().getFullYear()}`).then(data => setOverpayments(data || [])).catch(() => {});
     } else if (activeTab === 'overdue') {
       loadOverdueInvoices();
     } else if (activeTab === 'year-end') {
@@ -1825,6 +1827,23 @@ export default function Reports() {
             </div>
           </div>
 
+          {/* Overpayment Warning Banner */}
+          {overpayments.length > 0 && (
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderLeft: '4px solid #dc2626', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 16 }}>&#9888;</span>
+                <strong style={{ color: '#dc2626', fontSize: 14 }}>Overpayment Alert</strong>
+              </div>
+              {overpayments.map(op => (
+                <div key={op.engineer_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13 }}>
+                  <span><strong>{op.engineer_name}</strong> — owed ${op.total_owed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, paid ${op.total_paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span style={{ fontWeight: 600, color: '#dc2626' }}>Overpaid ${op.total_overpaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>Run a Reconciliation Report for full details.</div>
+            </div>
+          )}
+
           {/* Record Payment Form */}
           {summary1099.length === 0 && !verificationData && !showReconciliation && !showVerification && (
             <div className="card no-print" style={{ marginBottom: 16 }}>
@@ -2223,13 +2242,19 @@ export default function Reports() {
                     </div>
                     <div className="stat-card">
                       <div className="stat-label">Total Paid</div>
-                      <div className="stat-value" style={{ fontSize: 22, color: 'var(--success)' }}>{formatCurrency(reconciliationData.total_paid)}</div>
+                      <div className="stat-value" style={{ fontSize: 22, color: 'var(--success)' }}>{formatCurrency(reconciliationData.active_paid)}</div>
+                      {reconciliationData.historical_paid > 0 && (
+                        <div className="stat-sub" style={{ fontSize: 11, color: '#94a3b8' }}>+ {formatCurrency(reconciliationData.historical_paid)} historical</div>
+                      )}
                     </div>
                     <div className="stat-card" style={{ borderLeft: `4px solid ${reconciliationData.balance > 0 ? '#dc2626' : reconciliationData.balance < 0 ? '#f59e0b' : '#16a34a'}` }}>
                       <div className="stat-label">{reconciliationData.balance > 0 ? 'Still Owed' : reconciliationData.balance < 0 ? 'Overpaid' : 'Balanced'}</div>
                       <div className="stat-value" style={{ fontSize: 22, color: reconciliationData.balance > 0 ? '#dc2626' : reconciliationData.balance < 0 ? '#f59e0b' : '#16a34a' }}>
                         {formatCurrency(Math.abs(reconciliationData.balance))}
                       </div>
+                      {reconciliationData.historical_paid > 0 && (
+                        <div className="stat-sub" style={{ fontSize: 11, color: '#94a3b8' }}>excludes historical imports</div>
+                      )}
                     </div>
                   </div>
                 </div>

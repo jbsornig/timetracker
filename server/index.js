@@ -4350,6 +4350,8 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
   const totalOwed = workLines.reduce((s, w) => s + w.amount_owed, 0);
   const totalSubmittedOwed = workLines.reduce((s, w) => s + w.submitted_amount_owed, 0);
   const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+  const historicalPaid = payments.filter(p => p.notes && p.notes.includes('Historical import')).reduce((s, p) => s + p.amount, 0);
+  const activePaid = totalPaid - historicalPaid;
 
   res.json({
     engineer,
@@ -4360,8 +4362,92 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
     total_owed: totalOwed,
     total_submitted_owed: totalSubmittedOwed,
     total_paid: totalPaid,
-    balance: totalSubmittedOwed - totalPaid,
+    historical_paid: historicalPaid,
+    active_paid: activePaid,
+    balance: totalSubmittedOwed - activePaid,
   });
+});
+
+// Overpayment summary — mirrors reconciliation logic for full-year balance
+app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const year = req.query.year || new Date().getFullYear();
+  const periodStart = `${year}-01-01`;
+  const periodEnd = `${year}-12-31`;
+
+  const allEngineers = db.prepare("SELECT id, name, engineer_id, holiday_pay_eligible, holiday_pay_rate FROM users WHERE role = 'engineer'").all();
+  const holidays = db.prepare('SELECT date, hours FROM holidays WHERE date BETWEEN ? AND ?').all(periodStart, periodEnd);
+  const overpayments = [];
+
+  for (const engineer of allEngineers) {
+    const hourlyWork = db.prepare(`
+      SELECT p.id as project_id, p.project_type,
+             ep.pay_rate, ep.monthly_pay,
+             SUM(te.hours) as submitted_hours
+      FROM timesheet_entries te
+      JOIN timesheets ts ON ts.id = te.timesheet_id
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.user_id = ? AND ts.status IN ('approved', 'submitted')
+        AND te.entry_date BETWEEN ? AND ?
+      GROUP BY p.id
+    `).all(engineer.id, periodStart, periodEnd);
+
+    const fixedPriceWork = db.prepare(`
+      SELECT p.id as project_id, ts.amount
+      FROM timesheets ts
+      JOIN projects p ON p.id = ts.project_id
+      WHERE ts.user_id = ? AND ts.status IN ('approved', 'submitted')
+        AND p.project_type = 'fixed_price'
+        AND ts.week_ending BETWEEN ? AND ?
+    `).all(engineer.id, periodStart, periodEnd);
+
+    const startDate = new Date(periodStart + 'T00:00:00');
+    const endDate = new Date(periodEnd + 'T00:00:00');
+    const monthsInPeriod = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
+
+    let totalOwed = 0;
+    const hourlyProjectIds = new Set();
+    for (const row of hourlyWork) {
+      if (row.project_type === 'hourly') {
+        totalOwed += (row.submitted_hours || 0) * (row.pay_rate || 0);
+      } else if (row.project_type === 'fixed_monthly') {
+        totalOwed += (row.monthly_pay || 0) * monthsInPeriod;
+      }
+      hourlyProjectIds.add(row.project_id);
+    }
+    for (const fp of fixedPriceWork) {
+      if (hourlyProjectIds.has(fp.project_id)) continue;
+      totalOwed += (fp.amount || 0);
+    }
+
+    if (engineer.holiday_pay_eligible && engineer.holiday_pay_rate) {
+      for (const hol of holidays) {
+        totalOwed += (hol.hours || 0) * engineer.holiday_pay_rate;
+      }
+    }
+
+    const totalPaid = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM engineer_payments
+      WHERE user_id = ? AND payment_date BETWEEN ? AND ?
+        AND (notes IS NULL OR notes NOT LIKE '%Historical import%')
+    `).get(engineer.id, periodStart, periodEnd).total;
+
+    const balance = totalOwed - totalPaid;
+    if (balance < -0.01) {
+      overpayments.push({
+        engineer_id: engineer.id,
+        engineer_name: engineer.name,
+        engineer_code: engineer.engineer_id,
+        total_owed: totalOwed,
+        total_paid: totalPaid,
+        total_overpaid: Math.abs(balance),
+      });
+    }
+  }
+
+  res.json(overpayments);
 });
 
 // Engineer earnings report (accessible by engineers for their own data)
