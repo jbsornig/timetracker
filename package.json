@@ -9,7 +9,8 @@
     "render-build": "cd client && npm install && npm run build && cd ../server && npm install"
   },
   "dependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "pdf-parse": "^2.4.5"
   },
   "engines": {
     "node": "18.x"
