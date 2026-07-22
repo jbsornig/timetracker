@@ -161,12 +161,12 @@ export default function Projects() {
         } else {
           const createResp = await apiFetch(`/customers/${customerId}/contacts`, {
             method: 'POST',
-            body: JSON.stringify({
+            body: {
               name: data.requester_name,
               email: data.requester_email || '',
               title: '',
               phone: '',
-            }),
+            },
           });
           if (createResp && createResp.id) {
             contactId = createResp.id;
