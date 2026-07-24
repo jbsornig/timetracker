@@ -4343,9 +4343,13 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
   const payments = db.prepare(`
     SELECT id, amount, payment_date, payment_type, payment_method, reference_number, notes, period_start, period_end
     FROM engineer_payments
-    WHERE user_id = ? AND payment_date BETWEEN ? AND ?
+    WHERE user_id = ?
+      AND (
+        (period_start IS NOT NULL AND period_start BETWEEN ? AND ?)
+        OR (period_start IS NULL AND payment_date BETWEEN ? AND ?)
+      )
     ORDER BY payment_date
-  `).all(user_id, period_start, period_end);
+  `).all(user_id, period_start, period_end, period_start, period_end);
 
   const totalOwed = workLines.reduce((s, w) => s + w.amount_owed, 0);
   const totalSubmittedOwed = workLines.reduce((s, w) => s + w.submitted_amount_owed, 0);
@@ -4427,12 +4431,17 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
       }
     }
 
+    const today = new Date().toISOString().split('T')[0];
     const totalPaid = db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM engineer_payments
-      WHERE user_id = ? AND payment_date BETWEEN ? AND ?
+      WHERE user_id = ?
+        AND (
+          (period_start IS NOT NULL AND period_start BETWEEN ? AND ? AND period_end <= ?)
+          OR (period_start IS NULL AND payment_date BETWEEN ? AND ?)
+        )
         AND (notes IS NULL OR notes NOT LIKE '%Historical import%')
-    `).get(engineer.id, periodStart, periodEnd).total;
+    `).get(engineer.id, periodStart, periodEnd, today, periodStart, periodEnd).total;
 
     const balance = totalOwed - totalPaid;
     if (balance < -0.01) {

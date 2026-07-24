@@ -1891,6 +1891,14 @@ export default function Reports() {
                     <input className="form-input" value={engPayForm.reference_number} onChange={(e) => setEngPayForm({ ...engPayForm, reference_number: e.target.value })} placeholder="Check #, etc." style={{ width: 140 }} />
                   </div>
                   <div>
+                    <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Work Period</label>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      <input className="form-input" type="date" value={engPayForm.period_start} onChange={(e) => setEngPayForm({ ...engPayForm, period_start: e.target.value })} style={{ width: 130 }} />
+                      <span>-</span>
+                      <input className="form-input" type="date" value={engPayForm.period_end} onChange={(e) => setEngPayForm({ ...engPayForm, period_end: e.target.value })} style={{ width: 130 }} />
+                    </div>
+                  </div>
+                  <div>
                     <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Notes</label>
                     <input className="form-input" value={engPayForm.notes} onChange={(e) => setEngPayForm({ ...engPayForm, notes: e.target.value })} placeholder="Optional" style={{ width: 180 }} />
                   </div>
@@ -1983,7 +1991,7 @@ export default function Reports() {
                               </select>
                             </td>
                             <td><input className="form-input" value={editingPayment.reference_number || ''} onChange={(e) => setEditingPayment({ ...editingPayment, reference_number: e.target.value })} style={{ width: 100, fontSize: 11 }} /></td>
-                            <td style={{ fontSize: 11 }}>{p.period_start && p.period_end ? `${formatDate(p.period_start)} - ${formatDate(p.period_end)}` : '—'}</td>
+                            <td style={{ fontSize: 11 }}><input className="form-input" type="date" value={editingPayment.period_start || ''} onChange={(e) => setEditingPayment({ ...editingPayment, period_start: e.target.value })} style={{ width: 120, fontSize: 11 }} /> - <input className="form-input" type="date" value={editingPayment.period_end || ''} onChange={(e) => setEditingPayment({ ...editingPayment, period_end: e.target.value })} style={{ width: 120, fontSize: 11 }} /></td>
                             <td><input className="form-input" value={editingPayment.notes || ''} onChange={(e) => setEditingPayment({ ...editingPayment, notes: e.target.value })} style={{ width: 140, fontSize: 11 }} /></td>
                             <td style={{ whiteSpace: 'nowrap' }}>
                               <button className="btn btn-primary btn-sm" onClick={handleSaveEditPayment} disabled={engPaySaving} style={{ marginRight: 4 }}>Save</button>
