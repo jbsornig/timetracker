@@ -11,9 +11,47 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 
+const crypto = require('crypto');
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '';
+const TAX_ALGORITHM = 'aes-256-gcm';
+
+function encryptTaxId(value) {
+  if (!value || !ENCRYPTION_KEY) return '';
+  const key = crypto.scryptSync(ENCRYPTION_KEY, 'timetracker-tax-salt', 32);
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(TAX_ALGORITHM, key, iv);
+  let encrypted = cipher.update(value, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag();
+  return iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;
+}
+
+function decryptTaxId(stored) {
+  if (!stored || !ENCRYPTION_KEY) return '';
+  try {
+    const [ivHex, authTagHex, encrypted] = stored.split(':');
+    const key = crypto.scryptSync(ENCRYPTION_KEY, 'timetracker-tax-salt', 32);
+    const decipher = crypto.createDecipheriv(TAX_ALGORITHM, key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch {
+    return '';
+  }
+}
+
+function maskTaxId(value) {
+  if (!value) return '';
+  const clean = value.replace(/[^0-9]/g, '');
+  if (clean.length <= 4) return '***-**-' + clean;
+  return '***-**-' + clean.slice(-4);
+}
 
 const formatMoney = (amt) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amt || 0);
 
@@ -457,35 +495,41 @@ app.delete('/api/holidays/:id', auth, adminOnly, (req, res) => {
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, address, city, state, zip, start_date, phone, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
-  // Mask bank account numbers for display (show last 4 only)
-  const masked = users.map(u => ({
-    ...u,
-    bank_account_masked: u.bank_account ? '****' + u.bank_account.slice(-4) : null,
-    bank_routing_masked: u.bank_routing ? '****' + u.bank_routing.slice(-4) : null,
-    bank_account_2_masked: u.bank_account_2 ? '****' + u.bank_account_2.slice(-4) : null,
-    bank_routing_2_masked: u.bank_routing_2 ? '****' + u.bank_routing_2.slice(-4) : null,
-    has_banking: !!(u.bank_routing && u.bank_account),
-    has_split: !!(u.bank_routing_2 && u.bank_account_2 && u.bank_pct_2 > 0)
-  }));
+  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, address, city, state, zip, start_date, phone, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
+  const masked = users.map(u => {
+    const decrypted = decryptTaxId(u.tax_id);
+    return {
+      ...u,
+      tax_id: undefined,
+      tax_id_masked: decrypted ? maskTaxId(decrypted) : '',
+      has_tax_id: !!decrypted,
+      bank_account_masked: u.bank_account ? '****' + u.bank_account.slice(-4) : null,
+      bank_routing_masked: u.bank_routing ? '****' + u.bank_routing.slice(-4) : null,
+      bank_account_2_masked: u.bank_account_2 ? '****' + u.bank_account_2.slice(-4) : null,
+      bank_routing_2_masked: u.bank_routing_2 ? '****' + u.bank_routing_2.slice(-4) : null,
+      has_banking: !!(u.bank_routing && u.bank_account),
+      has_split: !!(u.bank_routing_2 && u.bank_account_2 && u.bank_pct_2 > 0)
+    };
+  });
   res.json(masked);
 });
 
 app.post('/api/users', auth, adminOnly, (req, res) => {
   const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
-          address, city, state, zip, start_date, phone,
+          address, city, state, zip, start_date, phone, tax_id,
           bank_routing, bank_account, bank_account_type,
           bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2 } = req.body;
   const db = getDb();
   try {
     const hash = bcrypt.hashSync(password, 10);
+    const encryptedTaxId = tax_id ? encryptTaxId(tax_id) : '';
     const result = db.prepare(`INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
-      address, city, state, zip, start_date, phone,
+      address, city, state, zip, start_date, phone, tax_id,
       bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         name, email, hash, role || 'engineer', engineer_id || null,
         holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, parseInt(pay_delay_months) || 0,
-        address || '', city || '', state || '', zip || '', start_date || '', phone || '',
+        address || '', city || '', state || '', zip || '', start_date || '', phone || '', encryptedTaxId,
         bank_routing || null, bank_account || null, bank_account_type || 'checking',
         bank_routing_2 || null, bank_account_2 || null, bank_account_type_2 || 'checking',
         bank_pct_1 ?? 100, bank_pct_2 ?? 0
@@ -498,14 +542,14 @@ app.post('/api/users', auth, adminOnly, (req, res) => {
 
 app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   const { name, email, role, engineer_id, password, holiday_pay_eligible, holiday_pay_rate,
-          address, city, state, zip, start_date, phone,
+          address, city, state, zip, start_date, phone, tax_id,
           bank_routing, bank_account, bank_account_type,
           bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2,
           pay_delay_months } = req.body;
   const db = getDb();
 
   // Get current user to preserve banking info and log profile changes
-  const current = db.prepare('SELECT bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, address, city, state, zip, phone, start_date FROM users WHERE id = ?').get(req.params.id);
+  const current = db.prepare('SELECT tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, address, city, state, zip, phone, start_date FROM users WHERE id = ?').get(req.params.id);
 
   // Log profile field changes
   const profileFields = { address, city, state, zip, phone, start_date };
@@ -518,6 +562,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
     }
   }
 
+  const finalTaxId = tax_id !== undefined ? (tax_id ? encryptTaxId(tax_id) : '') : (current?.tax_id || '');
   const finalRouting = bank_routing || current?.bank_routing || null;
   const finalAccount = bank_account || current?.bank_account || null;
   const finalAccountType = bank_account_type || current?.bank_account_type || 'checking';
@@ -528,7 +573,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   const finalPct2 = bank_pct_2 ?? current?.bank_pct_2 ?? 0;
 
   const updateFields = `name=?, email=?, role=?, engineer_id=?, holiday_pay_eligible=?, holiday_pay_rate=?,
-    address=?, city=?, state=?, zip=?, start_date=?, phone=?,
+    address=?, city=?, state=?, zip=?, start_date=?, phone=?, tax_id=?,
     bank_routing=?, bank_account=?, bank_account_type=?,
     bank_routing_2=?, bank_account_2=?, bank_account_type_2=?, bank_pct_1=?, bank_pct_2=?,
     pay_delay_months=?`;
@@ -537,7 +582,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
     const hash = bcrypt.hashSync(password, 10);
     db.prepare(`UPDATE users SET ${updateFields}, password=? WHERE id=?`).run(
       name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
-      address || '', city || '', state || '', zip || '', start_date || '', phone || '',
+      address || '', city || '', state || '', zip || '', start_date || '', phone || '', finalTaxId,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,
       pay_delay_months || 0,
@@ -546,7 +591,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   } else {
     db.prepare(`UPDATE users SET ${updateFields} WHERE id=?`).run(
       name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
-      address || '', city || '', state || '', zip || '', start_date || '', phone || '',
+      address || '', city || '', state || '', zip || '', start_date || '', phone || '', finalTaxId,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,
       pay_delay_months || 0,
@@ -554,6 +599,14 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
     );
   }
   res.json({ success: true });
+});
+
+app.get('/api/users/:id/tax-id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const user = db.prepare('SELECT tax_id FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const decrypted = decryptTaxId(user.tax_id);
+  res.json({ tax_id: decrypted });
 });
 
 // Profile change history for a user (admin only)

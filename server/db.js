@@ -392,6 +392,10 @@ function initSchema() {
     db.exec("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''");
     console.log('✅ Migration: Added phone column to users');
   }
+  if (!userCols.find(c => c.name === 'tax_id')) {
+    db.exec("ALTER TABLE users ADD COLUMN tax_id TEXT DEFAULT ''");
+    console.log('✅ Migration: Added tax_id column to users');
+  }
 
   // Add fixed price project columns
   const projectCols3 = db.prepare("PRAGMA table_info(projects)").all();

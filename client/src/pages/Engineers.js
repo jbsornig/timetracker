@@ -13,6 +13,7 @@ const emptyUser = {
   name: '', email: '', password: '', engineer_id: '', role: 'engineer',
   holiday_pay_eligible: false, holiday_pay_rate: '',
   address: '', city: '', state: '', zip: '', start_date: '', phone: '',
+  tax_id: '',
   bank_routing: '', bank_account: '', bank_account_type: 'checking',
   bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
   bank_pct_1: 100, bank_pct_2: 0,
@@ -38,6 +39,8 @@ export default function Engineers() {
   const [emailForm, setEmailForm] = useState({ subject: '', body: '' });
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailResult, setEmailResult] = useState(null);
+  const [showTaxId, setShowTaxId] = useState(false);
+  const [revealedTaxId, setRevealedTaxId] = useState('');
 
   useEffect(() => {
     loadData();
@@ -125,6 +128,8 @@ export default function Engineers() {
     setError('');
     setProfileHistory([]);
     setShowHistory(false);
+    setShowTaxId(false);
+    setRevealedTaxId('');
     setModal('edit');
   };
 
@@ -183,6 +188,7 @@ export default function Engineers() {
         start_date: form.start_date || '',
         phone: form.phone || '',
       };
+      if (form.tax_id) body.tax_id = form.tax_id;
       // Only include banking info if provided (don't overwrite with empty)
       if (form.bank_routing) body.bank_routing = form.bank_routing;
       if (form.bank_account) body.bank_account = form.bank_account;
@@ -458,6 +464,32 @@ export default function Engineers() {
                     placeholder="ENG-001"
                   />
                   <div className="form-hint">Optional identifier for timesheets</div>
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 12 }}>Tax Information</div>
+                  <div className="form-group">
+                    <label className="form-label">SSN or EIN</label>
+                    {modal === 'edit' && engineers.find(e => e.id === form.id)?.has_tax_id && !form.tax_id && (
+                      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        Current: {showTaxId ? revealedTaxId : engineers.find(e => e.id === form.id)?.tax_id_masked}
+                        <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={async () => {
+                          if (showTaxId) { setShowTaxId(false); return; }
+                          try {
+                            const data = await apiFetch(`/users/${form.id}/tax-id`);
+                            setRevealedTaxId(data.tax_id);
+                            setShowTaxId(true);
+                          } catch (e) { setError('Could not reveal Tax ID'); }
+                        }}>{showTaxId ? 'Hide' : 'Reveal'}</button>
+                      </div>
+                    )}
+                    <input
+                      className="form-input"
+                      value={form.tax_id}
+                      onChange={(e) => setForm({ ...form, tax_id: e.target.value })}
+                      placeholder={modal === 'edit' && engineers.find(e => e.id === form.id)?.has_tax_id ? 'Leave blank to keep current' : '123-45-6789 or 12-3456789'}
+                    />
+                    <div className="form-hint">Encrypted at rest. Only visible to admins. Used for 1099 reporting.</div>
+                  </div>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
                   <div style={{ fontWeight: 600, marginBottom: 12 }}>Contact, Address & Start Date</div>

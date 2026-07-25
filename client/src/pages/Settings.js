@@ -37,6 +37,7 @@ function getThanksgiving(year) {
 export default function Settings() {
   const [settings, setSettings] = useState({
     company_name: '',
+    company_ein: '',
     company_address: '',
     company_city_state_zip: '',
     company_phone: '',
@@ -409,6 +410,18 @@ export default function Settings() {
               onChange={(e) => handleChange('company_name', e.target.value)}
               placeholder="Your Company Name"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Company EIN</label>
+            <input
+              className="form-input"
+              value={settings.company_ein}
+              onChange={(e) => handleChange('company_ein', e.target.value)}
+              placeholder="12-3456789"
+              style={{ maxWidth: 200 }}
+            />
+            <div className="form-hint">Employer Identification Number for tax documents and vendor forms</div>
           </div>
 
           <div className="form-group">
