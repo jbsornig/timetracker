@@ -978,14 +978,14 @@ function parseMercedesPoPdf(text) {
 }
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0);
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, confirm_inactive } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, confirm_inactive } = req.body;
   const db = getDb();
 
   if (status === 'inactive' && !confirm_inactive) {
@@ -1005,7 +1005,7 @@ app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
     }
   }
 
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=?, edi_po_quantity=?, edi_unit_price=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=?, edi_po_quantity=?, edi_unit_price=?, overtime_type=?, invoice_consolidate=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -1044,10 +1044,10 @@ app.get('/api/projects/:id/engineers', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/projects/:id/engineers', auth, adminOnly, (req, res) => {
-  const { user_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours } = req.body;
+  const { user_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours, ot_pay_rate, ot_bill_rate } = req.body;
   const db = getDb();
   try {
-    db.prepare('INSERT OR REPLACE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(user_id, req.params.id, pay_rate || 0, bill_rate || 0, total_payment || 0, monthly_pay || 0, monthly_bill || 0, max_hours || 0);
+    db.prepare('INSERT OR REPLACE INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours, ot_pay_rate, ot_bill_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(user_id, req.params.id, pay_rate || 0, bill_rate || 0, total_payment || 0, monthly_pay || 0, monthly_bill || 0, max_hours || 0, ot_pay_rate || 0, ot_bill_rate || 0);
     res.json({ success: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1714,7 +1714,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-           p.project_type, p.total_cost, p.include_timesheets, p.billing_method,
+           p.project_type, p.total_cost, p.include_timesheets, p.billing_method, p.invoice_consolidate,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.currency_symbol, cc.name as contact_name
     FROM invoices i
@@ -1898,6 +1898,26 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
         item.amount = engineerPortion * customerInvoiceTotal;
       }
     });
+  }
+
+  // Consolidate line items into a single line if project is configured for it
+  if (invoice.invoice_consolidate && lineItems.length > 1) {
+    const totalHours = lineItems.reduce((sum, item) => sum + (item.hours || 0), 0);
+    const totalAmt = lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const consolidated = {
+      hours: totalHours || undefined,
+      rate: totalHours > 0 ? totalAmt / totalHours : undefined,
+      amount: totalAmt,
+      engineer: 'Engineering Services',
+      is_consolidated: true,
+    };
+    if (isFixedPrice) {
+      consolidated.is_fixed_price = true;
+    } else if (isFixedMonthly) {
+      consolidated.is_fixed_monthly = true;
+    }
+    lineItems.length = 0;
+    lineItems.push(consolidated);
   }
 
   res.json({ ...invoice, settings, lineItems, timesheetDetails, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
@@ -2371,6 +2391,26 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
           }
         });
       }
+    }
+
+    // Consolidate line items into a single line if project is configured for it
+    if (project.invoice_consolidate && lineItems.length > 1) {
+      const totalHours = lineItems.reduce((sum, item) => sum + (item.hours || 0), 0);
+      const totalAmt = lineItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      const consolidated = {
+        hours: totalHours || undefined,
+        rate: totalHours > 0 ? totalAmt / totalHours : undefined,
+        amount: totalAmt,
+        engineer: 'Engineering Services',
+        is_consolidated: true,
+      };
+      if (isFixedPrice) {
+        consolidated.is_fixed_price = true;
+      } else if (isFixedMonthly) {
+        consolidated.is_fixed_monthly = true;
+      }
+      lineItems.length = 0;
+      lineItems.push(consolidated);
     }
 
     // Check for billable data before creating invoice

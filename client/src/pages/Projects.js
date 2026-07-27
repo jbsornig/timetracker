@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '' };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -16,7 +16,7 @@ export default function Projects() {
   const [saving, setSaving] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectEngineers, setProjectEngineers] = useState([]);
-  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '' });
+  const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '', ot_pay_rate: '', ot_bill_rate: '' });
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -90,6 +90,8 @@ export default function Projects() {
       edi_plant_code: project.edi_plant_code || '',
       edi_po_quantity: project.edi_po_quantity || '',
       edi_unit_price: project.edi_unit_price || '',
+      overtime_type: project.overtime_type || 'none',
+      invoice_consolidate: project.invoice_consolidate === 1,
     });
     setError('');
     if (project.customer_id) {
@@ -100,7 +102,7 @@ export default function Projects() {
 
   const openAssign = async (project) => {
     setSelectedProject(project);
-    setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '' });
+    setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '', ot_pay_rate: '', ot_bill_rate: '' });
     try {
       const engs = await apiFetch(`/projects/${project.id}/engineers`);
       setProjectEngineers(engs);
@@ -284,11 +286,13 @@ export default function Projects() {
           monthly_pay: isFixedMonthly ? parseFloat(assignForm.monthly_pay) : 0,
           monthly_bill: isFixedMonthly ? parseFloat(assignForm.monthly_bill) : 0,
           max_hours: (!isFixedPrice && !isFixedMonthly && assignForm.max_hours) ? parseFloat(assignForm.max_hours) : 0,
+          ot_pay_rate: (!isFixedPrice && !isFixedMonthly && assignForm.ot_pay_rate) ? parseFloat(assignForm.ot_pay_rate) : 0,
+          ot_bill_rate: (!isFixedPrice && !isFixedMonthly && assignForm.ot_bill_rate) ? parseFloat(assignForm.ot_bill_rate) : 0,
         },
       });
       const engs = await apiFetch(`/projects/${selectedProject.id}/engineers`);
       setProjectEngineers(engs);
-      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '' });
+      setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '', ot_pay_rate: '', ot_bill_rate: '' });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -668,6 +672,50 @@ export default function Projects() {
                   : 'Engineers bill a percentage of their total payment'}
               </div>
             </div>
+            {form.project_type === 'hourly' && (
+            <div className="form-group">
+              <label className="form-label">Overtime</label>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="overtime_type"
+                    value="none"
+                    checked={form.overtime_type === 'none'}
+                    onChange={(e) => setForm({ ...form, overtime_type: e.target.value })}
+                  />
+                  <span>None</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="overtime_type"
+                    value="weekly_40"
+                    checked={form.overtime_type === 'weekly_40'}
+                    onChange={(e) => setForm({ ...form, overtime_type: e.target.value })}
+                  />
+                  <span>Weekly (&gt;40 hrs)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="overtime_type"
+                    value="daily_8"
+                    checked={form.overtime_type === 'daily_8'}
+                    onChange={(e) => setForm({ ...form, overtime_type: e.target.value })}
+                  />
+                  <span>Daily (&gt;8 hrs)</span>
+                </label>
+              </div>
+              <div className="form-hint">
+                {form.overtime_type === 'none'
+                  ? 'No overtime rates applied'
+                  : form.overtime_type === 'weekly_40'
+                  ? 'OT rates apply when an engineer works more than 40 hours in a week'
+                  : 'OT rates apply when an engineer works more than 8 hours in a day'}
+              </div>
+            </div>
+            )}
             {form.customer_id && (
               <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <label style={{ cursor: importingPo ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, background: '#16a34a', color: '#fff', padding: '8px 16px', borderRadius: 6, fontWeight: 600, fontSize: 13 }}>
@@ -852,6 +900,18 @@ export default function Projects() {
               </label>
               <div className="form-hint">When checked, emailed invoices will include detailed timesheet reports</div>
             </div>
+            <div className="form-group" style={{ marginTop: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={form.invoice_consolidate}
+                  onChange={(e) => setForm({ ...form, invoice_consolidate: e.target.checked })}
+                  style={{ width: 18, height: 18 }}
+                />
+                <span>Consolidate invoice line items</span>
+              </label>
+              <div className="form-hint">When checked, all engineers are combined into a single line item on the invoice instead of one line per engineer</div>
+            </div>
             {(form.project_type === 'hourly' || form.project_type === 'fixed_monthly') && (
               <div className="form-group" style={{ marginTop: 8 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -926,6 +986,9 @@ export default function Projects() {
                             <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Bill: ${eng.bill_rate?.toFixed(2) || '0.00'}/hr</div>
                             {eng.max_hours > 0 && (
                               <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Max: {eng.max_hours} hrs</div>
+                            )}
+                            {selectedProject.overtime_type && selectedProject.overtime_type !== 'none' && (eng.ot_pay_rate > 0 || eng.ot_bill_rate > 0) && (
+                              <div style={{ fontSize: 11, color: '#d97706', fontWeight: 400 }}>OT: ${eng.ot_pay_rate?.toFixed(2)}/hr pay, ${eng.ot_bill_rate?.toFixed(2)}/hr bill</div>
                             )}
                           </>
                         )}
@@ -1108,6 +1171,34 @@ export default function Projects() {
                     <div className="form-hint">Leave 0 or blank for no limit</div>
                   </div>
                 </div>
+                {selectedProject.overtime_type && selectedProject.overtime_type !== 'none' && (
+                <div className="form-row" style={{ marginTop: 4 }}>
+                  <div className="form-group">
+                    <label className="form-label" style={{ color: '#d97706' }}>OT Pay Rate ($/hr)</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.01"
+                      value={assignForm.ot_pay_rate}
+                      onChange={(e) => setAssignForm({ ...assignForm, ot_pay_rate: e.target.value })}
+                      placeholder="0.00"
+                    />
+                    <div className="form-hint">Amount paid to engineer for overtime hours</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label" style={{ color: '#d97706' }}>OT Bill Rate ($/hr)</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="0.01"
+                      value={assignForm.ot_bill_rate}
+                      onChange={(e) => setAssignForm({ ...assignForm, ot_bill_rate: e.target.value })}
+                      placeholder="0.00"
+                    />
+                    <div className="form-hint">Amount charged to customer for overtime hours</div>
+                  </div>
+                </div>
+                )}
                 </>
               )}
               <button className="btn btn-primary" type="submit" disabled={saving}>

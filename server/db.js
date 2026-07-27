@@ -563,6 +563,31 @@ function initSchema() {
     console.log('✅ Migration: Added internal column to projects');
   }
 
+  // Add invoice_consolidate to projects
+  const projectCols5a = db.prepare("PRAGMA table_info(projects)").all();
+  if (!projectCols5a.find(c => c.name === 'invoice_consolidate')) {
+    db.exec("ALTER TABLE projects ADD COLUMN invoice_consolidate INTEGER DEFAULT 0");
+    console.log('✅ Migration: Added invoice_consolidate column to projects');
+  }
+
+  // Add overtime_type to projects
+  const projectCols5 = db.prepare("PRAGMA table_info(projects)").all();
+  if (!projectCols5.find(c => c.name === 'overtime_type')) {
+    db.exec("ALTER TABLE projects ADD COLUMN overtime_type TEXT DEFAULT 'none'");
+    console.log('✅ Migration: Added overtime_type column to projects');
+  }
+
+  // Add overtime rates to engineer_projects
+  const epCols2 = db.prepare("PRAGMA table_info(engineer_projects)").all();
+  if (!epCols2.find(c => c.name === 'ot_pay_rate')) {
+    db.exec("ALTER TABLE engineer_projects ADD COLUMN ot_pay_rate REAL DEFAULT 0");
+    console.log('✅ Migration: Added ot_pay_rate column to engineer_projects');
+  }
+  if (!epCols2.find(c => c.name === 'ot_bill_rate')) {
+    db.exec("ALTER TABLE engineer_projects ADD COLUMN ot_bill_rate REAL DEFAULT 0");
+    console.log('✅ Migration: Added ot_bill_rate column to engineer_projects');
+  }
+
   // Seed admin user if none exists
   const adminExists = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {

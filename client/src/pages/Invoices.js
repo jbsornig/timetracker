@@ -2485,11 +2485,15 @@ function InvoiceContent({ inv, settings }) {
             {inv.lineItems.map((item, idx) => (
               <tr key={idx}>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_fixed_price ? (inv.billing_method === 'monthly_installment' ? 'Monthly' : `${item.percentage}%`) : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
+                  {item.is_consolidated
+                    ? (item.hours ? item.hours.toFixed(2) : '1')
+                    : item.is_fixed_price ? (inv.billing_method === 'monthly_installment' ? 'Monthly' : `${item.percentage}%`) : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_fixed_price
+                  {item.is_consolidated
+                    ? `${projectDescription || 'Engineering Services'} - ${periodRange}`
+                    : item.is_fixed_price
                     ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}`
                     : item.is_fixed_monthly
                     ? `${projectDescription || 'Monthly Service'} - ${item.engineer} - ${periodRange}`
@@ -2497,7 +2501,7 @@ function InvoiceContent({ inv, settings }) {
                   }
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
-                  {item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
+                  {item.is_consolidated ? `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}` : item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{cs}{item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
