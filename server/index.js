@@ -859,10 +859,60 @@ function parseFcaPoPdf(text) {
 function parseMercedesPoPdf(text) {
   let poNumber = '', poDate = '', description = '', quantity = '', unitPrice = '', netAmount = '';
   let requesterName = '', requesterEmail = '';
+  let location = '';
 
+  const isSpanishFormat = text.includes('Número de documento:') || text.includes('Pedido\n');
   const isNewFormat = text.includes('Document Number:\n');
 
-  if (isNewFormat) {
+  if (isSpanishFormat) {
+    const docMatch = text.match(/Número de documento:\s*(\d+)/);
+    if (docMatch) poNumber = docMatch[1];
+
+    const dateMatch = text.match(/Fecha:\s*([\d.]+)/);
+    if (dateMatch) {
+      const parts = dateMatch[1].split('.');
+      if (parts.length === 3) poDate = parts[1] + '/' + parts[0] + '/' + parts[2];
+    }
+
+    const contactMatch = text.match(/Persona de contacto:\s*\n(.+)\n[+\d ]+\n([\w.@-]+)/);
+    if (contactMatch) {
+      requesterName = contactMatch[1].trim();
+      requesterEmail = contactMatch[2].trim();
+    }
+    if (!requesterName) {
+      const techMatch = text.match(/Contacto para cuestiones técnicas[^:]*:\s*\n(.+)\n[+\d ]+\n([\w.@-]+)/);
+      if (techMatch) {
+        requesterName = techMatch[1].trim();
+        requesterEmail = techMatch[2].trim();
+      }
+    }
+
+    const descMatch = text.match(/Artículo\s*\d+\s*\nDescripción\n(.+)\nCantidad/s);
+    if (descMatch) description = descMatch[1].trim().split('\n')[0].trim();
+    if (!description) {
+      const descAlt = text.match(/Descripción\n(.+?)(?:\n|$)/);
+      if (descAlt) description = descAlt[1].trim();
+    }
+
+    const parseEuropeanNumber = (str) => str.replace(/\./g, '').replace(',', '.');
+
+    const netMatch = text.match(/Valor neto total\s*\n([\d.,]+)\s*EUR/);
+    if (netMatch) netAmount = parseEuropeanNumber(netMatch[1]);
+    if (!netAmount) {
+      const netAlt = text.match(/Precio neto total\s*\n([\d.,]+)\s*EUR/);
+      if (netAlt) netAmount = parseEuropeanNumber(netAlt[1]);
+    }
+
+    const qtyMatch = text.match(/Cantidad\s*\n([\d.,]+)\s/);
+    if (qtyMatch) quantity = parseFloat(parseEuropeanNumber(qtyMatch[1])).toString();
+
+    const priceMatch = text.match(/Precio por unidad\s*\n([\d.,]+)\s*EUR/);
+    if (priceMatch) unitPrice = parseEuropeanNumber(priceMatch[1]);
+
+    const locMatch = text.match(/Centro de consumo:\s*(.+?)(?:\n|$)/);
+    if (locMatch) location = locMatch[1].trim();
+
+  } else if (isNewFormat) {
     const docMatch = text.match(/Document Number:\s*\n(\d+)/);
     if (docMatch) poNumber = docMatch[1];
 
@@ -886,6 +936,9 @@ function parseMercedesPoPdf(text) {
 
     const priceMatch = text.match(/Price Per Unit\s*\n([\d,.]+)\s*USD/);
     if (priceMatch) unitPrice = priceMatch[1].replace(/,/g, '');
+
+    const locMatch = text.match(/Consumption plant:\s*(.+?)(?:\n|$)/);
+    if (locMatch) location = locMatch[1].trim();
   } else {
     const docMatch = text.match(/Document no\.\s*Date\s*\n(\d{10})(\d{2}\/\d{2}\/\d{4})/);
     if (docMatch) { poNumber = docMatch[1]; poDate = docMatch[2]; }
@@ -917,7 +970,7 @@ function parseMercedesPoPdf(text) {
     po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
     unit_price: unitPrice,
     quantity: quantity,
-    location: 'MBUSI Tuscaloosa',
+    location: location || 'MBUSI Tuscaloosa',
     po_date: poDate,
     requester_name: requesterName,
     requester_email: requesterEmail,
