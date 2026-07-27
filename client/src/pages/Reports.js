@@ -2499,7 +2499,10 @@ export default function Reports() {
           cost: acc.cost + r.cost,
           profit: acc.profit + r.profit,
         }), { hours: 0, billed: 0, cost: 0, profit: 0 });
-        const totalMargin = totals.billed > 0 ? (totals.profit / totals.billed) * 100 : 0;
+        const summaryTotalPaid = Object.values(filtered.reduce((acc, r) => { acc[r.engineer_id] = profitActualPaid[r.engineer_id] || 0; return acc; }, {})).reduce((s, v) => s + v, 0);
+        const summaryEffectiveCost = Math.max(totals.cost, summaryTotalPaid);
+        const summaryProfit = totals.billed - summaryEffectiveCost;
+        const totalMargin = totals.billed > 0 ? (summaryProfit / totals.billed) * 100 : 0;
 
         const engineerSummary = Object.values(filtered.reduce((acc, r) => {
           if (!acc[r.engineer_id]) {
@@ -2568,7 +2571,7 @@ export default function Reports() {
                   </div>
                   <div className="stat-card accent">
                     <div className="stat-label">Total Profit</div>
-                    <div className="stat-value" style={{ fontSize: 20, color: totals.profit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(totals.profit)}</div>
+                    <div className="stat-value" style={{ fontSize: 20, color: summaryProfit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(summaryProfit)}</div>
                   </div>
                   <div className="stat-card">
                     <div className="stat-label">Margin</div>
@@ -2594,8 +2597,10 @@ export default function Reports() {
                       </thead>
                       <tbody>
                         {engineerSummary.map(e => {
-                          const m = e.billed > 0 ? (e.profit / e.billed) * 100 : 0;
                           const paid = profitActualPaid[e.engineer_id] || 0;
+                          const effectiveCost = Math.max(e.cost, paid);
+                          const actualProfit = e.billed - effectiveCost;
+                          const m = e.billed > 0 ? (actualProfit / e.billed) * 100 : 0;
                           const overUnder = paid - e.cost;
                           return (
                             <tr key={e.engineer_id}>
@@ -2605,7 +2610,7 @@ export default function Reports() {
                               <td style={mono}>{fmt(e.cost)}</td>
                               <td style={mono}>{fmt(paid)}</td>
                               <td style={{ ...mono, color: Math.abs(overUnder) < 0.01 ? undefined : overUnder > 0 ? '#dc2626' : '#16a34a', fontWeight: Math.abs(overUnder) >= 0.01 ? 600 : undefined }}>{Math.abs(overUnder) < 0.01 ? '-' : (overUnder > 0 ? '+' : '') + fmt(overUnder)}</td>
-                              <td style={{ ...mono, color: e.profit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{fmt(e.profit)}</td>
+                              <td style={{ ...mono, color: actualProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{fmt(actualProfit)}</td>
                               <td style={{ ...mono, color: m >= 0 ? '#16a34a' : '#dc2626' }}>{m.toFixed(1)}%</td>
                             </tr>
                           );
@@ -2613,6 +2618,9 @@ export default function Reports() {
                         {(() => {
                           const totalPaid = engineerSummary.reduce((s, e) => s + (profitActualPaid[e.engineer_id] || 0), 0);
                           const totalOverUnder = totalPaid - totals.cost;
+                          const totalEffectiveCost = Math.max(totals.cost, totalPaid);
+                          const totalActualProfit = totals.billed - totalEffectiveCost;
+                          const totalActualMargin = totals.billed > 0 ? (totalActualProfit / totals.billed) * 100 : 0;
                           return (
                             <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
                               <td>Total</td>
@@ -2621,8 +2629,8 @@ export default function Reports() {
                               <td style={mono}>{fmt(totals.cost)}</td>
                               <td style={mono}>{fmt(totalPaid)}</td>
                               <td style={{ ...mono, color: Math.abs(totalOverUnder) < 0.01 ? undefined : totalOverUnder > 0 ? '#dc2626' : '#16a34a' }}>{Math.abs(totalOverUnder) < 0.01 ? '-' : (totalOverUnder > 0 ? '+' : '') + fmt(totalOverUnder)}</td>
-                              <td style={{ ...mono, color: totals.profit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(totals.profit)}</td>
-                              <td style={{ ...mono, color: totalMargin >= 0 ? '#16a34a' : '#dc2626' }}>{totalMargin.toFixed(1)}%</td>
+                              <td style={{ ...mono, color: totalActualProfit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(totalActualProfit)}</td>
+                              <td style={{ ...mono, color: totalActualMargin >= 0 ? '#16a34a' : '#dc2626' }}>{totalActualMargin.toFixed(1)}%</td>
                             </tr>
                           );
                         })()}
