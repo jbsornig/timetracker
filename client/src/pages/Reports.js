@@ -110,6 +110,13 @@ export default function Reports() {
   const [unclearedAdvances, setUnclearedAdvances] = useState([]);
   const [bankSplits, setBankSplits] = useState({});
 
+  // Profitability state
+  const [profitData, setProfitData] = useState([]);
+  const [profitRange, setProfitRange] = useState({ period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
+  const [profitCustomerFilter, setProfitCustomerFilter] = useState('');
+  const [profitProjectFilter, setProfitProjectFilter] = useState('');
+  const [profitEngineerFilter, setProfitEngineerFilter] = useState('');
+
   // Year-End Reports state
   const [yearEndYear, setYearEndYear] = useState(new Date().getFullYear().toString());
   const [yearEndData, setYearEndData] = useState(null);
@@ -130,6 +137,8 @@ export default function Reports() {
       apiFetch(`/reports/overpayments?year=${new Date().getFullYear()}`).then(data => setOverpayments(data || [])).catch(() => {});
     } else if (activeTab === 'overdue') {
       loadOverdueInvoices();
+    } else if (activeTab === 'profitability') {
+      loadProfitability();
     } else if (activeTab === 'year-end') {
       loadYearEndData();
     }
@@ -236,6 +245,20 @@ export default function Reports() {
     try {
       const data = await apiFetch(`/reports/year-end?year=${yearEndYear}`);
       setYearEndData(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadProfitability = async (range) => {
+    const r = range || profitRange;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await apiFetch(`/reports/profitability?period_start=${r.period_start}&period_end=${r.period_end}`);
+      setProfitData(data);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -742,6 +765,12 @@ export default function Reports() {
             onClick={() => setActiveTab('overdue')}
           >
             Overdue Invoices
+          </button>
+          <button
+            className={`btn ${activeTab === 'profitability' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('profitability')}
+          >
+            Profitability
           </button>
           <button
             className={`btn ${activeTab === 'year-end' ? 'btn-primary' : 'btn-secondary'}`}
@@ -2447,6 +2476,189 @@ export default function Reports() {
           )}
         </div>
       )}
+
+      {activeTab === 'profitability' && (() => {
+        const filtered = profitData.filter(row => {
+          if (profitCustomerFilter && row.customer_name !== profitCustomerFilter) return false;
+          if (profitProjectFilter && row.project_id.toString() !== profitProjectFilter) return false;
+          if (profitEngineerFilter && row.engineer_id.toString() !== profitEngineerFilter) return false;
+          return true;
+        });
+
+        const customers = [...new Set(profitData.map(r => r.customer_name))].sort();
+        const projects = [...new Map(profitData.map(r => [r.project_id, { id: r.project_id, name: r.project_name, customer: r.customer_name }])).values()]
+          .filter(p => !profitCustomerFilter || p.customer === profitCustomerFilter)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        const engineerList = [...new Map(profitData.map(r => [r.engineer_id, { id: r.engineer_id, name: r.engineer_name }])).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+        const totals = filtered.reduce((acc, r) => ({
+          hours: acc.hours + r.total_hours,
+          billed: acc.billed + r.billed,
+          cost: acc.cost + r.cost,
+          profit: acc.profit + r.profit,
+        }), { hours: 0, billed: 0, cost: 0, profit: 0 });
+        const totalMargin = totals.billed > 0 ? (totals.profit / totals.billed) * 100 : 0;
+
+        const engineerSummary = Object.values(filtered.reduce((acc, r) => {
+          if (!acc[r.engineer_id]) {
+            acc[r.engineer_id] = { engineer_id: r.engineer_id, engineer_name: r.engineer_name, engineer_code: r.engineer_code, hours: 0, billed: 0, cost: 0, profit: 0 };
+          }
+          acc[r.engineer_id].hours += r.total_hours;
+          acc[r.engineer_id].billed += r.billed;
+          acc[r.engineer_id].cost += r.cost;
+          acc[r.engineer_id].profit += r.profit;
+          return acc;
+        }, {})).sort((a, b) => b.profit - a.profit);
+
+        const fmt = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const mono = { fontFamily: 'DM Mono, monospace', textAlign: 'right' };
+
+        return (
+          <div>
+            <div className="card no-print" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 12 }}>Engineer Profitability</div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Start Date</label>
+                  <input type="date" className="form-input" value={profitRange.period_start} onChange={(e) => setProfitRange({ ...profitRange, period_start: e.target.value })} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>End Date</label>
+                  <input type="date" className="form-input" value={profitRange.period_end} onChange={(e) => setProfitRange({ ...profitRange, period_end: e.target.value })} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Customer</label>
+                  <select className="form-select" value={profitCustomerFilter} onChange={(e) => { setProfitCustomerFilter(e.target.value); setProfitProjectFilter(''); }}>
+                    <option value="">All Customers</option>
+                    {customers.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Project</label>
+                  <select className="form-select" value={profitProjectFilter} onChange={(e) => setProfitProjectFilter(e.target.value)}>
+                    <option value="">All Projects</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Engineer</label>
+                  <select className="form-select" value={profitEngineerFilter} onChange={(e) => setProfitEngineerFilter(e.target.value)}>
+                    <option value="">All Engineers</option>
+                    {engineerList.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+                <button className="btn btn-primary" onClick={() => loadProfitability()} disabled={loading}>
+                  {loading ? 'Loading...' : 'Run Report'}
+                </button>
+              </div>
+            </div>
+
+            {profitData.length > 0 && (
+              <>
+                <div className="stat-grid" style={{ marginBottom: 16 }}>
+                  <div className="stat-card">
+                    <div className="stat-label">Total Billed</div>
+                    <div className="stat-value" style={{ fontSize: 20 }}>{fmt(totals.billed)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Total Cost</div>
+                    <div className="stat-value" style={{ fontSize: 20 }}>{fmt(totals.cost)}</div>
+                  </div>
+                  <div className="stat-card accent">
+                    <div className="stat-label">Total Profit</div>
+                    <div className="stat-value" style={{ fontSize: 20, color: totals.profit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(totals.profit)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Margin</div>
+                    <div className="stat-value" style={{ fontSize: 20, color: totalMargin >= 0 ? '#16a34a' : '#dc2626' }}>{totalMargin.toFixed(1)}%</div>
+                  </div>
+                </div>
+
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Profit by Engineer</div>
+                  <div className="table-wrap">
+                    <table style={{ fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th>Engineer</th>
+                          <th style={{ textAlign: 'right' }}>Hours</th>
+                          <th style={{ textAlign: 'right' }}>Billed</th>
+                          <th style={{ textAlign: 'right' }}>Cost</th>
+                          <th style={{ textAlign: 'right' }}>Profit</th>
+                          <th style={{ textAlign: 'right' }}>Margin</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {engineerSummary.map(e => {
+                          const m = e.billed > 0 ? (e.profit / e.billed) * 100 : 0;
+                          return (
+                            <tr key={e.engineer_id}>
+                              <td><strong>{e.engineer_name}</strong>{e.engineer_code ? <span style={{ color: '#94a3b8', marginLeft: 8, fontSize: 11 }}>({e.engineer_code})</span> : ''}</td>
+                              <td style={mono}>{e.hours.toFixed(1)}</td>
+                              <td style={mono}>{fmt(e.billed)}</td>
+                              <td style={mono}>{fmt(e.cost)}</td>
+                              <td style={{ ...mono, color: e.profit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{fmt(e.profit)}</td>
+                              <td style={{ ...mono, color: m >= 0 ? '#16a34a' : '#dc2626' }}>{m.toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })}
+                        <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                          <td>Total</td>
+                          <td style={mono}>{totals.hours.toFixed(1)}</td>
+                          <td style={mono}>{fmt(totals.billed)}</td>
+                          <td style={mono}>{fmt(totals.cost)}</td>
+                          <td style={{ ...mono, color: totals.profit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(totals.profit)}</td>
+                          <td style={{ ...mono, color: totalMargin >= 0 ? '#16a34a' : '#dc2626' }}>{totalMargin.toFixed(1)}%</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Detail by Engineer / Project</div>
+                  <div className="table-wrap">
+                    <table style={{ fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th>Engineer</th>
+                          <th>Customer</th>
+                          <th>Project</th>
+                          <th style={{ textAlign: 'right' }}>Hours</th>
+                          <th style={{ textAlign: 'right' }}>Billed</th>
+                          <th style={{ textAlign: 'right' }}>Cost</th>
+                          <th style={{ textAlign: 'right' }}>Profit</th>
+                          <th style={{ textAlign: 'right' }}>Margin</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.sort((a, b) => a.engineer_name.localeCompare(b.engineer_name) || b.profit - a.profit).map((r, i) => (
+                          <tr key={`${r.engineer_id}-${r.project_id}`}>
+                            <td><strong>{r.engineer_name}</strong></td>
+                            <td>{r.customer_name}</td>
+                            <td>{r.project_name}</td>
+                            <td style={mono}>{r.total_hours.toFixed(1)}</td>
+                            <td style={mono}>{fmt(r.billed)}</td>
+                            <td style={mono}>{fmt(r.cost)}</td>
+                            <td style={{ ...mono, color: r.profit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{fmt(r.profit)}</td>
+                            <td style={{ ...mono, color: r.margin >= 0 ? '#16a34a' : '#dc2626' }}>{r.margin.toFixed(1)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {profitData.length === 0 && !loading && (
+              <div className="card" style={{ color: '#94a3b8', textAlign: 'center', padding: 40 }}>
+                Click "Run Report" to generate the profitability report.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {activeTab === 'year-end' && (
         <div>

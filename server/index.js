@@ -4920,6 +4920,72 @@ app.get('/api/reports/overdue-invoices', auth, adminOnly, (req, res) => {
   res.json(results);
 });
 
+// ─── ENGINEER PROFITABILITY REPORT ────────────────────────────────────────────
+
+app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { period_start, period_end } = req.query;
+  if (!period_start || !period_end) {
+    return res.status(400).json({ error: 'period_start and period_end are required' });
+  }
+
+  const rows = db.prepare(`
+    SELECT u.id as engineer_id, u.name as engineer_name, u.engineer_id as engineer_code,
+           p.id as project_id, p.name as project_name, p.project_type,
+           c.id as customer_id, c.name as customer_name,
+           ep.pay_rate, ep.bill_rate, ep.monthly_pay, ep.monthly_bill, ep.total_payment,
+           COALESCE(SUM(te.hours), 0) as total_hours
+    FROM timesheet_entries te
+    JOIN timesheets ts ON ts.id = te.timesheet_id
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status IN ('approved', 'submitted')
+      AND te.entry_date BETWEEN ? AND ?
+      AND p.internal = 0
+    GROUP BY u.id, p.id
+  `).all(period_start, period_end);
+
+  const startDate = new Date(period_start + 'T00:00:00');
+  const endDate = new Date(period_end + 'T00:00:00');
+  const monthsInPeriod = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
+
+  const results = rows.map(row => {
+    let billed = 0;
+    let cost = 0;
+
+    if (row.project_type === 'hourly') {
+      billed = row.total_hours * (row.bill_rate || 0);
+      cost = row.total_hours * (row.pay_rate || 0);
+    } else if (row.project_type === 'fixed_monthly') {
+      billed = (row.monthly_bill || 0) * monthsInPeriod;
+      cost = (row.monthly_pay || 0) * monthsInPeriod;
+    } else if (row.project_type === 'fixed_price') {
+      billed = row.total_hours * (row.bill_rate || 0);
+      cost = row.total_payment || 0;
+    }
+
+    return {
+      engineer_id: row.engineer_id,
+      engineer_name: row.engineer_name,
+      engineer_code: row.engineer_code,
+      project_id: row.project_id,
+      project_name: row.project_name,
+      project_type: row.project_type,
+      customer_id: row.customer_id,
+      customer_name: row.customer_name,
+      total_hours: row.total_hours,
+      billed,
+      cost,
+      profit: billed - cost,
+      margin: billed > 0 ? ((billed - cost) / billed) * 100 : 0,
+    };
+  });
+
+  res.json(results);
+});
+
 // ─── YEAR-END REPORTS ─────────────────────────────────────────────────────────
 
 app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
