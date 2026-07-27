@@ -1095,6 +1095,10 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     }
   } else {
     compensationHtml = `<li><strong>Pay Rate:</strong> $${parseFloat(assignment.pay_rate || 0).toFixed(2)}/hr</li>`;
+    if (project.overtime_type && project.overtime_type !== 'none' && assignment.ot_pay_rate > 0) {
+      const otLabel = project.overtime_type === 'daily_8' ? 'After 8 Hours' : 'After 40 Hours';
+      compensationHtml += `<li><strong>Overtime Rate:</strong> $${parseFloat(assignment.ot_pay_rate).toFixed(2)}/hr (${otLabel})</li>`;
+    }
     const assignedHours = assignment.max_hours > 0
       ? assignment.max_hours
       : (project.po_amount && assignment.bill_rate ? project.po_amount / assignment.bill_rate : 0);
