@@ -4983,7 +4983,24 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
     };
   });
 
-  res.json(results);
+  const today = new Date().toISOString().split('T')[0];
+  const engineerIds = [...new Set(results.map(r => r.engineer_id))];
+  const actualPaid = {};
+  for (const eid of engineerIds) {
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM engineer_payments
+      WHERE user_id = ?
+        AND (
+          (period_start IS NOT NULL AND period_start BETWEEN ? AND ? AND period_end <= ?)
+          OR (period_start IS NULL AND payment_date BETWEEN ? AND ?)
+        )
+        AND (notes IS NULL OR notes NOT LIKE '%Historical import%')
+    `).get(eid, period_start, period_end, today, period_start, period_end);
+    actualPaid[eid] = row.total;
+  }
+
+  res.json({ rows: results, actualPaid });
 });
 
 // ─── YEAR-END REPORTS ─────────────────────────────────────────────────────────

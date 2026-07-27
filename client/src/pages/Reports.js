@@ -112,6 +112,7 @@ export default function Reports() {
 
   // Profitability state
   const [profitData, setProfitData] = useState([]);
+  const [profitActualPaid, setProfitActualPaid] = useState({});
   const [profitRange, setProfitRange] = useState({ period_start: `${new Date().getFullYear()}-01-01`, period_end: new Date().toISOString().split('T')[0] });
   const [profitCustomerFilter, setProfitCustomerFilter] = useState('');
   const [profitProjectFilter, setProfitProjectFilter] = useState('');
@@ -258,7 +259,8 @@ export default function Reports() {
     setError('');
     try {
       const data = await apiFetch(`/reports/profitability?period_start=${r.period_start}&period_end=${r.period_end}`);
-      setProfitData(data);
+      setProfitData(data.rows || []);
+      setProfitActualPaid(data.actualPaid || {});
     } catch (e) {
       setError(e.message);
     } finally {
@@ -2583,7 +2585,9 @@ export default function Reports() {
                           <th>Engineer</th>
                           <th style={{ textAlign: 'right' }}>Hours</th>
                           <th style={{ textAlign: 'right' }}>Billed</th>
-                          <th style={{ textAlign: 'right' }}>Cost</th>
+                          <th style={{ textAlign: 'right' }}>Cost (Earned)</th>
+                          <th style={{ textAlign: 'right' }}>Actual Paid</th>
+                          <th style={{ textAlign: 'right' }}>Over/Under</th>
                           <th style={{ textAlign: 'right' }}>Profit</th>
                           <th style={{ textAlign: 'right' }}>Margin</th>
                         </tr>
@@ -2591,25 +2595,37 @@ export default function Reports() {
                       <tbody>
                         {engineerSummary.map(e => {
                           const m = e.billed > 0 ? (e.profit / e.billed) * 100 : 0;
+                          const paid = profitActualPaid[e.engineer_id] || 0;
+                          const overUnder = paid - e.cost;
                           return (
                             <tr key={e.engineer_id}>
                               <td><strong>{e.engineer_name}</strong>{e.engineer_code ? <span style={{ color: '#94a3b8', marginLeft: 8, fontSize: 11 }}>({e.engineer_code})</span> : ''}</td>
                               <td style={mono}>{e.hours.toFixed(1)}</td>
                               <td style={mono}>{fmt(e.billed)}</td>
                               <td style={mono}>{fmt(e.cost)}</td>
+                              <td style={mono}>{fmt(paid)}</td>
+                              <td style={{ ...mono, color: Math.abs(overUnder) < 0.01 ? undefined : overUnder > 0 ? '#dc2626' : '#16a34a', fontWeight: Math.abs(overUnder) >= 0.01 ? 600 : undefined }}>{Math.abs(overUnder) < 0.01 ? '-' : (overUnder > 0 ? '+' : '') + fmt(overUnder)}</td>
                               <td style={{ ...mono, color: e.profit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{fmt(e.profit)}</td>
                               <td style={{ ...mono, color: m >= 0 ? '#16a34a' : '#dc2626' }}>{m.toFixed(1)}%</td>
                             </tr>
                           );
                         })}
-                        <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
-                          <td>Total</td>
-                          <td style={mono}>{totals.hours.toFixed(1)}</td>
-                          <td style={mono}>{fmt(totals.billed)}</td>
-                          <td style={mono}>{fmt(totals.cost)}</td>
-                          <td style={{ ...mono, color: totals.profit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(totals.profit)}</td>
-                          <td style={{ ...mono, color: totalMargin >= 0 ? '#16a34a' : '#dc2626' }}>{totalMargin.toFixed(1)}%</td>
-                        </tr>
+                        {(() => {
+                          const totalPaid = engineerSummary.reduce((s, e) => s + (profitActualPaid[e.engineer_id] || 0), 0);
+                          const totalOverUnder = totalPaid - totals.cost;
+                          return (
+                            <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                              <td>Total</td>
+                              <td style={mono}>{totals.hours.toFixed(1)}</td>
+                              <td style={mono}>{fmt(totals.billed)}</td>
+                              <td style={mono}>{fmt(totals.cost)}</td>
+                              <td style={mono}>{fmt(totalPaid)}</td>
+                              <td style={{ ...mono, color: Math.abs(totalOverUnder) < 0.01 ? undefined : totalOverUnder > 0 ? '#dc2626' : '#16a34a' }}>{Math.abs(totalOverUnder) < 0.01 ? '-' : (totalOverUnder > 0 ? '+' : '') + fmt(totalOverUnder)}</td>
+                              <td style={{ ...mono, color: totals.profit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(totals.profit)}</td>
+                              <td style={{ ...mono, color: totalMargin >= 0 ? '#16a34a' : '#dc2626' }}>{totalMargin.toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })()}
                       </tbody>
                     </table>
                   </div>
