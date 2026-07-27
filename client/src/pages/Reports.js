@@ -117,6 +117,8 @@ export default function Reports() {
   const [profitCustomerFilter, setProfitCustomerFilter] = useState('');
   const [profitProjectFilter, setProfitProjectFilter] = useState('');
   const [profitEngineerFilter, setProfitEngineerFilter] = useState('');
+  const [profitSummarySort, setProfitSummarySort] = useState({ key: 'profit', dir: 'desc' });
+  const [profitDetailSort, setProfitDetailSort] = useState({ key: 'engineer_name', dir: 'asc' });
 
   // Year-End Reports state
   const [yearEndYear, setYearEndYear] = useState(new Date().getFullYear().toString());
@@ -2513,10 +2515,25 @@ export default function Reports() {
           acc[r.engineer_id].cost += r.cost;
           acc[r.engineer_id].profit += r.profit;
           return acc;
-        }, {})).sort((a, b) => b.profit - a.profit);
+        }, {}));
+        const sortedEngineerSummary = [...engineerSummary].sort((a, b) => {
+          const k = profitSummarySort.key;
+          let av, bv;
+          if (k === 'actual_paid') { av = profitActualPaid[a.engineer_id] || 0; bv = profitActualPaid[b.engineer_id] || 0; }
+          else if (k === 'over_under') { av = (profitActualPaid[a.engineer_id] || 0) - a.cost; bv = (profitActualPaid[b.engineer_id] || 0) - b.cost; }
+          else if (k === 'actual_profit') { const pa = profitActualPaid[a.engineer_id] || 0; av = a.billed - Math.max(a.cost, pa); const pb = profitActualPaid[b.engineer_id] || 0; bv = b.billed - Math.max(b.cost, pb); }
+          else if (k === 'margin') { const pa = profitActualPaid[a.engineer_id] || 0; const apA = a.billed - Math.max(a.cost, pa); av = a.billed > 0 ? apA / a.billed : 0; const pb = profitActualPaid[b.engineer_id] || 0; const apB = b.billed - Math.max(b.cost, pb); bv = b.billed > 0 ? apB / b.billed : 0; }
+          else if (k === 'engineer_name') { av = a.engineer_name; bv = b.engineer_name; }
+          else { av = a[k]; bv = b[k]; }
+          if (typeof av === 'string') return profitSummarySort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+          return profitSummarySort.dir === 'asc' ? av - bv : bv - av;
+        });
 
         const fmt = (v) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const mono = { fontFamily: 'DM Mono, monospace', textAlign: 'right' };
+        const sortArrow = (sortState, key) => sortState.key === key ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
+        const toggleSort = (setter, sortState, key) => setter({ key, dir: sortState.key === key && sortState.dir === 'asc' ? 'desc' : 'asc' });
+        const thSort = { cursor: 'pointer', userSelect: 'none' };
 
         return (
           <div>
@@ -2585,18 +2602,18 @@ export default function Reports() {
                     <table style={{ fontSize: 13 }}>
                       <thead>
                         <tr>
-                          <th>Engineer</th>
-                          <th style={{ textAlign: 'right' }}>Hours</th>
-                          <th style={{ textAlign: 'right' }}>Billed</th>
-                          <th style={{ textAlign: 'right' }}>Cost (Earned)</th>
-                          <th style={{ textAlign: 'right' }}>Actual Paid</th>
-                          <th style={{ textAlign: 'right' }}>Over/Under</th>
-                          <th style={{ textAlign: 'right' }}>Profit</th>
-                          <th style={{ textAlign: 'right' }}>Margin</th>
+                          <th style={thSort} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'engineer_name')}>Engineer{sortArrow(profitSummarySort, 'engineer_name')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'hours')}>Hours{sortArrow(profitSummarySort, 'hours')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'billed')}>Billed{sortArrow(profitSummarySort, 'billed')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'cost')}>Cost (Earned){sortArrow(profitSummarySort, 'cost')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'actual_paid')}>Actual Paid{sortArrow(profitSummarySort, 'actual_paid')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'over_under')}>Over/Under{sortArrow(profitSummarySort, 'over_under')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'actual_profit')}>Profit{sortArrow(profitSummarySort, 'actual_profit')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitSummarySort, profitSummarySort, 'margin')}>Margin{sortArrow(profitSummarySort, 'margin')}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {engineerSummary.map(e => {
+                        {sortedEngineerSummary.map(e => {
                           const paid = profitActualPaid[e.engineer_id] || 0;
                           const effectiveCost = Math.max(e.cost, paid);
                           const actualProfit = e.billed - effectiveCost;
@@ -2645,29 +2662,59 @@ export default function Reports() {
                     <table style={{ fontSize: 13 }}>
                       <thead>
                         <tr>
-                          <th>Engineer</th>
-                          <th>Customer</th>
-                          <th>Project</th>
-                          <th style={{ textAlign: 'right' }}>Hours</th>
-                          <th style={{ textAlign: 'right' }}>Billed</th>
-                          <th style={{ textAlign: 'right' }}>Cost</th>
-                          <th style={{ textAlign: 'right' }}>Profit</th>
-                          <th style={{ textAlign: 'right' }}>Margin</th>
+                          <th style={thSort} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'engineer_name')}>Engineer{sortArrow(profitDetailSort, 'engineer_name')}</th>
+                          <th style={thSort} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'customer_name')}>Customer{sortArrow(profitDetailSort, 'customer_name')}</th>
+                          <th style={thSort} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'project_name')}>Project{sortArrow(profitDetailSort, 'project_name')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'total_hours')}>Hours{sortArrow(profitDetailSort, 'total_hours')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'billed')}>Billed{sortArrow(profitDetailSort, 'billed')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'cost')}>Cost{sortArrow(profitDetailSort, 'cost')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'profit')}>Profit{sortArrow(profitDetailSort, 'profit')}</th>
+                          <th style={{ ...thSort, textAlign: 'right' }} onClick={() => toggleSort(setProfitDetailSort, profitDetailSort, 'margin')}>Margin{sortArrow(profitDetailSort, 'margin')}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filtered.sort((a, b) => a.engineer_name.localeCompare(b.engineer_name) || b.profit - a.profit).map((r, i) => (
+                        {[...filtered].sort((a, b) => {
+                          const k = profitDetailSort.key;
+                          let av, bv;
+                          const getDetailVals = (r) => {
+                            const es = engineerSummary.find(e => e.engineer_id === r.engineer_id);
+                            const p = profitActualPaid[r.engineer_id] || 0;
+                            const etc = es?.cost || 0;
+                            const ec = Math.max(etc, p);
+                            const cs = etc > 0 ? r.cost / etc : 0;
+                            const dc = cs * ec;
+                            const dp = r.billed - dc;
+                            const dm = r.billed > 0 ? dp / r.billed : 0;
+                            return { cost: dc, profit: dp, margin: dm };
+                          };
+                          if (k === 'cost' || k === 'profit' || k === 'margin') {
+                            const va = getDetailVals(a); const vb = getDetailVals(b);
+                            av = va[k]; bv = vb[k];
+                          } else { av = a[k]; bv = b[k]; }
+                          if (typeof av === 'string') return profitDetailSort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+                          return profitDetailSort.dir === 'asc' ? av - bv : bv - av;
+                        }).map((r, i) => {
+                          const engSummary = engineerSummary.find(e => e.engineer_id === r.engineer_id);
+                          const paid = profitActualPaid[r.engineer_id] || 0;
+                          const engTotalCost = engSummary?.cost || 0;
+                          const effectiveCost = Math.max(engTotalCost, paid);
+                          const costShare = engTotalCost > 0 ? r.cost / engTotalCost : 0;
+                          const detailCost = costShare * effectiveCost;
+                          const detailProfit = r.billed - detailCost;
+                          const detailMargin = r.billed > 0 ? (detailProfit / r.billed) * 100 : 0;
+                          return (
                           <tr key={`${r.engineer_id}-${r.project_id}`}>
                             <td><strong>{r.engineer_name}</strong></td>
                             <td>{r.customer_name}</td>
                             <td>{r.project_name}</td>
                             <td style={mono}>{r.total_hours.toFixed(1)}</td>
                             <td style={mono}>{fmt(r.billed)}</td>
-                            <td style={mono}>{fmt(r.cost)}</td>
-                            <td style={{ ...mono, color: r.profit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{fmt(r.profit)}</td>
-                            <td style={{ ...mono, color: r.margin >= 0 ? '#16a34a' : '#dc2626' }}>{r.margin.toFixed(1)}%</td>
+                            <td style={mono}>{fmt(detailCost)}</td>
+                            <td style={{ ...mono, color: detailProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{fmt(detailProfit)}</td>
+                            <td style={{ ...mono, color: detailMargin >= 0 ? '#16a34a' : '#dc2626' }}>{detailMargin.toFixed(1)}%</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

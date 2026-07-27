@@ -4973,7 +4973,8 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
     return res.status(400).json({ error: 'period_start and period_end are required' });
   }
 
-  const rows = db.prepare(`
+  // Hourly and fixed_monthly: query through timesheet_entries
+  const entryRows = db.prepare(`
     SELECT u.id as engineer_id, u.name as engineer_name, u.engineer_id as engineer_code,
            p.id as project_id, p.name as project_name, p.project_type,
            c.id as customer_id, c.name as customer_name,
@@ -4991,11 +4992,40 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
     GROUP BY u.id, p.id
   `).all(period_start, period_end);
 
+  // Fixed price: query through timesheets directly (no entries required)
+  const fixedPriceRows = db.prepare(`
+    SELECT u.id as engineer_id, u.name as engineer_name, u.engineer_id as engineer_code,
+           p.id as project_id, p.name as project_name, p.project_type,
+           c.id as customer_id, c.name as customer_name,
+           ep.pay_rate, ep.bill_rate, ep.monthly_pay, ep.monthly_bill, ep.total_payment,
+           0 as total_hours,
+           COALESCE(SUM(ts.amount), 0) as claimed_amount,
+           p.total_cost as project_total_cost
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status IN ('approved', 'submitted')
+      AND p.project_type = 'fixed_price'
+      AND p.internal = 0
+      AND (
+        (ts.period_start IS NOT NULL AND ts.period_start >= ? AND ts.period_end <= ?)
+        OR (ts.period_start IS NULL AND ts.week_ending BETWEEN ? AND ?)
+      )
+    GROUP BY u.id, p.id
+  `).all(period_start, period_end, period_start, period_end);
+
   const startDate = new Date(period_start + 'T00:00:00');
   const endDate = new Date(period_end + 'T00:00:00');
   const monthsInPeriod = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
 
-  const results = rows.map(row => {
+  const results = [];
+  const seen = new Set();
+
+  for (const row of entryRows) {
+    const key = `${row.engineer_id}-${row.project_id}`;
+    seen.add(key);
     let billed = 0;
     let cost = 0;
 
@@ -5010,22 +5040,30 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
       cost = row.total_payment || 0;
     }
 
-    return {
-      engineer_id: row.engineer_id,
-      engineer_name: row.engineer_name,
-      engineer_code: row.engineer_code,
-      project_id: row.project_id,
-      project_name: row.project_name,
-      project_type: row.project_type,
-      customer_id: row.customer_id,
-      customer_name: row.customer_name,
-      total_hours: row.total_hours,
-      billed,
-      cost,
-      profit: billed - cost,
-      margin: billed > 0 ? ((billed - cost) / billed) * 100 : 0,
-    };
-  });
+    results.push({
+      engineer_id: row.engineer_id, engineer_name: row.engineer_name, engineer_code: row.engineer_code,
+      project_id: row.project_id, project_name: row.project_name, project_type: row.project_type,
+      customer_id: row.customer_id, customer_name: row.customer_name,
+      total_hours: row.total_hours, billed, cost,
+      profit: billed - cost, margin: billed > 0 ? ((billed - cost) / billed) * 100 : 0,
+    });
+  }
+
+  for (const row of fixedPriceRows) {
+    const key = `${row.engineer_id}-${row.project_id}`;
+    if (seen.has(key)) continue;
+    const engineerCost = row.total_payment || 0;
+    const totalPayments = db.prepare('SELECT COALESCE(SUM(total_payment), 0) as total FROM engineer_projects WHERE project_id = ?').get(row.project_id).total;
+    const billed = totalPayments > 0 ? (engineerCost / totalPayments) * (row.project_total_cost || 0) : row.claimed_amount;
+
+    results.push({
+      engineer_id: row.engineer_id, engineer_name: row.engineer_name, engineer_code: row.engineer_code,
+      project_id: row.project_id, project_name: row.project_name, project_type: row.project_type,
+      customer_id: row.customer_id, customer_name: row.customer_name,
+      total_hours: 0, billed, cost: engineerCost,
+      profit: billed - engineerCost, margin: billed > 0 ? ((billed - engineerCost) / billed) * 100 : 0,
+    });
+  }
 
   const today = new Date().toISOString().split('T')[0];
   const engineerIds = [...new Set(results.map(r => r.engineer_id))];
