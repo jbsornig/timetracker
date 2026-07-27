@@ -89,6 +89,8 @@ export default function Reports() {
 
   // Engineer payments state
   const [overpayments, setOverpayments] = useState([]);
+  const [writeoffTarget, setWriteoffTarget] = useState(null);
+  const [writeoffReason, setWriteoffReason] = useState('');
   const [engPayments, setEngPayments] = useState([]);
   const [engPayFilter, setEngPayFilter] = useState({ user_id: '', period_start: '', period_end: '', payment_type: '' });
   const [engPayForm, setEngPayForm] = useState({ user_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], payment_type: 'advance', period_start: '', period_end: '', reference_number: '', payment_method: '', notes: '' });
@@ -285,6 +287,21 @@ export default function Reports() {
       const users = await apiFetch('/users');
       setEngineers(users.filter(u => u.role === 'engineer'));
     } catch (e) {}
+  };
+
+  const handleWriteoff = async () => {
+    if (!writeoffTarget || !writeoffReason.trim()) return;
+    try {
+      await apiFetch('/reports/overpayment-writeoff', {
+        method: 'POST',
+        body: { user_id: writeoffTarget.engineer_id, amount: writeoffTarget.total_overpaid, reason: writeoffReason.trim(), year: new Date().getFullYear() },
+      });
+      setOverpayments(overpayments.filter(op => op.engineer_id !== writeoffTarget.engineer_id));
+      setWriteoffTarget(null);
+      setWriteoffReason('');
+    } catch (e) {
+      alert('Failed to write off overpayment');
+    }
   };
 
   const loadEngPayments = async (filters) => {
@@ -1837,10 +1854,30 @@ export default function Reports() {
               {overpayments.map(op => (
                 <div key={op.engineer_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13 }}>
                   <span><strong>{op.engineer_name}</strong> — owed ${op.total_owed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, paid ${op.total_paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  <span style={{ fontWeight: 600, color: '#dc2626' }}>Overpaid ${op.total_overpaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 600, color: '#dc2626' }}>Overpaid ${op.total_overpaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <button style={{ fontSize: 11, padding: '2px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer' }} onClick={() => { setWriteoffTarget(op); setWriteoffReason(''); }}>Write Off</button>
+                  </span>
                 </div>
               ))}
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>Run a Reconciliation Report for full details.</div>
+            </div>
+          )}
+
+          {writeoffTarget && (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+              <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 440, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>Write Off Overpayment</div>
+                <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+                  This will mark <strong>${writeoffTarget.total_overpaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> for <strong>{writeoffTarget.engineer_name}</strong> as a write-off. The overpayment alert will be removed.
+                </div>
+                <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Reason *</label>
+                <textarea value={writeoffReason} onChange={(e) => setWriteoffReason(e.target.value)} placeholder="e.g., Engineer deceased - not recoverable" rows={3} style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                  <button onClick={() => setWriteoffTarget(null)} style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+                  <button onClick={handleWriteoff} disabled={!writeoffReason.trim()} style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: writeoffReason.trim() ? '#dc2626' : '#e5e7eb', color: '#fff', cursor: writeoffReason.trim() ? 'pointer' : 'default', fontSize: 13, fontWeight: 500 }}>Confirm Write-Off</button>
+                </div>
+              </div>
             </div>
           )}
 

@@ -12,6 +12,8 @@ export default function Dashboard({ setPage }) {
   const [payments, setPayments] = useState([]);
   const [holidayInfo, setHolidayInfo] = useState(null);
   const [overpayments, setOverpayments] = useState([]);
+  const [writeoffTarget, setWriteoffTarget] = useState(null);
+  const [writeoffReason, setWriteoffReason] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,6 +29,21 @@ export default function Dashboard({ setPage }) {
       user.role === 'admin' ? apiFetch(`/reports/overpayments?year=${year}`) : Promise.resolve([]),
     ]).then(([p, t, b, e, m, pay, hol, op]) => { setProjects(p); setTimesheets(t); setBudgets(b); setEarnings(e); setMessages(m || []); setPayments(pay || []); setHolidayInfo(hol); setOverpayments(op || []); setLoading(false); }).catch(() => setLoading(false));
   }, [user]);
+
+  const handleWriteoff = async () => {
+    if (!writeoffTarget || !writeoffReason.trim()) return;
+    try {
+      await apiFetch('/reports/overpayment-writeoff', {
+        method: 'POST',
+        body: { user_id: writeoffTarget.engineer_id, amount: writeoffTarget.total_overpaid, reason: writeoffReason.trim(), year: new Date().getFullYear() },
+      });
+      setOverpayments(overpayments.filter(op => op.engineer_id !== writeoffTarget.engineer_id));
+      setWriteoffTarget(null);
+      setWriteoffReason('');
+    } catch (e) {
+      alert('Failed to write off overpayment');
+    }
+  };
 
   const dismissMessage = async (id) => {
     try {
@@ -99,6 +116,7 @@ export default function Dashboard({ setPage }) {
                     <th style={{ textAlign: 'right' }}>Total Owed</th>
                     <th style={{ textAlign: 'right' }}>Total Paid</th>
                     <th style={{ textAlign: 'right' }}>Overpayment</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -108,6 +126,7 @@ export default function Dashboard({ setPage }) {
                       <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>${op.total_owed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>${op.total_paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#dc2626' }}>${op.total_overpaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ textAlign: 'right' }}><button className="btn btn-sm" style={{ fontSize: 11, padding: '2px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer' }} onClick={() => { setWriteoffTarget(op); setWriteoffReason(''); }}>Write Off</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -115,6 +134,23 @@ export default function Dashboard({ setPage }) {
             </div>
             <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
               Run a Reconciliation Report under Engineer Payments for details.
+            </div>
+          </div>
+        )}
+
+        {writeoffTarget && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+            <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 440, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>Write Off Overpayment</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+                This will mark <strong>${writeoffTarget.total_overpaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> for <strong>{writeoffTarget.engineer_name}</strong> as a write-off. The overpayment alert will be removed.
+              </div>
+              <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Reason *</label>
+              <textarea value={writeoffReason} onChange={(e) => setWriteoffReason(e.target.value)} placeholder="e.g., Engineer deceased - not recoverable" rows={3} style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button onClick={() => setWriteoffTarget(null)} style={{ padding: '6px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+                <button onClick={handleWriteoff} disabled={!writeoffReason.trim()} style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: writeoffReason.trim() ? '#dc2626' : '#e5e7eb', color: '#fff', cursor: writeoffReason.trim() ? 'pointer' : 'default', fontSize: 13, fontWeight: 500 }}>Confirm Write-Off</button>
+              </div>
             </div>
           </div>
         )}

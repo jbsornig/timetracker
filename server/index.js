@@ -4549,7 +4549,13 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
         AND (notes IS NULL OR notes NOT LIKE '%Historical import%')
     `).get(engineer.id, periodStart, periodEnd, today, periodStart, periodEnd).total;
 
-    const balance = totalOwed - totalPaid;
+    const writeoffTotal = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM overpayment_writeoffs
+      WHERE user_id = ? AND year = ?
+    `).get(engineer.id, year).total;
+
+    const balance = totalOwed - totalPaid + writeoffTotal;
     if (balance < -0.01) {
       overpayments.push({
         engineer_id: engineer.id,
@@ -4558,11 +4564,23 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
         total_owed: totalOwed,
         total_paid: totalPaid,
         total_overpaid: Math.abs(balance),
+        writeoff_total: writeoffTotal,
       });
     }
   }
 
   res.json(overpayments);
+});
+
+app.post('/api/reports/overpayment-writeoff', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { user_id, amount, reason, year } = req.body;
+  if (!user_id || !amount || !reason) {
+    return res.status(400).json({ error: 'user_id, amount, and reason are required' });
+  }
+  const writeoffYear = year || new Date().getFullYear();
+  db.prepare('INSERT INTO overpayment_writeoffs (user_id, amount, reason, year) VALUES (?, ?, ?, ?)').run(user_id, amount, reason, writeoffYear);
+  res.json({ success: true });
 });
 
 // Engineer earnings report (accessible by engineers for their own data)
