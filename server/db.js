@@ -735,6 +735,13 @@ function initSchema() {
   }
 
   // Dashboard messages table
+  // Add ot_hours to timesheets for monthly overtime entry
+  const tsCols4 = db.prepare("PRAGMA table_info(timesheets)").all();
+  if (!tsCols4.find(c => c.name === 'ot_hours')) {
+    db.exec("ALTER TABLE timesheets ADD COLUMN ot_hours REAL DEFAULT 0");
+    console.log('✅ Migration: Added ot_hours column to timesheets');
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS dashboard_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

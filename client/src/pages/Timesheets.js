@@ -298,7 +298,7 @@ export default function Timesheets() {
   const [entries, setEntries] = useState([]);
   const [originalEntries, setOriginalEntries] = useState([]);
   const [modal, setModal] = useState(null);
-  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '', monthly_hours: '', description: '' });
+  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '', monthly_hours: '', ot_hours: '', description: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filterFromDashboard] = useState(() => {
@@ -611,14 +611,22 @@ export default function Timesheets() {
         return;
       }
     } else if (isMonthly) {
+      const hasOT = selectedProject?.overtime_type && selectedProject.overtime_type !== 'none';
       if (!newForm.period_start || !newForm.monthly_hours) {
-        setError('Month and total hours are required');
+        setError('Month and ' + (hasOT ? 'straight time hours are' : 'total hours are') + ' required');
         return;
       }
       const hours = parseFloat(newForm.monthly_hours);
       if (isNaN(hours) || hours <= 0) {
         setError('Hours must be a positive number');
         return;
+      }
+      if (hasOT && newForm.ot_hours) {
+        const otHrs = parseFloat(newForm.ot_hours);
+        if (isNaN(otHrs) || otHrs < 0) {
+          setError('Overtime hours must be a positive number');
+          return;
+        }
       }
     } else {
       if (!newForm.week_ending) {
@@ -642,6 +650,7 @@ export default function Timesheets() {
           period_start: newForm.period_start,
           period_end: newForm.period_end,
           monthly_hours: parseFloat(newForm.monthly_hours),
+          ot_hours: newForm.ot_hours ? parseFloat(newForm.ot_hours) : 0,
           description: newForm.description || ''
         };
       } else {
@@ -1672,6 +1681,14 @@ export default function Timesheets() {
                                   of {(ts.total_hours || 0).toFixed(2)} total
                                 </span>
                               </>
+                            ) : ts.ot_hours > 0 ? (
+                              <>
+                                {((ts.total_hours || 0) - (ts.ot_hours || 0)).toFixed(2)} ST + {(ts.ot_hours || 0).toFixed(2)} OT
+                                <br />
+                                <span style={{ fontSize: 11, color: '#64748b' }}>
+                                  {(ts.total_hours || 0).toFixed(2)} total hrs
+                                </span>
+                              </>
                             ) : (
                               <>{(ts.total_hours || 0).toFixed(2)} hrs</>
                             )}
@@ -1804,6 +1821,8 @@ export default function Timesheets() {
                     <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 20, fontWeight: 700, color: 'var(--primary)' }}>
                       {isFixedPrice ? (
                         <>${(ts.amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</>
+                      ) : ts.ot_hours > 0 ? (
+                        <>{((ts.total_hours || 0) - (ts.ot_hours || 0)).toFixed(1)}<span style={{ fontSize: 12, fontWeight: 400 }}> ST</span> + {(ts.ot_hours || 0).toFixed(1)}<span style={{ fontSize: 12, fontWeight: 400 }}> OT</span></>
                       ) : (
                         <>{ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? (ts.period_hours || 0).toFixed(2) : (ts.total_hours || 0).toFixed(2)}</>
                       )}
@@ -1813,6 +1832,7 @@ export default function Timesheets() {
                         ? (mIsInstallment
                           ? `of $${(mProj?.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
                           : `${ts.percentage}%`)
+                        : ts.ot_hours > 0 ? `${(ts.total_hours || 0).toFixed(2)} total hrs`
                         : ts.period_hours !== undefined && ts.period_hours !== ts.total_hours ? `of ${(ts.total_hours || 0).toFixed(2)} hrs` : 'hours'}
                     </div>
                     <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
@@ -2126,12 +2146,19 @@ export default function Timesheets() {
                     </>
                   )}
                 </>
-              ) : isMonthly ? (
+              ) : isMonthly ? (() => {
+                const hasOT = selectedProject?.overtime_type && selectedProject.overtime_type !== 'none';
+                const otLabel = selectedProject?.overtime_type === 'daily_8' ? 'after 8 hours/day' : 'after 40 hours/week';
+                return (
                 <>
-                  <div style={{ background: '#fef3c7', padding: 12, borderRadius: 8, marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, color: '#92400e', fontWeight: 600, marginBottom: 4 }}>Monthly Hours Project</div>
+                  <div style={{ background: hasOT ? '#ede9fe' : '#fef3c7', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, color: hasOT ? '#6d28d9' : '#92400e', fontWeight: 600, marginBottom: 4 }}>
+                      {hasOT ? 'Monthly Hours — Overtime Project' : 'Monthly Hours Project'}
+                    </div>
                     <div style={{ fontSize: 13, color: '#64748b' }}>
-                      This project doesn't require daily time logs. Enter your total hours for the month.
+                      {hasOT
+                        ? `This project has overtime (${otLabel}). Enter your straight time and overtime hours separately.`
+                        : "This project doesn't require daily time logs. Enter your total hours for the month."}
                     </div>
                   </div>
                   <div className="form-group">
@@ -2151,20 +2178,53 @@ export default function Timesheets() {
                       }}
                     />
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Total Hours *</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      value={newForm.monthly_hours}
-                      onChange={(e) => setNewForm({ ...newForm, monthly_hours: e.target.value })}
-                      placeholder="e.g., 160"
-                      style={{ width: 150 }}
-                    />
-                    <div className="form-hint">Total hours worked this month</div>
-                  </div>
+                  {hasOT ? (
+                    <div className="form-row" style={{ display: 'flex', gap: 16 }}>
+                      <div className="form-group" style={{ flex: 1 }}>
+                        <label className="form-label">Straight Time Hours *</label>
+                        <input
+                          className="form-input"
+                          type="number"
+                          step="0.25"
+                          min="0"
+                          value={newForm.monthly_hours}
+                          onChange={(e) => setNewForm({ ...newForm, monthly_hours: e.target.value })}
+                          placeholder="e.g., 160"
+                          style={{ width: 150 }}
+                        />
+                        <div className="form-hint">Regular rate hours</div>
+                      </div>
+                      <div className="form-group" style={{ flex: 1 }}>
+                        <label className="form-label">Overtime Hours</label>
+                        <input
+                          className="form-input"
+                          type="number"
+                          step="0.25"
+                          min="0"
+                          value={newForm.ot_hours}
+                          onChange={(e) => setNewForm({ ...newForm, ot_hours: e.target.value })}
+                          placeholder="e.g., 20"
+                          style={{ width: 150 }}
+                        />
+                        <div className="form-hint">Hours at overtime rate</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="form-group">
+                      <label className="form-label">Total Hours *</label>
+                      <input
+                        className="form-input"
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        value={newForm.monthly_hours}
+                        onChange={(e) => setNewForm({ ...newForm, monthly_hours: e.target.value })}
+                        placeholder="e.g., 160"
+                        style={{ width: 150 }}
+                      />
+                      <div className="form-hint">Total hours worked this month</div>
+                    </div>
+                  )}
                   <div className="form-group">
                     <label className="form-label">Description (optional)</label>
                     <input
@@ -2175,7 +2235,8 @@ export default function Timesheets() {
                     />
                   </div>
                 </>
-              ) : (
+                );
+              })() : (
                 <div className="form-group">
                   <label className="form-label">Week Ending (Sunday) *</label>
                   <input

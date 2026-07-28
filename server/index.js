@@ -1200,7 +1200,7 @@ app.get('/api/timesheets', auth, (req, res) => {
 
   let query = `
     SELECT ts.*, u.name as engineer_name, p.name as project_name,
-           c.name as customer_name, p.po_number, p.project_type, p.requires_daily_logs,
+           c.name as customer_name, p.po_number, p.project_type, p.requires_daily_logs, p.overtime_type,
            COALESCE(SUM(te.hours), 0) as total_hours,
            ep.pay_rate, ep.total_payment
     FROM timesheets ts
@@ -1254,12 +1254,12 @@ app.get('/api/timesheets/:id', auth, (req, res) => {
 });
 
 app.post('/api/timesheets', auth, (req, res) => {
-  const { project_id, week_ending, period_start, period_end, percentage, monthly_hours, description } = req.body;
+  const { project_id, week_ending, period_start, period_end, percentage, monthly_hours, description, ot_hours } = req.body;
   const user_id = req.user.role === 'admin' && req.body.user_id ? req.body.user_id : req.user.id;
   const db = getDb();
 
   // Check project type and settings
-  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs, po_amount, status, billing_method, monthly_engineer_pay, monthly_invoice_amount FROM projects WHERE id = ?').get(project_id);
+  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs, po_amount, status, billing_method, monthly_engineer_pay, monthly_invoice_amount, overtime_type FROM projects WHERE id = ?').get(project_id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
@@ -1331,9 +1331,11 @@ app.post('/api/timesheets', auth, (req, res) => {
       if (!period_start || !period_end || !monthly_hours) {
         return res.status(400).json({ error: 'Month and hours are required' });
       }
-      const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').run(user_id, project_id, period_end, period_start, period_end, 'submitted');
-      // Create single entry with total hours
-      db.prepare('INSERT INTO timesheet_entries (timesheet_id, entry_date, hours, description) VALUES (?, ?, ?, ?)').run(result.lastInsertRowid, period_end, parseFloat(monthly_hours), description || null);
+      const otHoursVal = ot_hours ? parseFloat(ot_hours) : 0;
+      const result = db.prepare('INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, status, submitted_at, ot_hours) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)').run(user_id, project_id, period_end, period_start, period_end, 'submitted', otHoursVal);
+      const totalHours = parseFloat(monthly_hours) + otHoursVal;
+      // Create single entry with total hours (ST + OT combined for the entry row)
+      db.prepare('INSERT INTO timesheet_entries (timesheet_id, entry_date, hours, description) VALUES (?, ?, ?, ?)').run(result.lastInsertRowid, period_end, totalHours, description || null);
       res.json({ id: result.lastInsertRowid });
     } else {
       // Hourly: traditional weekly timesheet with daily entries
@@ -1718,7 +1720,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-           p.project_type, p.total_cost, p.include_timesheets, p.billing_method, p.invoice_consolidate,
+           p.project_type, p.total_cost, p.include_timesheets, p.billing_method, p.invoice_consolidate, p.overtime_type, p.requires_daily_logs,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.currency_symbol, cc.name as contact_name
     FROM invoices i
@@ -1745,7 +1747,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   // When viewing an invoice, prefer entries stamped with this invoice_id;
   // fall back to date-range query for invoices created before stamping was added
   const timesheets = db.prepare(`
-    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill, ep.ot_bill_rate
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
@@ -1762,7 +1764,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   // If no stamped entries found, fall back to date-range query (legacy invoices)
   const useLegacy = timesheets.length === 0;
   const timesheetsToUse = useLegacy ? db.prepare(`
-    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
+    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill, ep.ot_bill_rate
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
     JOIN projects p ON p.id = ts.project_id
@@ -1870,13 +1872,37 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
             .all(ts.id, req.params.id);
       const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
       if (hrs > 0) {
-        lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
+        let regularHrs = hrs, otHrs = 0;
+        const otType = invoice.overtime_type;
+        const otBillRate = ts.ot_bill_rate || 0;
+        const isMonthlyTs = invoice.project_type !== 'fixed_price' && invoice.requires_daily_logs === 0;
+        if (isMonthlyTs && otType && otType !== 'none' && ts.ot_hours > 0) {
+          otHrs = ts.ot_hours;
+          regularHrs = hrs - otHrs;
+        } else if (otType === 'weekly_40' && hrs > 40 && otBillRate > 0) {
+          regularHrs = 40;
+          otHrs = hrs - 40;
+        } else if (otType === 'daily_8' && otBillRate > 0) {
+          regularHrs = 0; otHrs = 0;
+          for (const e of entries) {
+            const h = e.hours || 0;
+            regularHrs += Math.min(h, 8);
+            otHrs += Math.max(0, h - 8);
+          }
+        }
+        lineItems.push({ engineer: ts.engineer_name, hours: regularHrs, rate: ts.bill_rate || 0, amount: regularHrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
+        if (otHrs > 0) {
+          lineItems.push({ engineer: ts.engineer_name + ' (OT)', hours: otHrs, rate: otBillRate, amount: otHrs * otBillRate, week_ending: ts.week_ending, is_overtime: true });
+        }
         timesheetDetails.push({
           id: ts.id,
           engineer_name: ts.engineer_name,
           engineer_id: ts.engineer_id,
           week_ending: ts.week_ending,
           bill_rate: ts.bill_rate,
+          ot_bill_rate: otBillRate,
+          regular_hours: regularHrs,
+          ot_hours: otHrs,
           total_hours: hrs,
           entries: entries.map(e => ({
             entry_date: e.entry_date,
@@ -2244,7 +2270,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     const isFixedMonthly = project.project_type === 'fixed_monthly';
 
     const timesheets = db.prepare(`
-      SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
+      SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill, ep.ot_pay_rate, ep.ot_bill_rate
       FROM timesheets ts
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
@@ -2347,17 +2373,44 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? AND invoice_id IS NULL ORDER BY entry_date')
           .all(ts.id, period_start, period_end);
         const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
-        const amt = hrs * (ts.bill_rate || 0);
+
+        let regularHrs = hrs, otHrs = 0;
+        const otType = project.overtime_type;
+        const otBillRate = ts.ot_bill_rate || 0;
+        const isMonthlyTs = project.requires_daily_logs === 0;
+        if (isMonthlyTs && otType && otType !== 'none' && ts.ot_hours > 0) {
+          // Monthly OT: use explicitly entered OT hours from timesheet
+          otHrs = ts.ot_hours;
+          regularHrs = hrs - otHrs;
+        } else if (otType === 'weekly_40' && hrs > 40 && otBillRate > 0) {
+          regularHrs = 40;
+          otHrs = hrs - 40;
+        } else if (otType === 'daily_8' && otBillRate > 0) {
+          regularHrs = 0; otHrs = 0;
+          for (const e of entries) {
+            const dayHrs = e.hours || 0;
+            regularHrs += Math.min(dayHrs, 8);
+            otHrs += Math.max(0, dayHrs - 8);
+          }
+        }
+
+        const amt = regularHrs * (ts.bill_rate || 0) + otHrs * otBillRate;
         total_hours += hrs;
         total_amount += amt;
         if (hrs > 0) {
-          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate, amount: amt, week_ending: ts.week_ending });
+          lineItems.push({ engineer: ts.engineer_name, hours: regularHrs, rate: ts.bill_rate, amount: regularHrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
+          if (otHrs > 0) {
+            lineItems.push({ engineer: ts.engineer_name + ' (OT)', hours: otHrs, rate: otBillRate, amount: otHrs * otBillRate, week_ending: ts.week_ending, is_overtime: true });
+          }
           timesheetDetails.push({
             id: ts.id,
             engineer_name: ts.engineer_name,
             engineer_id: ts.engineer_id,
             week_ending: ts.week_ending,
             bill_rate: ts.bill_rate,
+            ot_bill_rate: otBillRate,
+            regular_hours: regularHrs,
+            ot_hours: otHrs,
             total_hours: hrs,
             entries: entries.map(e => ({
               entry_date: e.entry_date,
@@ -4644,16 +4697,12 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
 
   // Get all timesheets for this engineer in the date range
   // Support both hourly (week_ending) and fixed price (period_end) timesheets
-  const timesheets = db.prepare(`
+  const rawTimesheets = db.prepare(`
     SELECT ts.id, ts.week_ending, ts.status, ts.period_start, ts.period_end, ts.percentage, ts.amount as fixed_amount,
-           p.id as project_id, p.name as project_name, p.project_type, c.name as customer_name,
+           ts.ot_hours as ts_ot_hours, p.requires_daily_logs,
+           p.id as project_id, p.name as project_name, p.project_type, p.overtime_type, c.name as customer_name,
            COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) as total_hours,
-           ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill,
-           CASE
-             WHEN p.project_type = 'fixed_price' THEN ts.amount
-             WHEN p.project_type = 'fixed_monthly' THEN ep.monthly_pay
-             ELSE COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) * COALESCE(ep.pay_rate, 0)
-           END as amount
+           ep.pay_rate, ep.ot_pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
     FROM timesheets ts
     JOIN projects p ON p.id = ts.project_id
     JOIN customers c ON c.id = p.customer_id
@@ -4671,7 +4720,41 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
     )
     GROUP BY ts.id
     ORDER BY p.name, ts.week_ending, ts.period_end
-  `).all(dateStart, dateEnd, dateStart, dateEnd, req.user.id, dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd);
+  `).all(dateStart, dateEnd, req.user.id, dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd);
+
+  const timesheets = rawTimesheets.map(ts => {
+    let amount;
+    if (ts.project_type === 'fixed_price') {
+      amount = ts.fixed_amount || 0;
+    } else if (ts.project_type === 'fixed_monthly') {
+      amount = ts.monthly_pay || 0;
+    } else {
+      const payRate = ts.pay_rate || 0;
+      const otPayRate = ts.ot_pay_rate || 0;
+      const otType = ts.overtime_type;
+      const isMonthlyTs = ts.project_type !== 'fixed_price' && ts.requires_daily_logs === 0;
+      let regularHrs = ts.total_hours, otHrs = 0;
+
+      if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
+        // Monthly OT: use the explicitly entered ST/OT hours
+        otHrs = ts.ts_ot_hours;
+        regularHrs = ts.total_hours - otHrs;
+      } else if (otType === 'weekly_40' && ts.total_hours > 40 && otPayRate > 0) {
+        regularHrs = 40;
+        otHrs = ts.total_hours - 40;
+      } else if (otType === 'daily_8' && otPayRate > 0) {
+        const entries = db.prepare('SELECT hours FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ?').all(ts.id, dateStart, dateEnd);
+        regularHrs = 0; otHrs = 0;
+        for (const e of entries) {
+          const h = e.hours || 0;
+          regularHrs += Math.min(h, 8);
+          otHrs += Math.max(0, h - 8);
+        }
+      }
+      amount = regularHrs * payRate + otHrs * otPayRate;
+    }
+    return { ...ts, amount, regular_hours: ts.total_hours - (ts.ts_ot_hours || 0), ot_hours: ts.ts_ot_hours || 0 };
+  });
 
   // Calculate totals
   const approvedSheets = timesheets.filter(t => t.status === 'approved');
