@@ -120,6 +120,12 @@ export default function Reports() {
   const [profitSummarySort, setProfitSummarySort] = useState({ key: 'profit', dir: 'desc' });
   const [profitDetailSort, setProfitDetailSort] = useState({ key: 'engineer_name', dir: 'asc' });
 
+  // PO History state
+  const [poHistoryProjects, setPoHistoryProjects] = useState([]);
+  const [poHistoryProjectId, setPoHistoryProjectId] = useState('');
+  const [poHistoryData, setPoHistoryData] = useState(null);
+  const [poHistoryLoading, setPoHistoryLoading] = useState(false);
+
   // Year-End Reports state
   const [yearEndYear, setYearEndYear] = useState(new Date().getFullYear().toString());
   const [yearEndData, setYearEndData] = useState(null);
@@ -144,6 +150,8 @@ export default function Reports() {
       loadProfitability();
     } else if (activeTab === 'year-end') {
       loadYearEndData();
+    } else if (activeTab === 'po-history') {
+      apiFetch('/projects').then(data => setPoHistoryProjects((data || []).filter(p => p.po_number))).catch(() => {});
     }
   }, [activeTab]);
 
@@ -775,6 +783,12 @@ export default function Reports() {
             onClick={() => setActiveTab('profitability')}
           >
             Profitability
+          </button>
+          <button
+            className={`btn ${activeTab === 'po-history' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('po-history')}
+          >
+            PO History
           </button>
           <button
             className={`btn ${activeTab === 'year-end' ? 'btn-primary' : 'btn-secondary'}`}
@@ -3542,6 +3556,204 @@ export default function Reports() {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {activeTab === 'po-history' && (
+        <div className="card">
+          <h3 style={{ marginBottom: 16 }}>PO History</h3>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 20, flexWrap: 'wrap' }}>
+            <div>
+              <label className="form-label">Select Project / PO</label>
+              <select
+                className="form-select"
+                value={poHistoryProjectId}
+                onChange={(e) => setPoHistoryProjectId(e.target.value)}
+                style={{ minWidth: 350 }}
+              >
+                <option value="">-- Select a project --</option>
+                {poHistoryProjects.sort((a, b) => (a.customer_name || '').localeCompare(b.customer_name || '') || (a.name || '').localeCompare(b.name || '')).map(p => (
+                  <option key={p.id} value={p.id}>{p.customer_name} — {p.name}{p.po_number ? ` (PO: ${p.po_number})` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              className="btn btn-primary"
+              disabled={!poHistoryProjectId || poHistoryLoading}
+              onClick={async () => {
+                setPoHistoryLoading(true);
+                try {
+                  const data = await apiFetch(`/reports/po-history?project_id=${poHistoryProjectId}`);
+                  setPoHistoryData(data);
+                } catch (err) {
+                  setError(err.message);
+                }
+                setPoHistoryLoading(false);
+              }}
+            >
+              {poHistoryLoading ? 'Loading...' : 'Load History'}
+            </button>
+          </div>
+
+          {poHistoryData && (
+            <>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Project</div>
+                    <div style={{ fontWeight: 600, fontSize: 15 }}>{poHistoryData.project.name}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Customer</div>
+                    <div style={{ fontWeight: 500 }}>{poHistoryData.project.customer_name}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>PO Number</div>
+                    <div style={{ fontWeight: 500 }}>{poHistoryData.project.po_number || '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Type</div>
+                    <div><span className={`badge ${poHistoryData.project.project_type === 'fixed_price' ? 'badge-fixed' : poHistoryData.project.project_type === 'fixed_monthly' ? 'badge-submitted' : 'badge-hourly'}`}>{poHistoryData.project.project_type === 'fixed_price' ? 'Fixed Price' : poHistoryData.project.project_type === 'fixed_monthly' ? 'Fixed Monthly' : 'Hourly'}</span></div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Status</div>
+                    <div><span className={`badge badge-${poHistoryData.project.status}`}>{poHistoryData.project.status}</span></div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>PO Budget</div>
+                    <div style={{ fontWeight: 700, fontSize: 18, fontFamily: 'DM Mono, monospace' }}>{poHistoryData.project.budget > 0 ? formatCurrency(poHistoryData.project.budget) : '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Total Invoiced</div>
+                    <div style={{ fontWeight: 700, fontSize: 18, fontFamily: 'DM Mono, monospace', color: '#2563eb' }}>{formatCurrency(poHistoryData.project.total_invoiced)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Total Paid</div>
+                    <div style={{ fontWeight: 700, fontSize: 18, fontFamily: 'DM Mono, monospace', color: '#16a34a' }}>{formatCurrency(poHistoryData.project.total_paid)}</div>
+                  </div>
+                  {poHistoryData.project.remaining !== null && (
+                    <div>
+                      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Remaining</div>
+                      <div style={{ fontWeight: 700, fontSize: 18, fontFamily: 'DM Mono, monospace', color: poHistoryData.project.remaining < 0 ? '#dc2626' : '#64748b' }}>{formatCurrency(poHistoryData.project.remaining)}</div>
+                    </div>
+                  )}
+                </div>
+                {poHistoryData.project.budget > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ background: '#e2e8f0', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                      <div style={{ background: poHistoryData.project.total_invoiced > poHistoryData.project.budget ? '#dc2626' : '#2563eb', height: '100%', width: `${Math.min(100, (poHistoryData.project.total_invoiced / poHistoryData.project.budget) * 100)}%`, borderRadius: 4, transition: 'width 0.3s' }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                      {((poHistoryData.project.total_invoiced / poHistoryData.project.budget) * 100).toFixed(1)}% of budget used
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {poHistoryData.engineers.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <h4 style={{ marginBottom: 8, fontSize: 14 }}>Assigned Engineers</h4>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {poHistoryData.engineers.map(eng => (
+                      <span key={eng.id} style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', fontSize: 12 }}>
+                        {eng.engineer_name}
+                        {eng.bill_rate > 0 && <span style={{ color: '#64748b', marginLeft: 4 }}>@ {formatCurrency(eng.bill_rate)}/hr</span>}
+                        {eng.ot_bill_rate > 0 && <span style={{ color: '#7c3aed', marginLeft: 4 }}>OT: {formatCurrency(eng.ot_bill_rate)}/hr</span>}
+                        {eng.monthly_bill > 0 && <span style={{ color: '#64748b', marginLeft: 4 }}>{formatCurrency(eng.monthly_bill)}/mo</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <h4 style={{ marginBottom: 8, fontSize: 14 }}>Invoices ({poHistoryData.invoices.length})</h4>
+              {poHistoryData.invoices.length === 0 ? (
+                <div style={{ padding: 20, color: '#94a3b8', textAlign: 'center' }}>No invoices generated for this project yet.</div>
+              ) : (
+                <div className="table-wrap" style={{ marginBottom: 20 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Invoice #</th>
+                        <th>Period</th>
+                        <th>Hours</th>
+                        <th>Amount</th>
+                        <th>Paid</th>
+                        <th>Balance</th>
+                        <th>Status</th>
+                        <th>Date Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {poHistoryData.invoices.map(inv => {
+                        const balance = (inv.total_amount || 0) - (inv.amount_paid || 0);
+                        return (
+                          <tr key={inv.id}>
+                            <td style={{ fontWeight: 600 }}>{inv.invoice_number}</td>
+                            <td style={{ fontSize: 12 }}>{formatDate(inv.period_start)} — {formatDate(inv.period_end)}</td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{(inv.total_hours || 0).toFixed(2)}</td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{formatCurrency(inv.total_amount)}</td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#16a34a' }}>{formatCurrency(inv.amount_paid)}</td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: balance > 0.01 ? '#dc2626' : '#16a34a' }}>{formatCurrency(balance)}</td>
+                            <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
+                            <td style={{ fontSize: 12 }}>{formatDate(inv.created_at)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                        <td colSpan={2}>Totals</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{poHistoryData.invoices.reduce((s, i) => s + (i.total_hours || 0), 0).toFixed(2)}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{formatCurrency(poHistoryData.invoices.reduce((s, i) => s + (i.total_amount || 0), 0))}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#16a34a' }}>{formatCurrency(poHistoryData.invoices.reduce((s, i) => s + (i.amount_paid || 0), 0))}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{formatCurrency(poHistoryData.invoices.reduce((s, i) => s + ((i.total_amount || 0) - (i.amount_paid || 0)), 0))}</td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {poHistoryData.payments.length > 0 && (
+                <>
+                  <h4 style={{ marginBottom: 8, fontSize: 14 }}>Payments ({poHistoryData.payments.length})</h4>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Invoice #</th>
+                          <th>Amount</th>
+                          <th>Method</th>
+                          <th>Reference</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {poHistoryData.payments.map(pmt => (
+                          <tr key={pmt.id}>
+                            <td>{formatDate(pmt.payment_date)}</td>
+                            <td style={{ fontWeight: 500 }}>{pmt.invoice_number}</td>
+                            <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#16a34a' }}>{formatCurrency(pmt.amount)}</td>
+                            <td>{pmt.payment_method || '—'}</td>
+                            <td style={{ fontSize: 12 }}>{pmt.reference_number || '—'}</td>
+                            <td style={{ fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pmt.notes || '—'}</td>
+                          </tr>
+                        ))}
+                        <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                          <td>Total</td>
+                          <td></td>
+                          <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#16a34a' }}>{formatCurrency(poHistoryData.payments.reduce((s, p) => s + (p.amount || 0), 0))}</td>
+                          <td colSpan={3}></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

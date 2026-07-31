@@ -5082,6 +5082,70 @@ app.get('/api/reports/overdue-invoices', auth, adminOnly, (req, res) => {
 
 // ─── ENGINEER PROFITABILITY REPORT ────────────────────────────────────────────
 
+app.get('/api/reports/po-history', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { project_id } = req.query;
+  if (!project_id) {
+    return res.status(400).json({ error: 'project_id is required' });
+  }
+
+  const project = db.prepare(`
+    SELECT p.*, c.name as customer_name
+    FROM projects p
+    JOIN customers c ON c.id = p.customer_id
+    WHERE p.id = ?
+  `).get(project_id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const invoices = db.prepare(`
+    SELECT i.id, i.invoice_number, i.period_start, i.period_end, i.total_hours, i.total_amount,
+           i.amount_paid, i.status, i.paid_date, i.voided_date, i.notes, i.created_at
+    FROM invoices i
+    WHERE i.project_id = ? AND i.voided_date IS NULL
+    ORDER BY i.period_start, i.created_at
+  `).all(project_id);
+
+  const payments = db.prepare(`
+    SELECT p.*, i.invoice_number
+    FROM payments p
+    JOIN invoices i ON i.id = p.invoice_id
+    WHERE i.project_id = ? AND i.voided_date IS NULL
+    ORDER BY p.payment_date
+  `).all(project_id);
+
+  const engineers = db.prepare(`
+    SELECT ep.*, u.name as engineer_name
+    FROM engineer_projects ep
+    JOIN users u ON u.id = ep.user_id
+    WHERE ep.project_id = ?
+    ORDER BY u.name
+  `).all(project_id);
+
+  const totalInvoiced = invoices.reduce((s, i) => s + (i.total_amount || 0), 0);
+  const totalPaid = payments.reduce((s, p) => s + (p.amount || 0), 0);
+  const budget = project.project_type === 'fixed_price' ? (project.total_cost || 0) : (project.po_amount || 0);
+
+  res.json({
+    project: {
+      id: project.id,
+      name: project.name,
+      po_number: project.po_number,
+      customer_name: project.customer_name,
+      project_type: project.project_type,
+      status: project.status,
+      budget,
+      total_invoiced: totalInvoiced,
+      total_paid: totalPaid,
+      remaining: budget > 0 ? budget - totalInvoiced : null,
+    },
+    invoices,
+    payments,
+    engineers,
+  });
+});
+
 app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
   const db = getDb();
   const { period_start, period_end } = req.query;
