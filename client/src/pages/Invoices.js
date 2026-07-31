@@ -420,6 +420,7 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [generateForm, setGenerateForm] = useState({ project_id: '', ...getDefaultDates(), notes: '' });
+  const [manualForm, setManualForm] = useState({ project_id: '', total_amount: '', description: '', period_start: '', period_end: '', notes: '' });
   const [viewingInvoice, setViewingInvoice] = useState(null);
   const [editingAmount, setEditingAmount] = useState(null);
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
@@ -528,6 +529,35 @@ export default function Invoices() {
     setGenerateForm({ project_id: '', ...getDefaultDates(), notes: '' });
     setError('');
     setModal('generate');
+  };
+
+  const openManual = () => {
+    setManualForm({ project_id: '', total_amount: '', description: '', period_start: '', period_end: '', notes: '' });
+    setError('');
+    setModal('manual');
+  };
+
+  const handleManualInvoice = async (e) => {
+    e.preventDefault();
+    if (!manualForm.project_id || !manualForm.total_amount) {
+      setError('Project and amount are required');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const result = await apiFetch('/invoices/manual', {
+        method: 'POST',
+        body: { ...manualForm, total_amount: parseFloat(manualForm.total_amount) },
+      });
+      setViewingInvoice(result);
+      await loadData();
+      setModal('view');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleGenerate = async (e) => {
@@ -1097,7 +1127,10 @@ export default function Invoices() {
           <div className="page-title">Invoices</div>
           <div className="page-subtitle">Generate and manage invoices</div>
         </div>
-        <button className="btn btn-primary" onClick={openGenerate}>+ Generate Invoice</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary" onClick={openGenerate}>+ Generate Invoice</button>
+          <button className="btn btn-secondary" onClick={openManual}>+ Manual Invoice</button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -1936,6 +1969,95 @@ export default function Invoices() {
                 value={generateForm.notes}
                 onChange={(e) => setGenerateForm({ ...generateForm, notes: e.target.value })}
                 placeholder="Additional notes for the invoice..."
+                rows={3}
+              />
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'manual' && (
+        <Modal
+          title="Manual Invoice"
+          onClose={() => setModal(null)}
+          footer={
+            <>
+              <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleManualInvoice} disabled={saving}>
+                {saving ? 'Creating...' : 'Create Invoice'}
+              </button>
+            </>
+          }
+        >
+          <form onSubmit={handleManualInvoice}>
+            {error && <div className="alert alert-error">{error}</div>}
+            <div className="alert alert-info">
+              Create an invoice without timesheets — for fixed-price work, vendor pass-through, or any ad-hoc billing.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Project *</label>
+              <select
+                className="form-select"
+                value={manualForm.project_id}
+                onChange={(e) => setManualForm({ ...manualForm, project_id: e.target.value })}
+              >
+                <option value="">Select a project...</option>
+                {projects.filter(p => !p.internal).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.customer_name})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Amount *</label>
+              <input
+                className="form-input"
+                type="number"
+                step="0.01"
+                min="0"
+                value={manualForm.total_amount}
+                onChange={(e) => setManualForm({ ...manualForm, total_amount: e.target.value })}
+                placeholder="Invoice amount"
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Description *</label>
+              <input
+                className="form-input"
+                type="text"
+                value={manualForm.description}
+                onChange={(e) => setManualForm({ ...manualForm, description: e.target.value })}
+                placeholder="e.g. On-site training per vendor quote Q-12345"
+              />
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Period Start</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={manualForm.period_start}
+                  onChange={(e) => setManualForm({ ...manualForm, period_start: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Period End</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={manualForm.period_end}
+                  onChange={(e) => setManualForm({ ...manualForm, period_end: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Notes (optional)</label>
+              <textarea
+                className="form-textarea"
+                value={manualForm.notes}
+                onChange={(e) => setManualForm({ ...manualForm, notes: e.target.value })}
+                placeholder="Additional notes..."
                 rows={3}
               />
             </div>

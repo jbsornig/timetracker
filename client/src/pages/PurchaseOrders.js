@@ -184,6 +184,7 @@ function POContent({ po, settings }) {
           <div style={{ fontSize: 14, fontWeight: 600 }}>{po.po_number}</div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Date: {formatDate(po.issue_date)}</div>
           {po.due_date && <div style={{ fontSize: 12, color: '#64748b' }}>Due: {formatDate(po.due_date)}</div>}
+          {po.vendor_quote_number && <div style={{ fontSize: 12, color: '#64748b' }}>Vendor Quote #: {po.vendor_quote_number}</div>}
         </div>
       </div>
 
@@ -203,13 +204,6 @@ function POContent({ po, settings }) {
           <div style={{ whiteSpace: 'pre-wrap' }}>{po.ship_to || `${settings.company_name || ''}\n${settings.company_address || ''}\n${settings.company_city_state_zip || ''}`}</div>
         </div>
       </div>
-
-      {/* Project reference */}
-      {po.project_name && (
-        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#eff6ff', borderRadius: 6, fontSize: 12 }}>
-          <strong>Project:</strong> {po.project_name} {po.customer_name ? `(${po.customer_name})` : ''} {po.project_po_number ? `— Customer PO: ${po.project_po_number}` : ''}
-        </div>
-      )}
 
       {/* Line Items */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
@@ -266,14 +260,9 @@ function POContent({ po, settings }) {
         </div>
       )}
 
-      {/* Signature line */}
-      <div style={{ marginTop: 40, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40 }}>
-        <div>
-          <div style={{ borderTop: '1px solid #1e293b', paddingTop: 6, fontSize: 11, color: '#64748b' }}>Authorized Signature</div>
-        </div>
-        <div>
-          <div style={{ borderTop: '1px solid #1e293b', paddingTop: 6, fontSize: 11, color: '#64748b' }}>Date</div>
-        </div>
+      {/* Acknowledgment */}
+      <div style={{ marginTop: 32, padding: '12px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#475569', textAlign: 'center' }}>
+        Please confirm acceptance of this Purchase Order by sending an email to <strong>{settings.company_email || 'us'}</strong> referencing PO # <strong>{po.po_number}</strong>.
       </div>
     </div>
   );
@@ -285,6 +274,7 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
     vendor_id: '',
     project_id: '',
     po_number: '',
+    vendor_quote_number: '',
     status: 'draft',
     issue_date: new Date().toISOString().split('T')[0],
     due_date: '',
@@ -300,6 +290,7 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
         vendor_id: editPO.vendor_id || '',
         project_id: editPO.project_id || '',
         po_number: editPO.po_number || '',
+        vendor_quote_number: editPO.vendor_quote_number || '',
         status: editPO.status || 'draft',
         issue_date: editPO.issue_date || '',
         due_date: editPO.due_date || '',
@@ -369,9 +360,15 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
             <input type="text" value={form.po_number} onChange={e => setForm({ ...form, po_number: e.target.value })} placeholder="Auto-generated" style={inputStyle} />
           </div>
           <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: '#334155' }}>Vendor Quote</label>
+            <input type="text" value={form.vendor_quote_number} onChange={e => setForm({ ...form, vendor_quote_number: e.target.value })} style={inputStyle} />
+          </div>
+          <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: '#334155' }}>Issue Date</label>
             <input type="date" value={form.issue_date} onChange={e => setForm({ ...form, issue_date: e.target.value })} style={inputStyle} />
           </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: '#334155' }}>Due Date</label>
             <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} style={inputStyle} />

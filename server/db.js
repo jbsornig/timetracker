@@ -836,6 +836,7 @@ function initSchema() {
       tax_amount REAL DEFAULT 0,
       total_amount REAL DEFAULT 0,
       amount_paid REAL DEFAULT 0,
+      vendor_quote_number TEXT,
       ship_to TEXT,
       notes TEXT,
       terms TEXT,
@@ -871,6 +872,12 @@ function initSchema() {
       FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
     )
   `);
+
+  const poCols = db.prepare("PRAGMA table_info(purchase_orders)").all();
+  if (!poCols.find(c => c.name === 'vendor_quote_number')) {
+    db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_quote_number TEXT");
+    console.log('✅ Migration: Added vendor_quote_number column to purchase_orders');
+  }
 }
 
 function replaceDatabase(newDbPath) {
