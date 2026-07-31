@@ -887,9 +887,24 @@ function replaceDatabase(newDbPath) {
     db.close();
     db = null;
   }
-  // Remove WAL/SHM BEFORE replacing the main file
-  if (fs.existsSync(DB_PATH + '-wal')) fs.unlinkSync(DB_PATH + '-wal');
-  if (fs.existsSync(DB_PATH + '-shm')) fs.unlinkSync(DB_PATH + '-shm');
+  // Remove WAL/SHM with retry — OS may hold a brief lock after db.close()
+  const removeWithRetry = (filePath) => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        return;
+      } catch (e) {
+        if (e.code === 'EBUSY' && attempt < 4) {
+          const start = Date.now();
+          while (Date.now() - start < 200) { /* spin wait */ }
+        } else {
+          throw e;
+        }
+      }
+    }
+  };
+  removeWithRetry(DB_PATH + '-wal');
+  removeWithRetry(DB_PATH + '-shm');
   // Replace the database file
   fs.copyFileSync(newDbPath, DB_PATH);
   // Open the new database directly (skip the auto-backup in getDb)

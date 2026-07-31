@@ -6540,6 +6540,11 @@ app.get('/api/backup', auth, adminOnly, (req, res) => {
         purchase_orders: db.prepare('SELECT * FROM purchase_orders').all(),
         po_line_items: db.prepare('SELECT * FROM po_line_items').all(),
         po_payments: db.prepare('SELECT * FROM po_payments').all(),
+        dashboard_messages: db.prepare('SELECT * FROM dashboard_messages').all(),
+        dashboard_message_dismissals: db.prepare('SELECT * FROM dashboard_message_dismissals').all(),
+        month_confirmations: db.prepare('SELECT * FROM month_confirmations').all(),
+        overpayment_writeoffs: db.prepare('SELECT * FROM overpayment_writeoffs').all(),
+        user_profile_history: db.prepare('SELECT * FROM user_profile_history').all(),
       }
     };
 
@@ -6582,12 +6587,17 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       db.prepare('DELETE FROM users WHERE id != ?').run(currentUserId);
       db.prepare('DELETE FROM settings').run();
       db.prepare('DELETE FROM holidays').run();
+      db.prepare('DELETE FROM dashboard_message_dismissals').run();
+      db.prepare('DELETE FROM dashboard_messages').run();
+      db.prepare('DELETE FROM month_confirmations').run();
+      db.prepare('DELETE FROM overpayment_writeoffs').run();
+      db.prepare('DELETE FROM user_profile_history').run();
 
       // Restore customers
       if (backup.data.customers) {
         for (const c of backup.data.customers) {
-          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, ap_email, edi_invoicing, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.ap_email || null, c.edi_invoicing || 0, c.created_at
+          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, ap_email, edi_invoicing, currency_symbol, send_invoice_to_self, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.ap_email || null, c.edi_invoicing || 0, c.currency_symbol || '$', c.send_invoice_to_self || 0, c.created_at
           );
         }
       }
@@ -6616,13 +6626,13 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
           if (u.id === currentUserId) continue;
           db.prepare(`INSERT INTO users (id, name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate,
             bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2,
-            pay_delay_months, address, city, state, zip, start_date, phone, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            pay_delay_months, address, city, state, zip, start_date, phone, tax_id, last_login, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
             u.id, u.name, u.email, u.password, u.role, u.engineer_id, u.holiday_pay_eligible || 0, u.holiday_pay_rate || 0,
             u.bank_routing || null, u.bank_account || null, u.bank_account_type || 'checking',
             u.bank_routing_2 || null, u.bank_account_2 || null, u.bank_account_type_2 || 'checking',
             u.bank_pct_1 ?? 100, u.bank_pct_2 ?? 0,
-            u.pay_delay_months || 0, u.address || null, u.city || null, u.state || null, u.zip || null, u.start_date || null, u.phone || null, u.created_at
+            u.pay_delay_months || 0, u.address || null, u.city || null, u.state || null, u.zip || null, u.start_date || null, u.phone || null, u.tax_id || null, u.last_login || null, u.created_at
           );
         }
       }
@@ -6639,8 +6649,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore timesheets
       if (backup.data.timesheets) {
         for (const t of backup.data.timesheets) {
-          db.prepare('INSERT INTO timesheets (id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, period_start, period_end, percentage, amount, ot_hours, invoice_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            t.id, t.user_id, t.project_id, t.week_ending, t.status, t.submitted_at, t.approved_at, t.approved_by, t.period_start, t.period_end, t.percentage || 0, t.amount || 0, t.ot_hours || 0, t.invoice_id || null, t.created_at
+          db.prepare('INSERT INTO timesheets (id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, period_start, period_end, percentage, amount, ot_hours, invoice_id, paid_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            t.id, t.user_id, t.project_id, t.week_ending, t.status, t.submitted_at, t.approved_at, t.approved_by, t.period_start, t.period_end, t.percentage || 0, t.amount || 0, t.ot_hours || 0, t.invoice_id || null, t.paid_date || null, t.created_at
           );
         }
       }
@@ -6657,8 +6667,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore invoices
       if (backup.data.invoices) {
         for (const i of backup.data.invoices) {
-          db.prepare('INSERT INTO invoices (id, project_id, invoice_number, period_start, period_end, total_hours, total_amount, amount_paid, status, paid_date, voided_date, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            i.id, i.project_id, i.invoice_number, i.period_start, i.period_end, i.total_hours, i.total_amount, i.amount_paid, i.status, i.paid_date, i.voided_date, i.notes, i.created_at
+          db.prepare('INSERT INTO invoices (id, project_id, invoice_number, period_start, period_end, total_hours, total_amount, amount_paid, status, paid_date, voided_date, notes, emailed_at, received_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            i.id, i.project_id, i.invoice_number, i.period_start, i.period_end, i.total_hours, i.total_amount, i.amount_paid, i.status, i.paid_date, i.voided_date, i.notes, i.emailed_at || null, i.received_at || null, i.created_at
           );
         }
       }
@@ -6724,6 +6734,46 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
         for (const pp of backup.data.po_payments) {
           db.prepare('INSERT INTO po_payments (id, purchase_order_id, amount, payment_date, payment_method, reference_number, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
             pp.id, pp.purchase_order_id, pp.amount, pp.payment_date, pp.payment_method, pp.reference_number, pp.notes, pp.created_at
+          );
+        }
+      }
+
+      if (backup.data.dashboard_messages) {
+        for (const m of backup.data.dashboard_messages) {
+          db.prepare('INSERT INTO dashboard_messages (id, target_type, target_user_id, message, priority, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+            m.id, m.target_type, m.target_user_id, m.message, m.priority, m.expires_at, m.created_by, m.created_at
+          );
+        }
+      }
+
+      if (backup.data.dashboard_message_dismissals) {
+        for (const d of backup.data.dashboard_message_dismissals) {
+          db.prepare('INSERT INTO dashboard_message_dismissals (id, message_id, user_id, dismissed_at) VALUES (?, ?, ?, ?)').run(
+            d.id, d.message_id, d.user_id, d.dismissed_at
+          );
+        }
+      }
+
+      if (backup.data.month_confirmations) {
+        for (const mc of backup.data.month_confirmations) {
+          db.prepare('INSERT INTO month_confirmations (id, user_id, month, confirmed_at) VALUES (?, ?, ?, ?)').run(
+            mc.id, mc.user_id, mc.month, mc.confirmed_at
+          );
+        }
+      }
+
+      if (backup.data.overpayment_writeoffs) {
+        for (const ow of backup.data.overpayment_writeoffs) {
+          db.prepare('INSERT INTO overpayment_writeoffs (id, user_id, amount, reason, year, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+            ow.id, ow.user_id, ow.amount, ow.reason, ow.year, ow.created_at
+          );
+        }
+      }
+
+      if (backup.data.user_profile_history) {
+        for (const h of backup.data.user_profile_history) {
+          db.prepare('INSERT INTO user_profile_history (id, user_id, changed_by, field_name, old_value, new_value, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            h.id, h.user_id, h.changed_by, h.field_name, h.old_value, h.new_value, h.changed_at
           );
         }
       }
