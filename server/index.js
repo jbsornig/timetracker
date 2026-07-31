@@ -3918,31 +3918,79 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     return [...normalData, ...delayedData];
   }
 
-  // Hourly query function
+  // Hourly query function — handles overtime splitting per timesheet
   function hourlyQuery(start, end, userIds, excludeIds) {
     const idFilter = userIds.length > 0
       ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
       : '';
-    return db.prepare(`
-      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+    const rows = db.prepare(`
+      SELECT ts.id as ts_id, ts.ot_hours as ts_ot_hours,
+             u.id as user_id, u.name as engineer_name, u.engineer_id,
              u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
-             SUM(te.hours) as total_hours,
-             ep.pay_rate,
-             SUM(te.hours) * ep.pay_rate as total_pay,
-             ep.bill_rate,
-             SUM(te.hours) * ep.bill_rate as total_billed,
-             p.name as project_name, p.po_number,
-             'hourly' as pay_type
-      FROM timesheet_entries te
-      JOIN timesheets ts ON ts.id = te.timesheet_id
+             ep.pay_rate, ep.bill_rate, ep.ot_pay_rate, ep.ot_bill_rate,
+             p.id as project_id, p.name as project_name, p.po_number,
+             p.overtime_type, p.requires_daily_logs
+      FROM timesheets ts
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
       WHERE ts.status = 'approved' AND ts.paid_date IS NULL AND p.project_type = 'hourly'
-        AND te.entry_date BETWEEN ? AND ? ${idFilter}
-      GROUP BY u.id, p.id
+        AND ts.id IN (
+          SELECT DISTINCT te2.timesheet_id FROM timesheet_entries te2
+          WHERE te2.entry_date BETWEEN ? AND ? AND te2.hours > 0
+        )
+        ${idFilter}
       ORDER BY u.name, p.name
     `).all(start, end);
+
+    const grouped = {};
+    for (const ts of rows) {
+      const entries = db.prepare(
+        'SELECT hours FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? AND hours > 0'
+      ).all(ts.ts_id, start, end);
+      const totalHrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+      if (totalHrs <= 0) continue;
+
+      const otType = ts.overtime_type;
+      const payRate = ts.pay_rate || 0;
+      const otPayRate = ts.ot_pay_rate || 0;
+      const billRate = ts.bill_rate || 0;
+      const otBillRate = ts.ot_bill_rate || 0;
+      const isMonthlyTs = ts.requires_daily_logs === 0;
+      let regularHrs = totalHrs, otHrs = 0;
+
+      if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
+        otHrs = ts.ts_ot_hours;
+        regularHrs = totalHrs - otHrs;
+      } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
+        regularHrs = 40;
+        otHrs = totalHrs - 40;
+      } else if (otType === 'daily_8' && otPayRate > 0) {
+        regularHrs = 0; otHrs = 0;
+        for (const e of entries) {
+          const h = e.hours || 0;
+          regularHrs += Math.min(h, 8);
+          otHrs += Math.max(0, h - 8);
+        }
+      }
+
+      const key = `${ts.user_id}_${ts.project_id}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          user_id: ts.user_id, engineer_name: ts.engineer_name, engineer_id: ts.engineer_id,
+          holiday_pay_eligible: ts.holiday_pay_eligible, holiday_pay_rate: ts.holiday_pay_rate,
+          pay_delay_months: ts.pay_delay_months,
+          total_hours: 0, pay_rate: payRate, total_pay: 0,
+          bill_rate: billRate, total_billed: 0,
+          project_name: ts.project_name, po_number: ts.po_number,
+          pay_type: 'hourly'
+        };
+      }
+      grouped[key].total_hours += regularHrs + otHrs;
+      grouped[key].total_pay += (regularHrs * payRate) + (otHrs * otPayRate);
+      grouped[key].total_billed += (regularHrs * billRate) + (otHrs * otBillRate);
+    }
+    return Object.values(grouped);
   }
 
   // Fixed monthly query function
