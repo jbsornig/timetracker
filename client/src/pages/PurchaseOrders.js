@@ -161,110 +161,125 @@ function POContent({ po, settings }) {
   const subtotal = lineItems.reduce((s, i) => s + (i.amount || 0), 0);
 
   return (
-    <div className="print-only-content" style={{ maxWidth: 800, margin: '0 auto', fontFamily: 'Arial, sans-serif', fontSize: 13 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          {settings.company_logo && (
-            <img src={settings.company_logo} alt="Logo" style={{ height: 60, objectFit: 'contain' }} />
-          )}
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{settings.company_name || 'Company Name'}</div>
-            <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>
-              {settings.company_address && <div>{settings.company_address}</div>}
-              {settings.company_city_state_zip && <div>{settings.company_city_state_zip}</div>}
-              {settings.company_phone && <div>Phone: {settings.company_phone}</div>}
-              {settings.company_fax && <div>Fax: {settings.company_fax}</div>}
-              {settings.company_email && <div>{settings.company_email}</div>}
+    <>
+      <style>{`
+        @media print {
+          .po-print-wrap { max-width: 100% !important; padding: 0 !important; margin: 0 !important; font-size: 10pt !important; }
+          .po-print-wrap * { font-size: inherit; }
+          .po-print-wrap .po-header-title { font-size: 14pt !important; }
+          .po-print-wrap .po-title { font-size: 18pt !important; }
+          .po-print-wrap .po-vendor-name { font-size: 11pt !important; }
+          .po-print-wrap table th, .po-print-wrap table td { padding: 4px 6px !important; border: 1px solid #ccc !important; }
+          .po-print-wrap .po-section-box { padding: 8px 10px !important; }
+          .modal-overlay, .modal { overflow: visible !important; max-height: none !important; }
+          .modal { box-shadow: none !important; border: none !important; max-width: 100% !important; width: 100% !important; padding: 0 !important; }
+        }
+      `}</style>
+      <div className="po-print-wrap" style={{ maxWidth: 800, margin: '0 auto', fontFamily: 'Arial, sans-serif', fontSize: 11 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            {settings.company_logo && (
+              <img src={settings.company_logo} alt="Logo" style={{ height: 48, objectFit: 'contain' }} />
+            )}
+            <div>
+              <div className="po-header-title" style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{settings.company_name || 'Company Name'}</div>
+              <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1.4 }}>
+                {settings.company_address && <div>{settings.company_address}</div>}
+                {settings.company_city_state_zip && <div>{settings.company_city_state_zip}</div>}
+                {settings.company_phone && <div>Phone: {settings.company_phone}</div>}
+                {settings.company_fax && <div>Fax: {settings.company_fax}</div>}
+                {settings.company_email && <div>{settings.company_email}</div>}
+              </div>
             </div>
           </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="po-title" style={{ fontSize: 20, fontWeight: 700, color: '#2563eb', marginBottom: 4 }}>PURCHASE ORDER</div>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>{po.po_number}</div>
+            <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Date: {formatDate(po.issue_date)}</div>
+            {po.due_date && <div style={{ fontSize: 10, color: '#64748b' }}>Due: {formatDate(po.due_date)}</div>}
+            {po.vendor_quote_number && <div style={{ fontSize: 10, color: '#64748b' }}>Vendor Quote: {po.vendor_quote_number}</div>}
+          </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 24, fontWeight: 700, color: '#2563eb', marginBottom: 8 }}>PURCHASE ORDER</div>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{po.po_number}</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Date: {formatDate(po.issue_date)}</div>
-          {po.due_date && <div style={{ fontSize: 12, color: '#64748b' }}>Due: {formatDate(po.due_date)}</div>}
-          {po.vendor_quote_number && <div style={{ fontSize: 12, color: '#64748b' }}>Vendor Quote #: {po.vendor_quote_number}</div>}
-        </div>
-      </div>
 
-      {/* Vendor / Ship To */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
-        <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, border: '1px solid #e2e8f0' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Vendor</div>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{po.vendor_name}</div>
-          {po.vendor_contact && <div>{po.vendor_contact}</div>}
-          {po.vendor_address && <div>{po.vendor_address}</div>}
-          {po.vendor_city_state_zip && <div>{po.vendor_city_state_zip}</div>}
-          {po.vendor_email && <div>{po.vendor_email}</div>}
-          {po.vendor_phone && <div>{po.vendor_phone}</div>}
+        {/* Vendor / Ship To */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div className="po-section-box" style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Vendor</div>
+            <div className="po-vendor-name" style={{ fontWeight: 600, fontSize: 12 }}>{po.vendor_name}</div>
+            {po.vendor_contact && <div>{po.vendor_contact}</div>}
+            {po.vendor_address && <div>{po.vendor_address}</div>}
+            {po.vendor_city_state_zip && <div>{po.vendor_city_state_zip}</div>}
+            {po.vendor_email && <div>{po.vendor_email}</div>}
+            {po.vendor_phone && <div>{po.vendor_phone}</div>}
+          </div>
+          <div className="po-section-box" style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Ship To</div>
+            <div style={{ whiteSpace: 'pre-wrap' }}>{po.ship_to || `${settings.company_name || ''}\n${settings.company_address || ''}\n${settings.company_city_state_zip || ''}`}</div>
+          </div>
         </div>
-        <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, border: '1px solid #e2e8f0' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Ship To</div>
-          <div style={{ whiteSpace: 'pre-wrap' }}>{po.ship_to || `${settings.company_name || ''}\n${settings.company_address || ''}\n${settings.company_city_state_zip || ''}`}</div>
-        </div>
-      </div>
 
-      {/* Line Items */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
-        <thead>
-          <tr style={{ background: '#1e293b', color: '#fff' }}>
-            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12 }}>#</th>
-            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12 }}>Description</th>
-            <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 12 }}>Qty</th>
-            <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 12 }}>Unit Price</th>
-            <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 12 }}>Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lineItems.map((item, i) => (
-            <tr key={item.id || i} style={{ borderBottom: '1px solid #e2e8f0' }}>
-              <td style={{ padding: '10px 12px' }}>{i + 1}</td>
-              <td style={{ padding: '10px 12px' }}>{item.description}</td>
-              <td style={{ padding: '10px 12px', textAlign: 'right' }}>{item.quantity}</td>
-              <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatCurrency(item.unit_price)}</td>
-              <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatCurrency(item.amount)}</td>
+        {/* Line Items */}
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+          <thead>
+            <tr style={{ background: '#1e293b', color: '#fff' }}>
+              <th style={{ padding: '6px 8px', textAlign: 'left', fontSize: 10 }}>#</th>
+              <th style={{ padding: '6px 8px', textAlign: 'left', fontSize: 10 }}>Description</th>
+              <th style={{ padding: '6px 8px', textAlign: 'right', fontSize: 10 }}>Qty</th>
+              <th style={{ padding: '6px 8px', textAlign: 'right', fontSize: 10 }}>Unit Price</th>
+              <th style={{ padding: '6px 8px', textAlign: 'right', fontSize: 10 }}>Amount</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {lineItems.map((item, i) => (
+              <tr key={item.id || i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                <td style={{ padding: '6px 8px' }}>{i + 1}</td>
+                <td style={{ padding: '6px 8px' }}>{item.description}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{item.quantity}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formatCurrency(item.unit_price)}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formatCurrency(item.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-      {/* Totals */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
-        <div style={{ minWidth: 200 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-            <span>Subtotal:</span><span>{formatCurrency(subtotal)}</span>
-          </div>
-          {po.tax_amount > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-              <span>Tax:</span><span>{formatCurrency(po.tax_amount)}</span>
+        {/* Totals */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+          <div style={{ minWidth: 180 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 10, borderBottom: '1px solid #e2e8f0' }}>
+              <span>Subtotal:</span><span>{formatCurrency(subtotal)}</span>
             </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontWeight: 700, fontSize: 15, borderTop: '2px solid #1e293b' }}>
-            <span>Total:</span><span>{formatCurrency(po.total_amount)}</span>
+            {po.tax_amount > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 10, borderBottom: '1px solid #e2e8f0' }}>
+                <span>Tax:</span><span>{formatCurrency(po.tax_amount)}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontWeight: 700, fontSize: 12, borderTop: '2px solid #1e293b' }}>
+              <span>Total:</span><span>{formatCurrency(po.total_amount)}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Terms & Notes */}
-      {(po.terms || po.vendor_payment_terms) && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Terms & Conditions</div>
-          <div style={{ fontSize: 12, whiteSpace: 'pre-wrap', color: '#475569' }}>{po.terms || `Payment Terms: ${po.vendor_payment_terms}`}</div>
-        </div>
-      )}
-      {po.notes && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Notes</div>
-          <div style={{ fontSize: 12, whiteSpace: 'pre-wrap', color: '#475569' }}>{po.notes}</div>
-        </div>
-      )}
+        {/* Terms & Notes */}
+        {(po.terms || po.vendor_payment_terms) && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>Terms & Conditions</div>
+            <div style={{ fontSize: 10, whiteSpace: 'pre-wrap', color: '#475569' }}>{po.terms || `Payment Terms: ${po.vendor_payment_terms}`}</div>
+          </div>
+        )}
+        {po.notes && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>Notes</div>
+            <div style={{ fontSize: 10, whiteSpace: 'pre-wrap', color: '#475569' }}>{po.notes}</div>
+          </div>
+        )}
 
-      {/* Acknowledgment */}
-      <div style={{ marginTop: 32, padding: '12px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#475569', textAlign: 'center' }}>
-        Please confirm acceptance of this Purchase Order by sending an email to <strong>{settings.company_email || 'us'}</strong> referencing PO # <strong>{po.po_number}</strong>.
+        {/* Acknowledgment */}
+        <div style={{ marginTop: 20, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 10, color: '#475569', textAlign: 'center' }}>
+          Please confirm acceptance of this Purchase Order by sending an email to <strong>{settings.company_email || 'us'}</strong> referencing PO # <strong>{po.po_number}</strong>.
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -506,6 +521,7 @@ function PurchaseOrdersTab() {
   const [printPOId, setPrintPOId] = useState(null);
   const [paymentPO, setPaymentPO] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [emailingId, setEmailingId] = useState(null);
 
   const loadData = useCallback(async () => {
     const [posData, vendorsData, projectsData] = await Promise.all([
@@ -524,6 +540,18 @@ function PurchaseOrdersTab() {
     if (!window.confirm(`Delete PO ${po.po_number}? This cannot be undone.`)) return;
     await apiFetch(`/purchase-orders/${po.id}`, { method: 'DELETE' });
     loadData();
+  };
+
+  const handleEmail = async (po) => {
+    setEmailingId(po.id);
+    try {
+      const result = await apiFetch(`/purchase-orders/${po.id}/email`, { method: 'POST' });
+      alert(result.message);
+    } catch (err) {
+      alert(err.message || 'Failed to send email');
+    } finally {
+      setEmailingId(null);
+    }
   };
 
   const filtered = filterStatus === 'all' ? pos : pos.filter(p => p.status === filterStatus);
@@ -572,6 +600,7 @@ function PurchaseOrdersTab() {
                   <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatCurrency(po.amount_paid)}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                     <button onClick={() => setPrintPOId(po.id)} style={{ padding: '4px 8px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginRight: 4 }} title="View/Print">View</button>
+                    <button onClick={() => handleEmail(po)} disabled={emailingId === po.id} style={{ padding: '4px 8px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, cursor: 'pointer', fontSize: 11, color: '#1d4ed8', marginRight: 4 }}>{emailingId === po.id ? 'Sending...' : 'Email'}</button>
                     <button onClick={() => { setEditPO(po); setShowForm(true); }} style={{ padding: '4px 8px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginRight: 4 }}>Edit</button>
                     <button onClick={() => setPaymentPO(po)} style={{ padding: '4px 8px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 4, cursor: 'pointer', fontSize: 11, color: '#166534', marginRight: 4 }}>Pay</button>
                     <button onClick={() => handleDelete(po)} style={{ padding: '4px 8px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4, cursor: 'pointer', fontSize: 11, color: '#991b1b' }}>Del</button>

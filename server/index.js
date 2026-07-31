@@ -6160,6 +6160,120 @@ app.get('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
   res.json({ po, settings });
 });
 
+app.post('/api/purchase-orders/:id/email', auth, adminOnly, async (req, res) => {
+  const db = getDb();
+  const po = db.prepare(`
+    SELECT po.*, v.name as vendor_name, v.contact_name as vendor_contact, v.email as vendor_email,
+           v.phone as vendor_phone, v.address as vendor_address, v.city_state_zip as vendor_city_state_zip,
+           v.payment_terms as vendor_payment_terms,
+           p.name as project_name, p.po_number as project_po_number, c.name as customer_name
+    FROM purchase_orders po
+    JOIN vendors v ON v.id = po.vendor_id
+    LEFT JOIN projects p ON p.id = po.project_id
+    LEFT JOIN customers c ON c.id = p.customer_id
+    WHERE po.id = ?
+  `).get(req.params.id);
+  if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+
+  po.line_items = db.prepare('SELECT * FROM po_line_items WHERE purchase_order_id = ? ORDER BY id').all(po.id);
+
+  const settings = {};
+  db.prepare("SELECT key, value FROM settings").all().forEach(r => { settings[r.key] = r.value; });
+
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings.' });
+  }
+
+  const adminEmail = settings.admin_notification_email || settings.smtp_email;
+  const formatMoney = (amt) => `$${(amt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtDate = (d) => {
+    if (!d) return '';
+    const dt = new Date(String(d).includes('T') ? d : d + 'T00:00:00');
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  };
+
+  const lineItemRows = po.line_items.map((item, i) => `
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 8px;">${i + 1}</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;">${item.description}</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;text-align:right;">${item.quantity}</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;text-align:right;">${formatMoney(item.unit_price)}</td>
+      <td style="border:1px solid #ccc;padding:6px 8px;text-align:right;">${formatMoney(item.amount)}</td>
+    </tr>
+  `).join('');
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;color:#000;max-width:700px;margin:0 auto;">
+      <div style="margin-bottom:16px;">
+        <div style="font-weight:bold;font-size:16px;">${settings.company_name || ''}</div>
+        ${settings.company_address ? `<div>${settings.company_address}</div>` : ''}
+        ${settings.company_city_state_zip ? `<div>${settings.company_city_state_zip}</div>` : ''}
+        ${settings.company_phone ? `<div>Phone: ${settings.company_phone}</div>` : ''}
+        ${settings.company_email ? `<div>${settings.company_email}</div>` : ''}
+      </div>
+      <h2 style="color:#2563eb;margin:0 0 4px;">PURCHASE ORDER</h2>
+      <div style="margin-bottom:16px;">
+        <strong>${po.po_number}</strong><br/>
+        Date: ${fmtDate(po.issue_date)}
+        ${po.due_date ? `<br/>Due: ${fmtDate(po.due_date)}` : ''}
+        ${po.vendor_quote_number ? `<br/>Vendor Quote: ${po.vendor_quote_number}` : ''}
+      </div>
+      <div style="margin-bottom:16px;padding:10px;background:#f5f5f5;border:1px solid #ddd;">
+        <strong>Vendor:</strong> ${po.vendor_name}
+        ${po.vendor_contact ? `<br/>${po.vendor_contact}` : ''}
+        ${po.vendor_address ? `<br/>${po.vendor_address}` : ''}
+        ${po.vendor_city_state_zip ? `<br/>${po.vendor_city_state_zip}` : ''}
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;">
+        <thead>
+          <tr style="background:#333;color:#fff;">
+            <th style="padding:6px 8px;text-align:left;">#</th>
+            <th style="padding:6px 8px;text-align:left;">Description</th>
+            <th style="padding:6px 8px;text-align:right;">Qty</th>
+            <th style="padding:6px 8px;text-align:right;">Unit Price</th>
+            <th style="padding:6px 8px;text-align:right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${lineItemRows}</tbody>
+      </table>
+      <div style="text-align:right;font-size:16px;font-weight:bold;margin-bottom:16px;">
+        Total: ${formatMoney(po.total_amount)}
+      </div>
+      ${po.terms || po.vendor_payment_terms ? `<div style="margin-bottom:12px;"><strong>Terms:</strong> ${po.terms || 'Payment Terms: ' + po.vendor_payment_terms}</div>` : ''}
+      ${po.notes ? `<div style="margin-bottom:12px;"><strong>Notes:</strong> ${po.notes}</div>` : ''}
+      <div style="margin-top:20px;padding:10px;background:#f0f7ff;border:1px solid #cce;text-align:center;font-size:13px;">
+        Please confirm acceptance of this Purchase Order by replying to this email referencing PO # <strong>${po.po_number}</strong>.
+      </div>
+    </div>
+  `;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
+    });
+
+    const toList = [];
+    if (po.vendor_email) toList.push(po.vendor_email);
+    if (adminEmail && !toList.includes(adminEmail)) toList.push(adminEmail);
+    if (toList.length === 0) {
+      return res.status(400).json({ error: 'No vendor email or admin email configured' });
+    }
+
+    await transporter.sendMail({
+      from: settings.smtp_email,
+      to: toList.join(', '),
+      subject: `Purchase Order ${po.po_number} from ${settings.company_name || 'UTech'}`,
+      html: html,
+    });
+
+    res.json({ message: `PO emailed to ${toList.join(', ')}` });
+  } catch (err) {
+    console.error('PO email error:', err);
+    res.status(500).json({ error: 'Failed to send email: ' + err.message });
+  }
+});
+
 app.post('/api/purchase-orders', auth, adminOnly, (req, res) => {
   const db = getDb();
   const { vendor_id, project_id, po_number, issue_date, due_date, vendor_quote_number, ship_to, notes, terms, line_items } = req.body;
