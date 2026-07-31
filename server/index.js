@@ -1658,7 +1658,40 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       const monthlyTotals = db.prepare('SELECT SUM(monthly_bill) as total FROM engineer_projects WHERE project_id = ?').get(p.id);
       estimated_amount = monthlyTotals?.total || 0;
     } else {
-      estimated_amount = p.hourly_amount;
+      const project = db.prepare('SELECT overtime_type, requires_daily_logs FROM projects WHERE id = ?').get(p.id);
+      const otType = project?.overtime_type;
+      const hasOt = otType && otType !== 'none';
+      if (hasOt) {
+        const tsList = db.prepare(`
+          SELECT ts.id, ts.ot_hours, COALESCE(SUM(te.hours), 0) as total_hours,
+                 ep.bill_rate, ep.ot_bill_rate
+          FROM timesheets ts
+          LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+          LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+          WHERE ts.project_id = ? AND ts.status = 'approved'
+            AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL
+          GROUP BY ts.id
+        `).all(p.id, period_start, period_end);
+        estimated_amount = tsList.reduce((sum, ts) => {
+          const billRate = ts.bill_rate || 0;
+          const otBillRate = ts.ot_bill_rate || 0;
+          const isMonthlyTs = project.requires_daily_logs === 0;
+          let otHrs = 0;
+          let regularHrs = ts.total_hours;
+          if (isMonthlyTs && ts.ot_hours > 0) {
+            otHrs = ts.ot_hours;
+            regularHrs = ts.total_hours - otHrs;
+          } else if (!isMonthlyTs && otType === 'weekly_40') {
+            if (ts.total_hours > 40) {
+              otHrs = ts.total_hours - 40;
+              regularHrs = 40;
+            }
+          }
+          return sum + (regularHrs * billRate) + (otHrs * otBillRate);
+        }, 0);
+      } else {
+        estimated_amount = p.hourly_amount;
+      }
     }
 
     // Get engineers assigned to this project with approved timesheets in the period
@@ -5986,8 +6019,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore customers
       if (backup.data.customers) {
         for (const c of backup.data.customers) {
-          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, ap_email, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.ap_email || null, c.created_at
+          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, ap_email, edi_invoicing, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.ap_email || null, c.edi_invoicing || 0, c.created_at
           );
         }
       }
@@ -6004,8 +6037,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore projects
       if (backup.data.projects) {
         for (const p of backup.data.projects) {
-          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.billing_method || null, p.monthly_engineer_pay || null, p.monthly_invoice_amount || null, p.created_at
+          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.billing_method || null, p.monthly_engineer_pay || null, p.monthly_invoice_amount || null, p.internal || 0, p.edi_uom || null, p.edi_plant_code || null, p.edi_po_quantity || null, p.edi_unit_price || null, p.overtime_type || 'none', p.invoice_consolidate || 0, p.created_at
           );
         }
       }
@@ -6030,8 +6063,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore engineer_projects
       if (backup.data.engineer_projects) {
         for (const ep of backup.data.engineer_projects) {
-          db.prepare('INSERT OR IGNORE INTO engineer_projects (id, user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            ep.id, ep.user_id, ep.project_id, ep.pay_rate, ep.bill_rate, ep.total_payment || 0, ep.monthly_pay || 0, ep.monthly_bill || 0, ep.created_at || null
+          db.prepare('INSERT OR IGNORE INTO engineer_projects (id, user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours, ot_pay_rate, ot_bill_rate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            ep.id, ep.user_id, ep.project_id, ep.pay_rate, ep.bill_rate, ep.total_payment || 0, ep.monthly_pay || 0, ep.monthly_bill || 0, ep.max_hours || 0, ep.ot_pay_rate || 0, ep.ot_bill_rate || 0, ep.created_at || null
           );
         }
       }
@@ -6039,8 +6072,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore timesheets
       if (backup.data.timesheets) {
         for (const t of backup.data.timesheets) {
-          db.prepare('INSERT INTO timesheets (id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, period_start, period_end, percentage, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            t.id, t.user_id, t.project_id, t.week_ending, t.status, t.submitted_at, t.approved_at, t.approved_by, t.period_start, t.period_end, t.percentage || 0, t.amount || 0, t.created_at
+          db.prepare('INSERT INTO timesheets (id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, period_start, period_end, percentage, amount, ot_hours, invoice_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            t.id, t.user_id, t.project_id, t.week_ending, t.status, t.submitted_at, t.approved_at, t.approved_by, t.period_start, t.period_end, t.percentage || 0, t.amount || 0, t.ot_hours || 0, t.invoice_id || null, t.created_at
           );
         }
       }
@@ -6048,8 +6081,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore timesheet_entries
       if (backup.data.timesheet_entries) {
         for (const e of backup.data.timesheet_entries) {
-          db.prepare('INSERT INTO timesheet_entries (id, timesheet_id, entry_date, start_time, end_time, hours, description, shift, lunch_break, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            e.id, e.timesheet_id, e.entry_date, e.start_time, e.end_time, e.hours, e.description, e.shift, e.lunch_break || 0, e.created_at || null
+          db.prepare('INSERT INTO timesheet_entries (id, timesheet_id, entry_date, start_time, end_time, hours, description, shift, lunch_break, invoice_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            e.id, e.timesheet_id, e.entry_date, e.start_time, e.end_time, e.hours, e.description, e.shift, e.lunch_break || 0, e.invoice_id || null, e.created_at || null
           );
         }
       }
