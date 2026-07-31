@@ -4069,7 +4069,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
 
   // Check which engineers have already been paid for this period
   const paidForPeriod = db.prepare(`
-    SELECT ep.user_id, ep.amount, ep.payment_date, u.name as engineer_name, u.engineer_id
+    SELECT ep.id as payment_id, ep.user_id, ep.amount, ep.payment_date, u.name as engineer_name, u.engineer_id
     FROM engineer_payments ep
     JOIN users u ON u.id = ep.user_id
     WHERE ep.payment_type = 'payroll'
@@ -5968,6 +5968,48 @@ app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
   `).run(stamp, user_id, period_start, period_end, period_start, period_end);
 
   res.json({ success: true, stamped: r1.changes + r2.changes + r3.changes });
+});
+
+// Unmark timesheets as paid for a user in a given period
+app.post('/api/timesheets/unmark-paid', auth, adminOnly, (req, res) => {
+  const { user_id, period_start, period_end } = req.body;
+  if (!user_id || !period_start || !period_end) {
+    return res.status(400).json({ error: 'user_id, period_start, and period_end are required' });
+  }
+  const db = getDb();
+
+  // Clear paid_date on hourly/fixed_monthly timesheets (by entry_date overlap)
+  const r1 = db.prepare(`
+    UPDATE timesheets SET paid_date = NULL
+    WHERE user_id = ? AND paid_date IS NOT NULL
+    AND id IN (
+      SELECT DISTINCT ts.id FROM timesheets ts
+      JOIN timesheet_entries te ON te.timesheet_id = ts.id
+      WHERE ts.user_id = ? AND ts.paid_date IS NOT NULL
+      AND te.entry_date BETWEEN ? AND ? AND te.hours > 0
+    )
+  `).run(user_id, user_id, period_start, period_end);
+
+  // Clear paid_date on fixed_price timesheets (by week_ending in period)
+  const r2 = db.prepare(`
+    UPDATE timesheets SET paid_date = NULL
+    WHERE user_id = ? AND paid_date IS NOT NULL
+    AND week_ending BETWEEN ? AND ?
+    AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_price')
+  `).run(user_id, period_start, period_end);
+
+  // Clear paid_date on fixed_monthly timesheets without entries
+  const r3 = db.prepare(`
+    UPDATE timesheets SET paid_date = NULL
+    WHERE user_id = ? AND paid_date IS NOT NULL
+    AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_monthly')
+    AND (
+      week_ending BETWEEN ? AND ?
+      OR (period_start IS NOT NULL AND period_start >= ? AND period_end <= ?)
+    )
+  `).run(user_id, period_start, period_end, period_start, period_end);
+
+  res.json({ success: true, cleared: r1.changes + r2.changes + r3.changes });
 });
 
 // Update an engineer payment

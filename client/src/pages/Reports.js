@@ -595,6 +595,26 @@ export default function Reports() {
     }
   };
 
+  const handleUndoPayment = async (row) => {
+    if (!window.confirm(`Undo payment for ${row.engineer_name}?\n\nThis will delete the payment record and unmark their timesheets so they appear unpaid again.`)) return;
+    try {
+      await apiFetch(`/engineer-payments/${row.payment_id}`, { method: 'DELETE' });
+      const unmarkStart = row.pay_period_start || dateRange.period_start;
+      const unmarkEnd = row.pay_period_end || dateRange.period_end;
+      await apiFetch('/timesheets/unmark-paid', {
+        method: 'POST',
+        body: {
+          user_id: row.user_id,
+          period_start: unmarkStart,
+          period_end: unmarkEnd
+        }
+      });
+      loadPayrollData();
+    } catch (e) {
+      alert('Error undoing payment: ' + e.message);
+    }
+  };
+
   const selectMonth = (option) => {
     setDateRange({ period_start: option.start, period_end: option.end });
   };
@@ -646,6 +666,7 @@ export default function Reports() {
       existing.holiday_pay = 0;
       existing.advance_deduction = 0;
       existing.paid_amount = paid.amount;
+      existing.payment_id = paid.payment_id;
     } else {
       payrollByEngineer[paid.engineer_name] = {
         engineer_name: paid.engineer_name,
@@ -658,6 +679,7 @@ export default function Reports() {
         holiday_pay: 0,
         advance_deduction: 0,
         paid_amount: paid.amount,
+        payment_id: paid.payment_id,
         pay_delay_months: 0,
         pay_period_label: null,
         pay_period_start: null,
@@ -1123,7 +1145,14 @@ export default function Reports() {
                           <td>
                             <strong>{row.engineer_name}</strong>
                             {isPaid && (
-                              <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>PAID</span>
+                              <>
+                                <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>PAID</span>
+                                <button
+                                  className="no-print"
+                                  onClick={() => handleUndoPayment(row)}
+                                  style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer' }}
+                                >Undo</button>
+                              </>
                             )}
                             {row.pay_delay_months > 0 && (
                               <div style={{ fontSize: 10, color: '#1e40af', marginTop: 2 }}>
