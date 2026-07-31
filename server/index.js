@@ -6202,27 +6202,34 @@ app.post('/api/purchase-orders/:id/email', auth, adminOnly, async (req, res) => 
     </tr>
   `).join('');
 
-  const html = `
-    <div style="font-family:Arial,sans-serif;color:#000;max-width:700px;margin:0 auto;">
-      <div style="margin-bottom:16px;">
-        <div style="font-weight:bold;font-size:16px;">${settings.company_name || ''}</div>
-        ${settings.company_address ? `<div>${settings.company_address}</div>` : ''}
-        ${settings.company_city_state_zip ? `<div>${settings.company_city_state_zip}</div>` : ''}
-        ${settings.company_phone ? `<div>Phone: ${settings.company_phone}</div>` : ''}
-        ${settings.company_email ? `<div>${settings.company_email}</div>` : ''}
+  const poContentHtml = `
+    <div style="font-family:Arial,sans-serif;color:#000;max-width:700px;margin:0 auto;padding:20px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
+        <div>
+          ${settings.company_logo ? `<img src="${settings.company_logo}" style="max-width:120px;max-height:60px;margin-bottom:8px;" />` : ''}
+          <div style="font-weight:bold;font-size:16px;">${settings.company_name || ''}</div>
+          ${settings.company_address ? `<div style="font-size:12px;">${settings.company_address}</div>` : ''}
+          ${settings.company_city_state_zip ? `<div style="font-size:12px;">${settings.company_city_state_zip}</div>` : ''}
+          ${settings.company_phone ? `<div style="font-size:12px;">Phone: ${settings.company_phone}</div>` : ''}
+          ${settings.company_fax ? `<div style="font-size:12px;">Fax: ${settings.company_fax}</div>` : ''}
+          ${settings.company_email ? `<div style="font-size:12px;">${settings.company_email}</div>` : ''}
+        </div>
+        <div style="text-align:right;">
+          <h2 style="color:#2563eb;margin:0 0 4px;font-size:22px;">PURCHASE ORDER</h2>
+          <div style="font-size:14px;"><strong>${po.po_number}</strong></div>
+          <div style="font-size:12px;">Date: ${fmtDate(po.issue_date)}</div>
+          ${po.due_date ? `<div style="font-size:12px;">Due: ${fmtDate(po.due_date)}</div>` : ''}
+          ${po.vendor_quote_number ? `<div style="font-size:12px;">Vendor Quote: ${po.vendor_quote_number}</div>` : ''}
+        </div>
       </div>
-      <h2 style="color:#2563eb;margin:0 0 4px;">PURCHASE ORDER</h2>
-      <div style="margin-bottom:16px;">
-        <strong>${po.po_number}</strong><br/>
-        Date: ${fmtDate(po.issue_date)}
-        ${po.due_date ? `<br/>Due: ${fmtDate(po.due_date)}` : ''}
-        ${po.vendor_quote_number ? `<br/>Vendor Quote: ${po.vendor_quote_number}` : ''}
-      </div>
-      <div style="margin-bottom:16px;padding:10px;background:#f5f5f5;border:1px solid #ddd;">
-        <strong>Vendor:</strong> ${po.vendor_name}
-        ${po.vendor_contact ? `<br/>${po.vendor_contact}` : ''}
-        ${po.vendor_address ? `<br/>${po.vendor_address}` : ''}
-        ${po.vendor_city_state_zip ? `<br/>${po.vendor_city_state_zip}` : ''}
+      <div style="display:flex;gap:20px;margin-bottom:20px;">
+        <div style="flex:1;padding:10px;background:#f5f5f5;border:1px solid #ddd;">
+          <strong>Vendor:</strong><br/>${po.vendor_name}
+          ${po.vendor_contact ? `<br/>${po.vendor_contact}` : ''}
+          ${po.vendor_address ? `<br/>${po.vendor_address}` : ''}
+          ${po.vendor_city_state_zip ? `<br/>${po.vendor_city_state_zip}` : ''}
+        </div>
+        ${po.ship_to ? `<div style="flex:1;padding:10px;background:#f5f5f5;border:1px solid #ddd;"><strong>Ship To:</strong><br/>${po.ship_to.replace(/\n/g, '<br/>')}</div>` : ''}
       </div>
       <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;">
         <thead>
@@ -6247,7 +6254,42 @@ app.post('/api/purchase-orders/:id/email', auth, adminOnly, async (req, res) => 
     </div>
   `;
 
+  const pdfHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page { margin: 0.25in; size: letter; } body { margin: 0; padding: 0; }</style></head><body>${poContentHtml}</body></html>`;
+
   try {
+    let browserOptions;
+    const isLocal = process.platform === 'win32' || !process.env.RENDER;
+
+    if (isLocal) {
+      const fs = require('fs');
+      const possiblePaths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\Application\\msedge.exe',
+      ];
+      const chromePath = possiblePaths.find(p => fs.existsSync(p));
+      if (!chromePath) {
+        throw new Error('No compatible browser found. Install Chrome or Edge for PDF generation.');
+      }
+      browserOptions = { executablePath: chromePath, headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+    } else {
+      browserOptions = {
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+      };
+    }
+
+    const browser = await puppeteer.launch(browserOptions);
+    const pdfPage = await browser.newPage();
+    await pdfPage.setContent(pdfHtml, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await pdfPage.pdf({ format: 'Letter', printBackground: true, margin: { top: '0.25in', right: '0.25in', bottom: '0.25in', left: '0.25in' } });
+    await browser.close();
+
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: settings.smtp_email, pass: settings.smtp_password },
@@ -6260,11 +6302,33 @@ app.post('/api/purchase-orders/:id/email', auth, adminOnly, async (req, res) => 
       return res.status(400).json({ error: 'No vendor email or admin email configured' });
     }
 
+    const emailBody = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;">
+        <p>Please find attached Purchase Order <strong>${po.po_number}</strong>.</p>
+        <p><strong>PO Summary:</strong></p>
+        <ul>
+          <li>PO #: ${po.po_number}</li>
+          <li>Vendor: ${po.vendor_name}</li>
+          <li>Amount: ${formatMoney(po.total_amount)}</li>
+          ${po.due_date ? `<li>Due Date: ${fmtDate(po.due_date)}</li>` : ''}
+          ${po.vendor_quote_number ? `<li>Vendor Quote: ${po.vendor_quote_number}</li>` : ''}
+        </ul>
+        <p>Please confirm acceptance by replying to this email referencing PO # <strong>${po.po_number}</strong>.</p>
+        <p>Thank you,</p>
+        <p style="color:#666;font-size:12px;">${settings.company_name || 'UTech'}</p>
+      </div>
+    `;
+
     await transporter.sendMail({
       from: settings.smtp_email,
       to: toList.join(', '),
       subject: `Purchase Order ${po.po_number} from ${settings.company_name || 'UTech'}`,
-      html: html,
+      html: emailBody,
+      attachments: [{
+        filename: `${po.po_number}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }]
     });
 
     res.json({ message: `PO emailed to ${toList.join(', ')}` });
