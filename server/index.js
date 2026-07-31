@@ -6019,6 +6019,171 @@ app.get('/api/my-payments', auth, (req, res) => {
   res.json(payments);
 });
 
+// ─── PURCHASE ORDERS ──────────────────────────────────────────────────────────
+
+// Vendors CRUD
+app.get('/api/vendors', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const vendors = db.prepare('SELECT * FROM vendors ORDER BY name').all();
+  res.json(vendors);
+});
+
+app.post('/api/vendors', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { name, contact_name, email, phone, address, city_state_zip, payment_terms, notes } = req.body;
+  if (!name) return res.status(400).json({ error: 'Vendor name is required' });
+  const result = db.prepare('INSERT INTO vendors (name, contact_name, email, phone, address, city_state_zip, payment_terms, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    name, contact_name || null, email || null, phone || null, address || null, city_state_zip || null, payment_terms || 'Net 30', notes || null
+  );
+  res.json({ id: result.lastInsertRowid, message: 'Vendor created' });
+});
+
+app.put('/api/vendors/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { name, contact_name, email, phone, address, city_state_zip, payment_terms, notes } = req.body;
+  if (!name) return res.status(400).json({ error: 'Vendor name is required' });
+  db.prepare('UPDATE vendors SET name=?, contact_name=?, email=?, phone=?, address=?, city_state_zip=?, payment_terms=?, notes=? WHERE id=?').run(
+    name, contact_name || null, email || null, phone || null, address || null, city_state_zip || null, payment_terms || 'Net 30', notes || null, req.params.id
+  );
+  res.json({ message: 'Vendor updated' });
+});
+
+app.delete('/api/vendors/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const pos = db.prepare('SELECT COUNT(*) as count FROM purchase_orders WHERE vendor_id = ?').get(req.params.id);
+  if (pos.count > 0) return res.status(400).json({ error: 'Cannot delete vendor with existing purchase orders' });
+  db.prepare('DELETE FROM vendors WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Vendor deleted' });
+});
+
+// Purchase Orders CRUD
+app.get('/api/purchase-orders', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const pos = db.prepare(`
+    SELECT po.*, v.name as vendor_name, p.name as project_name, p.po_number as project_po_number, c.name as customer_name
+    FROM purchase_orders po
+    JOIN vendors v ON v.id = po.vendor_id
+    LEFT JOIN projects p ON p.id = po.project_id
+    LEFT JOIN customers c ON c.id = p.customer_id
+    ORDER BY po.created_at DESC
+  `).all();
+  const lineItemStmt = db.prepare('SELECT * FROM po_line_items WHERE purchase_order_id = ? ORDER BY id');
+  const paymentStmt = db.prepare('SELECT * FROM po_payments WHERE purchase_order_id = ? ORDER BY payment_date');
+  const result = pos.map(po => ({
+    ...po,
+    line_items: lineItemStmt.all(po.id),
+    payments: paymentStmt.all(po.id),
+  }));
+  res.json(result);
+});
+
+app.get('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const po = db.prepare(`
+    SELECT po.*, v.name as vendor_name, v.contact_name as vendor_contact, v.email as vendor_email,
+           v.phone as vendor_phone, v.address as vendor_address, v.city_state_zip as vendor_city_state_zip,
+           v.payment_terms as vendor_payment_terms,
+           p.name as project_name, p.po_number as project_po_number, c.name as customer_name
+    FROM purchase_orders po
+    JOIN vendors v ON v.id = po.vendor_id
+    LEFT JOIN projects p ON p.id = po.project_id
+    LEFT JOIN customers c ON c.id = p.customer_id
+    WHERE po.id = ?
+  `).get(req.params.id);
+  if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+  po.line_items = db.prepare('SELECT * FROM po_line_items WHERE purchase_order_id = ? ORDER BY id').all(po.id);
+  po.payments = db.prepare('SELECT * FROM po_payments WHERE purchase_order_id = ? ORDER BY payment_date').all(po.id);
+  const settings = {};
+  db.prepare("SELECT key, value FROM settings").all().forEach(r => { settings[r.key] = r.value; });
+  res.json({ po, settings });
+});
+
+app.post('/api/purchase-orders', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { vendor_id, project_id, po_number, issue_date, due_date, ship_to, notes, terms, line_items } = req.body;
+  if (!vendor_id) return res.status(400).json({ error: 'Vendor is required' });
+
+  let finalPoNumber = po_number;
+  if (!finalPoNumber) {
+    const last = db.prepare("SELECT po_number FROM purchase_orders WHERE po_number LIKE 'PO-%' ORDER BY id DESC LIMIT 1").get();
+    const nextNum = last ? parseInt(last.po_number.replace('PO-', '')) + 1 : 1001;
+    finalPoNumber = `PO-${nextNum}`;
+  }
+
+  const existing = db.prepare('SELECT id FROM purchase_orders WHERE po_number = ?').get(finalPoNumber);
+  if (existing) return res.status(400).json({ error: 'PO number already exists' });
+
+  const items = line_items || [];
+  const subtotal = items.reduce((s, i) => s + ((i.quantity || 1) * (i.unit_price || 0)), 0);
+  const taxRate = 0;
+  const taxAmount = subtotal * taxRate;
+  const totalAmount = subtotal + taxAmount;
+
+  const result = db.prepare('INSERT INTO purchase_orders (po_number, vendor_id, project_id, status, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, ship_to, notes, terms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    finalPoNumber, vendor_id, project_id || null, 'draft', issue_date || new Date().toISOString().split('T')[0], due_date || null, subtotal, taxRate, taxAmount, totalAmount, ship_to || null, notes || null, terms || null
+  );
+
+  const poId = result.lastInsertRowid;
+  const insertItem = db.prepare('INSERT INTO po_line_items (purchase_order_id, description, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)');
+  for (const item of items) {
+    const qty = item.quantity || 1;
+    const price = item.unit_price || 0;
+    insertItem.run(poId, item.description || '', qty, price, qty * price);
+  }
+
+  res.json({ id: poId, po_number: finalPoNumber, message: 'Purchase order created' });
+});
+
+app.put('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { vendor_id, project_id, po_number, status, issue_date, due_date, ship_to, notes, terms, line_items } = req.body;
+
+  const items = line_items || [];
+  const subtotal = items.reduce((s, i) => s + ((i.quantity || 1) * (i.unit_price || 0)), 0);
+  const taxAmount = 0;
+  const totalAmount = subtotal + taxAmount;
+
+  db.prepare('UPDATE purchase_orders SET vendor_id=?, project_id=?, po_number=?, status=?, issue_date=?, due_date=?, subtotal=?, tax_amount=?, total_amount=?, ship_to=?, notes=?, terms=? WHERE id=?').run(
+    vendor_id, project_id || null, po_number, status || 'draft', issue_date || null, due_date || null, subtotal, taxAmount, totalAmount, ship_to || null, notes || null, terms || null, req.params.id
+  );
+
+  db.prepare('DELETE FROM po_line_items WHERE purchase_order_id = ?').run(req.params.id);
+  const insertItem = db.prepare('INSERT INTO po_line_items (purchase_order_id, description, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)');
+  for (const item of items) {
+    const qty = item.quantity || 1;
+    const price = item.unit_price || 0;
+    insertItem.run(req.params.id, item.description || '', qty, price, qty * price);
+  }
+
+  res.json({ message: 'Purchase order updated' });
+});
+
+app.delete('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM po_line_items WHERE purchase_order_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM po_payments WHERE purchase_order_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Purchase order deleted' });
+});
+
+// PO Payments
+app.post('/api/purchase-orders/:id/payments', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { amount, payment_date, payment_method, reference_number, notes } = req.body;
+  if (!amount || !payment_date) return res.status(400).json({ error: 'Amount and payment date are required' });
+
+  db.prepare('INSERT INTO po_payments (purchase_order_id, amount, payment_date, payment_method, reference_number, notes) VALUES (?, ?, ?, ?, ?, ?)').run(
+    req.params.id, parseFloat(amount), payment_date, payment_method || null, reference_number || null, notes || null
+  );
+
+  const totalPaid = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM po_payments WHERE purchase_order_id = ?').get(req.params.id).total;
+  const po = db.prepare('SELECT total_amount FROM purchase_orders WHERE id = ?').get(req.params.id);
+  const newStatus = totalPaid >= (po.total_amount - 0.01) ? 'paid' : 'issued';
+  db.prepare('UPDATE purchase_orders SET amount_paid = ?, status = ? WHERE id = ?').run(totalPaid, newStatus, req.params.id);
+
+  res.json({ message: 'Payment recorded', amount_paid: totalPaid });
+});
+
 // ─── BACKUP & RESTORE ─────────────────────────────────────────────────────────
 
 // Backup all company data
@@ -6041,6 +6206,10 @@ app.get('/api/backup', auth, adminOnly, (req, res) => {
         settings: db.prepare('SELECT * FROM settings').all(),
         holidays: db.prepare('SELECT * FROM holidays').all(),
         engineer_payments: db.prepare('SELECT * FROM engineer_payments').all(),
+        vendors: db.prepare('SELECT * FROM vendors').all(),
+        purchase_orders: db.prepare('SELECT * FROM purchase_orders').all(),
+        po_line_items: db.prepare('SELECT * FROM po_line_items').all(),
+        po_payments: db.prepare('SELECT * FROM po_payments').all(),
       }
     };
 
@@ -6067,6 +6236,10 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
     const txn = db.transaction(() => {
       // Clear existing data (except current admin user)
       const currentUserId = req.user.id;
+      db.prepare('DELETE FROM po_payments').run();
+      db.prepare('DELETE FROM po_line_items').run();
+      db.prepare('DELETE FROM purchase_orders').run();
+      db.prepare('DELETE FROM vendors').run();
       db.prepare('DELETE FROM engineer_payments').run();
       db.prepare('DELETE FROM payments').run();
       db.prepare('DELETE FROM invoices').run();
@@ -6189,6 +6362,38 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
         for (const ep of backup.data.engineer_payments) {
           db.prepare('INSERT INTO engineer_payments (id, user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes, cleared, cleared_payroll_period, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
             ep.id, ep.user_id, ep.amount, ep.payment_date, ep.payment_type, ep.period_start, ep.period_end, ep.reference_number, ep.payment_method, ep.notes, ep.cleared || 0, ep.cleared_payroll_period || null, ep.created_at
+          );
+        }
+      }
+
+      if (backup.data.vendors) {
+        for (const v of backup.data.vendors) {
+          db.prepare('INSERT INTO vendors (id, name, contact_name, email, phone, address, city_state_zip, payment_terms, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            v.id, v.name, v.contact_name, v.email, v.phone, v.address, v.city_state_zip, v.payment_terms, v.notes, v.created_at
+          );
+        }
+      }
+
+      if (backup.data.purchase_orders) {
+        for (const po of backup.data.purchase_orders) {
+          db.prepare('INSERT INTO purchase_orders (id, po_number, vendor_id, project_id, status, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, amount_paid, ship_to, notes, terms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            po.id, po.po_number, po.vendor_id, po.project_id, po.status, po.issue_date, po.due_date, po.subtotal, po.tax_rate, po.tax_amount, po.total_amount, po.amount_paid || 0, po.ship_to, po.notes, po.terms, po.created_at
+          );
+        }
+      }
+
+      if (backup.data.po_line_items) {
+        for (const li of backup.data.po_line_items) {
+          db.prepare('INSERT INTO po_line_items (id, purchase_order_id, description, quantity, unit_price, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            li.id, li.purchase_order_id, li.description, li.quantity, li.unit_price, li.amount, li.created_at
+          );
+        }
+      }
+
+      if (backup.data.po_payments) {
+        for (const pp of backup.data.po_payments) {
+          db.prepare('INSERT INTO po_payments (id, purchase_order_id, amount, payment_date, payment_method, reference_number, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+            pp.id, pp.purchase_order_id, pp.amount, pp.payment_date, pp.payment_method, pp.reference_number, pp.notes, pp.created_at
           );
         }
       }

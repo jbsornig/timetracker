@@ -806,6 +806,71 @@ function initSchema() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vendors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      contact_name TEXT,
+      email TEXT,
+      phone TEXT,
+      address TEXT,
+      city_state_zip TEXT,
+      payment_terms TEXT DEFAULT 'Net 30',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      po_number TEXT UNIQUE NOT NULL,
+      vendor_id INTEGER NOT NULL,
+      project_id INTEGER,
+      status TEXT DEFAULT 'draft',
+      issue_date DATE,
+      due_date DATE,
+      subtotal REAL DEFAULT 0,
+      tax_rate REAL DEFAULT 0,
+      tax_amount REAL DEFAULT 0,
+      total_amount REAL DEFAULT 0,
+      amount_paid REAL DEFAULT 0,
+      ship_to TEXT,
+      notes TEXT,
+      terms TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (vendor_id) REFERENCES vendors(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS po_line_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_order_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      quantity REAL DEFAULT 1,
+      unit_price REAL DEFAULT 0,
+      amount REAL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS po_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      purchase_order_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      payment_date DATE NOT NULL,
+      payment_method TEXT,
+      reference_number TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+    )
+  `);
 }
 
 function replaceDatabase(newDbPath) {
