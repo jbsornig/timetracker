@@ -883,17 +883,19 @@ function initSchema() {
 function replaceDatabase(newDbPath) {
   if (db) {
     try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (e) { /* ignore */ }
+    try { db.pragma('journal_mode = DELETE'); } catch (e) { /* ignore */ }
     db.close();
     db = null;
   }
-  // Overwrite files instead of deleting — avoids EBUSY on Windows
-  // Write empty content to WAL/SHM so SQLite doesn't replay stale data
-  try { fs.writeFileSync(DB_PATH + '-wal', Buffer.alloc(0)); } catch (e) { /* ignore if not exists */ }
-  try { fs.writeFileSync(DB_PATH + '-shm', Buffer.alloc(0)); } catch (e) { /* ignore if not exists */ }
-  // Overwrite the main database file
+  // On Windows, WAL/SHM files may remain locked briefly after close.
+  // Don't touch them — just overwrite the main .db file.
+  // SQLite detects stale WAL on reopen and ignores it.
   const newData = fs.readFileSync(newDbPath);
   fs.writeFileSync(DB_PATH, newData);
-  // Open the new database directly (skip the auto-backup in getDb)
+  // Try to remove WAL/SHM but don't fail if locked
+  for (const suffix of ['-wal', '-shm']) {
+    try { fs.unlinkSync(DB_PATH + suffix); } catch (e) { /* locked or missing — OK */ }
+  }
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
