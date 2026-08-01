@@ -3839,15 +3839,17 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
     let quantity, unitPrice, uom;
 
     if (ediUom) {
-      uom = ediUom;
+      const normalizedUom = ediUom === 'MON' ? 'MO' : ediUom;
+      uom = normalizedUom;
       switch (ediUom) {
+        case 'MON':
+        case 'MO':
+          quantity = '1';
+          unitPrice = item.amount ? item.amount.toFixed(2) : '0.00';
+          break;
         case 'HR':
           quantity = item.hours ? item.hours.toFixed(2) : '1';
           unitPrice = item.rate ? item.rate.toFixed(2) : '0.00';
-          break;
-        case 'MON':
-          quantity = '1';
-          unitPrice = item.amount ? item.amount.toFixed(2) : '0.00';
           break;
         case 'EA':
           if (poQuantity && poUnitPrice) {
