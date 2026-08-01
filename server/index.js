@@ -695,7 +695,7 @@ app.get('/api/projects', auth, (req, res) => {
   const forUserId = req.user.role === 'admin' && req.query.for_user ? parseInt(req.query.for_user) : null;
   if (forUserId) {
     projects = db.prepare(`
-      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.bill_rate as my_bill_rate, ep.total_payment,
+      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.bill_rate as my_bill_rate, ep.ot_bill_rate as my_ot_bill_rate, ep.total_payment,
         ep.monthly_pay as monthly_engineer_pay,
         COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
                   JOIN timesheets ts ON ts.id = te.timesheet_id
@@ -742,7 +742,7 @@ app.get('/api/projects', auth, (req, res) => {
     // my_hours_approved/pending = this engineer only
     // project_hours_approved/pending = all engineers on this project
     projects = db.prepare(`
-      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.bill_rate as my_bill_rate, ep.total_payment,
+      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.bill_rate as my_bill_rate, ep.ot_bill_rate as my_ot_bill_rate, ep.total_payment,
         -- My personal hours (this engineer only)
         COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
                   JOIN timesheets ts ON ts.id = te.timesheet_id
@@ -1327,6 +1327,32 @@ app.post('/api/timesheets', auth, (req, res) => {
   }
 
   const isMonthly = project.project_type !== 'fixed_price' && project.requires_daily_logs === 0;
+
+  if (isMonthly && project.po_amount > 0 && monthly_hours) {
+    const ep = db.prepare('SELECT bill_rate, ot_bill_rate FROM engineer_projects WHERE user_id = ? AND project_id = ?').get(user_id, project_id);
+    const billRate = ep?.bill_rate || 0;
+    const otBillRate = ep?.ot_bill_rate || 0;
+    if (billRate > 0) {
+      const allocated = db.prepare(`
+        SELECT COALESCE(SUM(te.hours * ep2.bill_rate), 0) as total
+        FROM timesheet_entries te
+        JOIN timesheets ts ON ts.id = te.timesheet_id
+        LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts.user_id AND ep2.project_id = ts.project_id
+        WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved')
+      `).get(project_id);
+      const remainingBudget = project.po_amount - (allocated.total || 0);
+      const otHoursVal = ot_hours ? parseFloat(ot_hours) : 0;
+      const requestedCost = (parseFloat(monthly_hours) * billRate) + (otHoursVal * (otBillRate || billRate));
+      if (requestedCost > remainingBudget + 0.01) {
+        const maxHours = Math.floor((remainingBudget / billRate) * 100) / 100;
+        return res.status(400).json({
+          error: `Hours exceed the remaining project budget. Maximum hours available: ${maxHours}. Please contact admin to get this resolved.`,
+          max_hours: maxHours,
+          remaining_budget: Math.round(remainingBudget * 100) / 100
+        });
+      }
+    }
+  }
 
   try {
     if (project.project_type === 'fixed_price') {

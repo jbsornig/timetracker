@@ -649,6 +649,20 @@ export default function Timesheets() {
           return;
         }
       }
+      const billRate = selectedProject?.my_bill_rate || 0;
+      const poAmount = selectedProject?.po_amount || 0;
+      const amountAllocated = selectedProject?.amount_allocated || 0;
+      if (billRate > 0 && poAmount > 0) {
+        const otBillRate = selectedProject?.my_ot_bill_rate || billRate;
+        const otHrs = newForm.ot_hours ? parseFloat(newForm.ot_hours) : 0;
+        const requestedCost = (hours * billRate) + (otHrs * otBillRate);
+        const remaining = poAmount - amountAllocated;
+        if (requestedCost > remaining + 0.01) {
+          const maxHrs = Math.floor((remaining / billRate) * 100) / 100;
+          setError(`You have exceeded the hours available on this project. Maximum hours available: ${maxHrs}. Please contact admin to get this resolved.`);
+          return;
+        }
+      }
     } else {
       if (!newForm.week_ending) {
         setError('Week ending is required');
@@ -2047,6 +2061,13 @@ export default function Timesheets() {
         const totalPayment = selectedProject?.total_payment || 0;
         const monthlyPay = selectedProject?.monthly_engineer_pay || 0;
         const calculatedAmount = isFixedPrice && !isMonthlyInstallment && newForm.percentage ? (parseInt(newForm.percentage) / 100) * totalPayment : 0;
+        const billRate = selectedProject?.my_bill_rate || 0;
+        const poAmount = selectedProject?.po_amount || 0;
+        const amountAllocated = selectedProject?.amount_allocated || 0;
+        const remainingBudget = poAmount - amountAllocated;
+        const maxHoursAvailable = isMonthly && billRate > 0 && poAmount > 0
+          ? Math.floor((remainingBudget / billRate) * 100) / 100
+          : null;
 
         const getModalTitle = () => {
           const suffix = actingAs ? ` for ${actingAs.name}` : '';
@@ -2212,6 +2233,15 @@ export default function Timesheets() {
                         : "This project doesn't require daily time logs. Enter your total hours for the month."}
                     </div>
                   </div>
+                  {maxHoursAvailable !== null && (
+                    <div style={{ background: maxHoursAvailable <= 0 ? '#fef2f2' : '#f0fdf4', padding: 12, borderRadius: 8, marginBottom: 16, border: maxHoursAvailable <= 0 ? '1px solid #fca5a5' : '1px solid #86efac' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: maxHoursAvailable <= 0 ? '#dc2626' : '#16a34a' }}>
+                        {maxHoursAvailable <= 0
+                          ? 'No hours available on this project. Please contact admin to get this resolved.'
+                          : `Maximum hours available on this project: ${maxHoursAvailable}`}
+                      </div>
+                    </div>
+                  )}
                   <div className="form-group">
                     <label className="form-label">Month *</label>
                     <input
