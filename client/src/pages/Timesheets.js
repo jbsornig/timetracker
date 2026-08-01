@@ -316,6 +316,8 @@ export default function Timesheets() {
   const [sortDirection, setSortDirection] = useState('desc');
   const [monthConfirmed, setMonthConfirmed] = useState(null);
   const [confirmingMonth, setConfirmingMonth] = useState(false);
+  const [actingAs, setActingAs] = useState(null);
+  const [actingAsProjects, setActingAsProjects] = useState([]);
 
   // Generate month options for date filter (current month + past 12 months)
   const getMonthOptions = () => {
@@ -565,6 +567,25 @@ export default function Timesheets() {
     }
   };
 
+  const handleActAsChange = async (engineerId) => {
+    if (!engineerId) {
+      setActingAs(null);
+      setActingAsProjects([]);
+      return;
+    }
+    const eng = engineers.find(e => String(e.id) === String(engineerId));
+    setActingAs(eng || null);
+    try {
+      const projs = await apiFetch(`/projects?for_user=${engineerId}`);
+      setActingAsProjects(projs);
+    } catch (e) {
+      setError('Failed to load engineer projects: ' + e.message);
+      setActingAsProjects([]);
+    }
+  };
+
+  const proxyProjects = actingAs ? actingAsProjects : projects;
+
   // Check if we should open the new timesheet modal (from Dashboard button)
   useEffect(() => {
     if (!loading && localStorage.getItem('openNewTimesheet') === 'true') {
@@ -585,7 +606,7 @@ export default function Timesheets() {
 
   const handleCreateTimesheet = async (e) => {
     e.preventDefault();
-    const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
+    const selectedProject = proxyProjects.find(p => String(p.id) === String(newForm.project_id));
     const isFixedPrice = selectedProject?.project_type === 'fixed_price';
     const isMonthlyInstallment = isFixedPrice && selectedProject?.billing_method === 'monthly_installment';
     const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
@@ -655,6 +676,9 @@ export default function Timesheets() {
         };
       } else {
         body = { project_id: newForm.project_id, week_ending: newForm.week_ending };
+      }
+      if (actingAs) {
+        body.user_id = actingAs.id;
       }
       const result = await apiFetch('/timesheets', { method: 'POST', body });
       await loadTimesheets();
@@ -1456,10 +1480,36 @@ export default function Timesheets() {
       <div className="page-header">
         <div>
           <div className="page-title">Timesheets</div>
-          <div className="page-subtitle">{isAdmin ? 'Manage all timesheets' : 'My timesheets'}</div>
+          <div className="page-subtitle">{isAdmin ? (actingAs ? `Acting as ${actingAs.name}` : 'Manage all timesheets') : 'My timesheets'}</div>
         </div>
-        {!isAdmin && <button className="btn btn-primary" onClick={openNew}>+ New Timesheet</button>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {isAdmin && (
+            <select
+              className="form-select"
+              value={actingAs ? actingAs.id : ''}
+              onChange={(e) => handleActAsChange(e.target.value)}
+              style={{ minWidth: 200 }}
+            >
+              <option value="">-- Act as Engineer --</option>
+              {engineers.map((eng) => (
+                <option key={eng.id} value={eng.id}>{eng.name}</option>
+              ))}
+            </select>
+          )}
+          {(actingAs || !isAdmin) && <button className="btn btn-primary" onClick={openNew}>+ New Timesheet</button>}
+        </div>
       </div>
+
+      {actingAs && (
+        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ color: '#92400e', fontSize: 14, fontWeight: 600 }}>
+            Proxy Mode: You are creating timesheets on behalf of <strong>{actingAs.name}</strong>. The engineer will see these as their own timesheets.
+          </span>
+          <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => handleActAsChange('')}>
+            Exit Proxy Mode
+          </button>
+        </div>
+      )}
 
       {!isAdmin && monthConfirmed && !monthConfirmed.confirmed && (
         <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -1990,7 +2040,7 @@ export default function Timesheets() {
       )}
 
       {modal === 'new' && (() => {
-        const selectedProject = projects.find(p => String(p.id) === String(newForm.project_id));
+        const selectedProject = proxyProjects.find(p => String(p.id) === String(newForm.project_id));
         const isFixedPrice = selectedProject?.project_type === 'fixed_price';
         const isMonthlyInstallment = isFixedPrice && selectedProject?.billing_method === 'monthly_installment';
         const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
@@ -1999,9 +2049,10 @@ export default function Timesheets() {
         const calculatedAmount = isFixedPrice && !isMonthlyInstallment && newForm.percentage ? (parseInt(newForm.percentage) / 100) * totalPayment : 0;
 
         const getModalTitle = () => {
-          if (isFixedPrice) return 'New Fixed Price Invoice';
-          if (isMonthly) return 'New Monthly Hours Entry';
-          return 'New Timesheet';
+          const suffix = actingAs ? ` for ${actingAs.name}` : '';
+          if (isFixedPrice) return 'New Fixed Price Invoice' + suffix;
+          if (isMonthly) return 'New Monthly Hours Entry' + suffix;
+          return 'New Timesheet' + suffix;
         };
 
         return (
@@ -2027,7 +2078,7 @@ export default function Timesheets() {
                   onChange={(e) => setNewForm({ ...newForm, project_id: e.target.value })}
                 >
                   <option value="">Select a project...</option>
-                  {projects.map((p) => {
+                  {proxyProjects.map((p) => {
                     const isFixed = p.project_type === 'fixed_price';
                     const budget = isFixed ? (p.total_cost || 0) : (p.po_amount || 0);
                     const used = isFixed ? (p.amount_claimed || 0) : (p.amount_allocated || p.amount_invoiced || 0);
@@ -2041,7 +2092,7 @@ export default function Timesheets() {
                   })}
                 </select>
                 {(() => {
-                  const sel = projects.find(p => String(p.id) === String(newForm.project_id));
+                  const sel = proxyProjects.find(p => String(p.id) === String(newForm.project_id));
                   if (!sel) return null;
                   const isFixed = sel.project_type === 'fixed_price';
                   const budget = isFixed ? (sel.total_cost || 0) : (sel.po_amount || 0);

@@ -462,6 +462,7 @@ export default function Projects() {
                   <th>Budget</th>
                   <th>Billed</th>
                   <th>Paid</th>
+                  <th>Unbilled</th>
                   <th>Remaining</th>
                   <th onClick={() => handleSort('progress')} style={{ cursor: 'pointer', userSelect: 'none' }}>Progress{sortIndicator('progress')}</th>
                   <th>Status</th>
@@ -510,8 +511,9 @@ export default function Projects() {
                   const budget = isFixedPrice ? (p.total_cost || 0) : (p.po_amount || 0);
                   const billed = p.amount_billed || 0;
                   const paid = p.amount_paid || 0;
-                  const remaining = budget - billed;
-                  const pct = budget > 0 ? (billed / budget) * 100 : 0;
+                  const unbilled = p.amount_unbilled || 0;
+                  const remaining = budget - billed - unbilled;
+                  const pct = budget > 0 ? ((billed + unbilled) / budget) * 100 : 0;
                   const cls = pct >= 90 ? 'progress-danger' : pct >= 70 ? 'progress-warn' : 'progress-good';
                   const fullyPaid = budget > 0 && billed >= budget && paid >= billed;
                   return (
@@ -532,6 +534,9 @@ export default function Projects() {
                       <td>${billed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ color: paid >= billed && billed > 0 ? '#16a34a' : paid > 0 ? '#d97706' : undefined }}>
                         ${paid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ color: unbilled > 0 ? '#d97706' : undefined, fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                        {unbilled > 0 ? `$${unbilled.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                       </td>
                       <td style={{ color: remaining < 0 ? '#ef4444' : undefined }}>
                         ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

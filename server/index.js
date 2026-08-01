@@ -691,15 +691,44 @@ app.delete('/api/customers/:customerId/contacts/:id', auth, adminOnly, (req, res
 app.get('/api/projects', auth, (req, res) => {
   const db = getDb();
   let projects;
-  if (req.user.role === 'admin') {
-    // For admin, compute amount_billed and amount_paid from actual invoices
+  // Admin can fetch projects assigned to a specific engineer via ?for_user=ID
+  const forUserId = req.user.role === 'admin' && req.query.for_user ? parseInt(req.query.for_user) : null;
+  if (forUserId) {
+    projects = db.prepare(`
+      SELECT p.*, c.name as customer_name, cc.name as contact_name, ep.pay_rate, ep.bill_rate as my_bill_rate, ep.total_payment,
+        ep.monthly_pay as monthly_engineer_pay,
+        COALESCE((SELECT SUM(te.hours) FROM timesheet_entries te
+                  JOIN timesheets ts ON ts.id = te.timesheet_id
+                  WHERE ts.project_id = p.id AND ts.user_id = ? AND ts.status = 'approved'), 0) as my_hours_approved,
+        COALESCE((SELECT SUM(i.total_amount) FROM invoices i
+                  WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_invoiced,
+        COALESCE((SELECT SUM(te2.hours * ep2.bill_rate) FROM timesheet_entries te2
+                  JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
+                  LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
+                  WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated,
+        COALESCE((SELECT SUM(ts3.amount) FROM timesheets ts3
+                  WHERE ts3.project_id = p.id AND ts3.status IN ('draft', 'submitted', 'approved')), 0) as amount_claimed
+      FROM projects p
+      JOIN customers c ON p.customer_id = c.id
+      LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
+      JOIN engineer_projects ep ON ep.project_id = p.id AND ep.user_id = ?
+      WHERE p.status = 'active'
+      ORDER BY c.name, p.name
+    `).all(forUserId, forUserId);
+  } else if (req.user.role === 'admin') {
+    // For admin, compute amount_billed, amount_paid, and amount_allocated from timesheets/invoices
     projects = db.prepare(`
       SELECT p.*, c.name as customer_name, cc.name as contact_name,
         COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN 0 ELSE te.hours END), 0) as hours_used,
         COALESCE((SELECT SUM(i.total_amount) FROM invoices i
           WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed,
         COALESCE((SELECT SUM(i.amount_paid) FROM invoices i
-          WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_paid
+          WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_paid,
+        COALESCE((SELECT SUM(te2.hours * ep2.bill_rate) FROM timesheet_entries te2
+          JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
+          LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
+          WHERE ts2.project_id = p.id AND ts2.status IN ('submitted', 'approved')
+          AND te2.invoice_id IS NULL), 0) as amount_unbilled
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
