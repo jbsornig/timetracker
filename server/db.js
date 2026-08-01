@@ -881,32 +881,18 @@ function initSchema() {
 }
 
 function replaceDatabase(newDbPath) {
-  // Checkpoint and close existing connection so WAL is flushed
   if (db) {
-    try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (e) { console.log('Checkpoint warning:', e.message); }
+    try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (e) { /* ignore */ }
     db.close();
     db = null;
   }
-  // Remove WAL/SHM with retry — OS may hold a brief lock after db.close()
-  const removeWithRetry = (filePath) => {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        return;
-      } catch (e) {
-        if (e.code === 'EBUSY' && attempt < 4) {
-          const start = Date.now();
-          while (Date.now() - start < 200) { /* spin wait */ }
-        } else {
-          throw e;
-        }
-      }
-    }
-  };
-  removeWithRetry(DB_PATH + '-wal');
-  removeWithRetry(DB_PATH + '-shm');
-  // Replace the database file
-  fs.copyFileSync(newDbPath, DB_PATH);
+  // Overwrite files instead of deleting — avoids EBUSY on Windows
+  // Write empty content to WAL/SHM so SQLite doesn't replay stale data
+  try { fs.writeFileSync(DB_PATH + '-wal', Buffer.alloc(0)); } catch (e) { /* ignore if not exists */ }
+  try { fs.writeFileSync(DB_PATH + '-shm', Buffer.alloc(0)); } catch (e) { /* ignore if not exists */ }
+  // Overwrite the main database file
+  const newData = fs.readFileSync(newDbPath);
+  fs.writeFileSync(DB_PATH, newData);
   // Open the new database directly (skip the auto-backup in getDb)
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');

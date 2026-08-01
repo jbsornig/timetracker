@@ -4730,17 +4730,20 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
   const overpayments = [];
 
   for (const engineer of allEngineers) {
-    const hourlyWork = db.prepare(`
-      SELECT p.id as project_id, p.project_type,
-             ep.pay_rate, ep.monthly_pay,
-             SUM(te.hours) as submitted_hours
-      FROM timesheet_entries te
-      JOIN timesheets ts ON ts.id = te.timesheet_id
+    // Per-timesheet hourly work with OT support
+    const hourlyTimesheets = db.prepare(`
+      SELECT ts.id as ts_id, ts.ot_hours as ts_ot_hours,
+             p.id as project_id, p.project_type, p.overtime_type, p.requires_daily_logs,
+             ep.pay_rate, ep.ot_pay_rate, ep.monthly_pay
+      FROM timesheets ts
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
       WHERE ts.user_id = ? AND ts.status IN ('approved', 'submitted')
-        AND te.entry_date BETWEEN ? AND ?
-      GROUP BY p.id
+        AND p.project_type IN ('hourly', 'fixed_monthly')
+        AND ts.id IN (
+          SELECT DISTINCT te2.timesheet_id FROM timesheet_entries te2
+          WHERE te2.entry_date BETWEEN ? AND ? AND te2.hours > 0
+        )
     `).all(engineer.id, periodStart, periodEnd);
 
     const fixedPriceWork = db.prepare(`
@@ -4758,13 +4761,44 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
 
     let totalOwed = 0;
     const hourlyProjectIds = new Set();
-    for (const row of hourlyWork) {
-      if (row.project_type === 'hourly') {
-        totalOwed += (row.submitted_hours || 0) * (row.pay_rate || 0);
-      } else if (row.project_type === 'fixed_monthly') {
-        totalOwed += (row.monthly_pay || 0) * monthsInPeriod;
+    const monthlyProjectsCounted = new Set();
+    for (const ts of hourlyTimesheets) {
+      hourlyProjectIds.add(ts.project_id);
+      if (ts.project_type === 'fixed_monthly') {
+        if (!monthlyProjectsCounted.has(ts.project_id)) {
+          totalOwed += (ts.monthly_pay || 0) * monthsInPeriod;
+          monthlyProjectsCounted.add(ts.project_id);
+        }
+        continue;
       }
-      hourlyProjectIds.add(row.project_id);
+      // Hourly — calculate with OT
+      const entries = db.prepare(
+        'SELECT hours FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? AND hours > 0'
+      ).all(ts.ts_id, periodStart, periodEnd);
+      const totalHrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+      if (totalHrs <= 0) continue;
+
+      const payRate = ts.pay_rate || 0;
+      const otPayRate = ts.ot_pay_rate || 0;
+      const otType = ts.overtime_type;
+      const isMonthlyTs = ts.requires_daily_logs === 0;
+      let regularHrs = totalHrs, otHrs = 0;
+
+      if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
+        otHrs = ts.ts_ot_hours;
+        regularHrs = totalHrs - otHrs;
+      } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
+        regularHrs = 40;
+        otHrs = totalHrs - 40;
+      } else if (otType === 'daily_8' && otPayRate > 0) {
+        regularHrs = 0; otHrs = 0;
+        for (const e of entries) {
+          const h = e.hours || 0;
+          regularHrs += Math.min(h, 8);
+          otHrs += Math.max(0, h - 8);
+        }
+      }
+      totalOwed += (regularHrs * payRate) + (otHrs * otPayRate);
     }
     for (const fp of fixedPriceWork) {
       if (hourlyProjectIds.has(fp.project_id)) continue;
