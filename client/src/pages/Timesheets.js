@@ -2112,7 +2112,7 @@ export default function Timesheets() {
                     );
                   })}
                 </select>
-                {(() => {
+                {isAdmin && !actingAs && (() => {
                   const sel = proxyProjects.find(p => String(p.id) === String(newForm.project_id));
                   if (!sel) return null;
                   const isFixed = sel.project_type === 'fixed_price';
