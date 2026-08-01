@@ -5297,7 +5297,29 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
     return res.status(400).json({ error: 'period_start and period_end are required' });
   }
 
-  // Hourly and fixed_monthly: query through timesheet_entries
+  // Hourly: per-timesheet query to handle OT correctly
+  const hourlyTsRows = db.prepare(`
+    SELECT ts.id as ts_id, ts.ot_hours as ts_ot_hours,
+           u.id as engineer_id, u.name as engineer_name, u.engineer_id as engineer_code,
+           p.id as project_id, p.name as project_name, p.project_type,
+           p.overtime_type, p.requires_daily_logs,
+           c.id as customer_id, c.name as customer_name,
+           ep.pay_rate, ep.bill_rate, ep.ot_pay_rate, ep.ot_bill_rate,
+           ep.monthly_pay, ep.monthly_bill, ep.total_payment
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status IN ('approved', 'submitted')
+      AND p.project_type = 'hourly' AND p.internal = 0
+      AND ts.id IN (
+        SELECT DISTINCT te2.timesheet_id FROM timesheet_entries te2
+        WHERE te2.entry_date BETWEEN ? AND ? AND te2.hours > 0
+      )
+  `).all(period_start, period_end);
+
+  // Fixed_monthly: aggregate query (no OT splitting needed)
   const entryRows = db.prepare(`
     SELECT u.id as engineer_id, u.name as engineer_name, u.engineer_id as engineer_code,
            p.id as project_id, p.name as project_name, p.project_type,
@@ -5312,7 +5334,7 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.status IN ('approved', 'submitted')
       AND te.entry_date BETWEEN ? AND ?
-      AND p.internal = 0
+      AND p.internal = 0 AND p.project_type != 'hourly'
     GROUP BY u.id, p.id
   `).all(period_start, period_end);
 
@@ -5347,16 +5369,67 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
   const results = [];
   const seen = new Set();
 
+  // Process hourly timesheets with per-timesheet OT splitting
+  const hourlyGrouped = {};
+  for (const ts of hourlyTsRows) {
+    const entries = db.prepare(
+      'SELECT hours FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ? AND hours > 0'
+    ).all(ts.ts_id, period_start, period_end);
+    const totalHrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+    if (totalHrs <= 0) continue;
+
+    const otType = ts.overtime_type;
+    const payRate = ts.pay_rate || 0;
+    const otPayRate = ts.ot_pay_rate || 0;
+    const billRate = ts.bill_rate || 0;
+    const otBillRate = ts.ot_bill_rate || 0;
+    const isMonthlyTs = ts.requires_daily_logs === 0;
+    let regularHrs = totalHrs, otHrs = 0;
+
+    if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
+      otHrs = ts.ts_ot_hours;
+      regularHrs = totalHrs - otHrs;
+    } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
+      regularHrs = 40;
+      otHrs = totalHrs - 40;
+    } else if (otType === 'daily_8' && otPayRate > 0) {
+      regularHrs = 0; otHrs = 0;
+      for (const e of entries) {
+        const h = e.hours || 0;
+        regularHrs += Math.min(h, 8);
+        otHrs += Math.max(0, h - 8);
+      }
+    }
+
+    const key = `${ts.engineer_id}-${ts.project_id}`;
+    if (!hourlyGrouped[key]) {
+      hourlyGrouped[key] = {
+        engineer_id: ts.engineer_id, engineer_name: ts.engineer_name, engineer_code: ts.engineer_code,
+        project_id: ts.project_id, project_name: ts.project_name, project_type: ts.project_type,
+        customer_id: ts.customer_id, customer_name: ts.customer_name,
+        total_hours: 0, billed: 0, cost: 0,
+      };
+    }
+    hourlyGrouped[key].total_hours += regularHrs + otHrs;
+    hourlyGrouped[key].billed += (regularHrs * billRate) + (otHrs * otBillRate);
+    hourlyGrouped[key].cost += (regularHrs * payRate) + (otHrs * otPayRate);
+  }
+  for (const g of Object.values(hourlyGrouped)) {
+    seen.add(`${g.engineer_id}-${g.project_id}`);
+    results.push({
+      ...g,
+      profit: g.billed - g.cost, margin: g.billed > 0 ? ((g.billed - g.cost) / g.billed) * 100 : 0,
+    });
+  }
+
+  // Process non-hourly entry rows (fixed_monthly, fixed_price)
   for (const row of entryRows) {
     const key = `${row.engineer_id}-${row.project_id}`;
     seen.add(key);
     let billed = 0;
     let cost = 0;
 
-    if (row.project_type === 'hourly') {
-      billed = row.total_hours * (row.bill_rate || 0);
-      cost = row.total_hours * (row.pay_rate || 0);
-    } else if (row.project_type === 'fixed_monthly') {
+    if (row.project_type === 'fixed_monthly') {
       billed = (row.monthly_bill || 0) * monthsInPeriod;
       cost = (row.monthly_pay || 0) * monthsInPeriod;
     } else if (row.project_type === 'fixed_price') {
@@ -5500,13 +5573,52 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
     return { quarter: `Q${q}`, start: qStart, end: qEnd, ...row, total_paid: payments.total_paid, net_income: row.total_collected - payments.total_paid };
   });
 
-  // 5. Project Profitability
+  // 5. Project Profitability — compute hourly labor cost with OT in JS
+  const hourlyLaborRows = db.prepare(`
+    SELECT ts.id as ts_id, ts.ot_hours as ts_ot_hours,
+           ts.project_id, p.overtime_type, p.requires_daily_logs,
+           ep.pay_rate, ep.ot_pay_rate
+    FROM timesheets ts
+    JOIN projects p ON p.id = ts.project_id
+    JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.week_ending >= ? AND ts.week_ending <= ? AND ep.pay_rate > 0
+      AND p.project_type = 'hourly'
+  `).all(yearStart, yearEnd);
+  const hourlyLaborByProject = {};
+  for (const ts of hourlyLaborRows) {
+    const entries = db.prepare(
+      'SELECT hours FROM timesheet_entries WHERE timesheet_id = ? AND hours > 0'
+    ).all(ts.ts_id);
+    const totalHrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
+    if (totalHrs <= 0) continue;
+    const otType = ts.overtime_type;
+    const payRate = ts.pay_rate || 0;
+    const otPayRate = ts.ot_pay_rate || 0;
+    const isMonthlyTs = ts.requires_daily_logs === 0;
+    let regularHrs = totalHrs, otHrs = 0;
+    if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
+      otHrs = ts.ts_ot_hours;
+      regularHrs = totalHrs - otHrs;
+    } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
+      regularHrs = 40;
+      otHrs = totalHrs - 40;
+    } else if (otType === 'daily_8' && otPayRate > 0) {
+      regularHrs = 0; otHrs = 0;
+      for (const e of entries) {
+        const h = e.hours || 0;
+        regularHrs += Math.min(h, 8);
+        otHrs += Math.max(0, h - 8);
+      }
+    }
+    hourlyLaborByProject[ts.project_id] = (hourlyLaborByProject[ts.project_id] || 0)
+      + (regularHrs * payRate) + (otHrs * otPayRate);
+  }
+
   const projectProfitability = db.prepare(`
     SELECT p.id, p.name as project_name, p.project_type, p.po_number, p.po_amount,
            c.name as customer_name,
            COALESCE(inv.total_invoiced, 0) as total_invoiced,
            COALESCE(inv.total_collected, 0) as total_collected,
-           COALESCE(labor_hourly.labor_cost, 0) as hourly_labor_cost,
            COALESCE(labor_fixed.fixed_cost, 0) as fixed_labor_cost,
            COALESCE(labor_monthly.monthly_cost, 0) as monthly_labor_cost
     FROM projects p
@@ -5516,14 +5628,6 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
       FROM invoices WHERE created_at >= ? AND created_at <= ? AND voided_date IS NULL
       GROUP BY project_id
     ) inv ON inv.project_id = p.id
-    LEFT JOIN (
-      SELECT t.project_id, SUM(te.hours * ep.pay_rate) as labor_cost
-      FROM timesheet_entries te
-      JOIN timesheets t ON t.id = te.timesheet_id
-      JOIN engineer_projects ep ON ep.project_id = t.project_id AND ep.user_id = t.user_id
-      WHERE t.week_ending >= ? AND t.week_ending <= ? AND ep.pay_rate > 0
-      GROUP BY t.project_id
-    ) labor_hourly ON labor_hourly.project_id = p.id
     LEFT JOIN (
       SELECT ep.project_id, SUM(ep.total_payment) as fixed_cost
       FROM engineer_projects ep
@@ -5545,13 +5649,21 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
       WHERE pr.project_type = 'fixed_monthly' AND ep.monthly_pay > 0
       GROUP BY ep.project_id
     ) labor_monthly ON labor_monthly.project_id = p.id
-    WHERE COALESCE(inv.total_invoiced, 0) > 0 OR COALESCE(labor_hourly.labor_cost, 0) > 0
+    WHERE COALESCE(inv.total_invoiced, 0) > 0
       OR COALESCE(labor_fixed.fixed_cost, 0) > 0 OR COALESCE(labor_monthly.monthly_cost, 0) > 0
     ORDER BY total_invoiced DESC
-  `).all(yearStart, yearEnd + ' 23:59:59', yearStart, yearEnd, yearStart, yearEnd);
+  `).all(yearStart, yearEnd + ' 23:59:59', yearStart, yearEnd);
+
+  // Include projects that only have hourly labor cost (from JS calculation)
+  const hourlyOnlyIds = Object.keys(hourlyLaborByProject).map(Number)
+    .filter(pid => !projectProfitability.find(p => p.id === pid));
+  for (const pid of hourlyOnlyIds) {
+    const proj = db.prepare('SELECT p.id, p.name as project_name, p.project_type, p.po_number, p.po_amount, c.name as customer_name FROM projects p JOIN customers c ON c.id = p.customer_id WHERE p.id = ?').get(pid);
+    if (proj) projectProfitability.push({ ...proj, total_invoiced: 0, total_collected: 0, fixed_labor_cost: 0, monthly_labor_cost: 0 });
+  }
 
   const profitData = projectProfitability.map(p => {
-    const labor_cost = p.hourly_labor_cost + p.fixed_labor_cost + p.monthly_labor_cost;
+    const labor_cost = (hourlyLaborByProject[p.id] || 0) + p.fixed_labor_cost + p.monthly_labor_cost;
     return {
       id: p.id, project_name: p.project_name, project_type: p.project_type,
       po_number: p.po_number, po_amount: p.po_amount, customer_name: p.customer_name,
