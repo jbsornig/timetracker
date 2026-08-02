@@ -3742,9 +3742,8 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
         const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ?')
           .all(ts.id, req.params.id);
         const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
-        const amt = hrs * (ts.bill_rate || 0);
         if (hrs > 0) {
-          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate, amount: amt });
+          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate, amount: hrs * (ts.bill_rate || 0) });
         }
       }
     }
@@ -3853,11 +3852,21 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
     segments.push(`DTM${ELEM_SEP}093${ELEM_SEP}${dtmEnd}${SEG_TERM}`);
   }
 
+  // For LO (Lot) UOM, consolidate all line items into a single line
+  const consolidatedItems = (ediUom === 'LO') && lineItems.length > 1
+    ? [{
+        engineer: lineItems[0].engineer,
+        hours: lineItems.reduce((s, li) => s + (li.hours || 0), 0),
+        rate: lineItems[0].rate,
+        amount: lineItems.reduce((s, li) => s + (li.amount || 0), 0)
+      }]
+    : lineItems;
+
   // IT1 - Line Items
   let lineCount = 0;
   let totalCents = 0;
 
-  for (const item of lineItems) {
+  for (const item of consolidatedItems) {
     lineCount++;
     const amount = Math.round((item.amount || 0) * 100);
     totalCents += amount;
