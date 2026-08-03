@@ -1166,7 +1166,7 @@ export default function Invoices() {
           <button className="btn btn-secondary" onClick={openManual}>+ Manual Invoice</button>
           <label className="btn btn-sm" style={{ background: '#065f46', color: 'white', cursor: 'pointer', margin: 0 }}>
             {ediUploading ? 'Processing...' : 'Upload EDI Response'}
-            <input type="file" multiple accept=".edi,.txt" onChange={handleEdiResponseUpload} style={{ display: 'none' }} disabled={ediUploading} />
+            <input type="file" multiple onChange={handleEdiResponseUpload} style={{ display: 'none' }} disabled={ediUploading} />
           </label>
         </div>
       </div>
