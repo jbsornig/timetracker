@@ -878,6 +878,21 @@ function initSchema() {
     db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_quote_number TEXT");
     console.log('✅ Migration: Added vendor_quote_number column to purchase_orders');
   }
+
+  // Add EDI response tracking columns to invoices
+  const invCols = db.prepare("PRAGMA table_info(invoices)").all();
+  if (!invCols.find(c => c.name === 'edi_status')) {
+    db.exec("ALTER TABLE invoices ADD COLUMN edi_status TEXT");
+    console.log('✅ Migration: Added edi_status column to invoices');
+  }
+  if (!invCols.find(c => c.name === 'edi_response_date')) {
+    db.exec("ALTER TABLE invoices ADD COLUMN edi_response_date DATETIME");
+    console.log('✅ Migration: Added edi_response_date column to invoices');
+  }
+  if (!invCols.find(c => c.name === 'edi_error_details')) {
+    db.exec("ALTER TABLE invoices ADD COLUMN edi_error_details TEXT");
+    console.log('✅ Migration: Added edi_error_details column to invoices');
+  }
 }
 
 function replaceDatabase(newDbPath) {

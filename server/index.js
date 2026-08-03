@@ -3939,6 +3939,140 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   return segments.join('');
 }
 
+// ─── EDI RESPONSE UPLOAD ────────────────────────────────────────────────────
+
+const ediUpload = multer({ dest: require('os').tmpdir(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+function parseEdiResponse(content) {
+  // ISA is always 106 chars with fixed positions:
+  // Position 3: element separator, Position 104: sub-element separator, Position 105: segment terminator
+  let ELEM = '~';
+  let SEG_TERM = '\n';
+  if (content.startsWith('ISA') && content.length >= 106) {
+    ELEM = content[3];
+    SEG_TERM = content[105];
+  }
+  const rawSegments = content.split(SEG_TERM).map(s => s.trim()).filter(Boolean);
+  const segments = rawSegments.map(s => s.split(ELEM));
+
+  const results = [];
+  let fileType = null;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+
+    if (seg[0] === 'ST') {
+      fileType = seg[1];
+    }
+
+    // 997 Functional Acknowledgment
+    if (fileType === '997' && seg[0] === 'AK5') {
+      const status = seg[1];
+      let invoiceNumber = null;
+      // Walk back to find AK1 which has the group info, then AK2 for transaction set
+      for (let j = i - 1; j >= 0; j--) {
+        if (segments[j][0] === 'AK2' && segments[j][1] === '810') {
+          break;
+        }
+        if (segments[j][0] === 'ST') break;
+      }
+      // For 997, we need to match via the GS control number or transaction set number
+      // 997s acknowledge entire functional groups, so we mark by matching ISA/GS info
+      const errorCode = status === 'R' ? (seg[2] || '') : '';
+      results.push({
+        type: '997',
+        status: status === 'A' ? 'accepted' : 'rejected',
+        invoiceNumber,
+        errorCode,
+        errorMessage: status === 'R' ? `997 Rejected: error code ${errorCode}` : ''
+      });
+    }
+
+    // 824 Application Advice
+    if (fileType === '824' && seg[0] === 'OTI') {
+      const otiStatus = seg[1]; // AF=accepted, IR=rejected
+      const invoiceNumber = seg[3] || null;
+      let errorDetails = '';
+
+      if (otiStatus === 'IR') {
+        for (let j = i + 1; j < segments.length; j++) {
+          if (segments[j][0] === 'OTI' || segments[j][0] === 'SE') break;
+          if (segments[j][0] === 'TED') {
+            errorDetails += (segments[j][1] || '') + ' ';
+          }
+          if (segments[j][0] === 'NTE') {
+            errorDetails += (segments[j][2] || segments[j][1] || '') + '; ';
+          }
+        }
+      }
+
+      results.push({
+        type: '824',
+        status: otiStatus === 'AF' ? 'accepted' : 'rejected',
+        invoiceNumber,
+        errorCode: '',
+        errorMessage: errorDetails.trim()
+      });
+    }
+  }
+
+  return results;
+}
+
+app.post('/api/invoices/upload-edi-response', auth, adminOnly, ediUpload.array('files', 20), (req, res) => {
+  try {
+    const db = getDb();
+    const files = req.files;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    const allResults = [];
+    const updateStmt = db.prepare(`
+      UPDATE invoices SET edi_status = ?, edi_response_date = datetime('now'), edi_error_details = ?
+      WHERE invoice_number = ?
+    `);
+
+    for (const file of files) {
+      const content = require('fs').readFileSync(file.path, 'utf-8');
+      const parsed = parseEdiResponse(content);
+
+      for (const result of parsed) {
+        let matched = false;
+        if (result.invoiceNumber) {
+          const invoice = db.prepare('SELECT id, invoice_number FROM invoices WHERE invoice_number = ?').get(result.invoiceNumber);
+          if (invoice) {
+            updateStmt.run(result.status, result.errorMessage || null, result.invoiceNumber);
+            matched = true;
+          }
+        }
+        allResults.push({
+          ...result,
+          fileName: file.originalname,
+          matched
+        });
+      }
+
+      // Clean up temp file
+      try { require('fs').unlinkSync(file.path); } catch (e) { /* ignore */ }
+    }
+
+    res.json({
+      results: allResults,
+      summary: {
+        total: allResults.length,
+        accepted: allResults.filter(r => r.status === 'accepted').length,
+        rejected: allResults.filter(r => r.status === 'rejected').length,
+        matched: allResults.filter(r => r.matched).length,
+        unmatched: allResults.filter(r => !r.matched).length
+      }
+    });
+  } catch (error) {
+    console.error('EDI response upload error:', error);
+    res.status(500).json({ error: 'Failed to process EDI response files' });
+  }
+});
+
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
 
 app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {

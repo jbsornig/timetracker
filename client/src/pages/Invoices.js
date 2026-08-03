@@ -479,6 +479,8 @@ export default function Invoices() {
   const [adviceResults, setAdviceResults] = useState(null);
   const [adviceSelected, setAdviceSelected] = useState({});
   const [adviceProcessing, setAdviceProcessing] = useState(false);
+  const [ediUploadResults, setEdiUploadResults] = useState(null);
+  const [ediUploading, setEdiUploading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -970,6 +972,38 @@ export default function Invoices() {
   };
 
 
+  const handleEdiResponseUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setEdiUploading(true);
+    setEdiUploadResults(null);
+    try {
+      const base = process.env.REACT_APP_API_URL || '';
+      const token = localStorage.getItem('tt_token');
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+      }
+      const response = await fetch(`${base}/api/invoices/upload-edi-response`, {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: formData,
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to upload EDI response files');
+      }
+      const data = await response.json();
+      setEdiUploadResults(data);
+      loadData();
+    } catch (err) {
+      alert('EDI Upload Error: ' + err.message);
+    } finally {
+      setEdiUploading(false);
+      e.target.value = '';
+    }
+  };
+
   const handleReceived = async (invoice) => {
     try {
       if (invoice.received_at) {
@@ -1127,9 +1161,13 @@ export default function Invoices() {
           <div className="page-title">Invoices</div>
           <div className="page-subtitle">Generate and manage invoices</div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="btn btn-primary" onClick={openGenerate}>+ Generate Invoice</button>
           <button className="btn btn-secondary" onClick={openManual}>+ Manual Invoice</button>
+          <label className="btn btn-sm" style={{ background: '#065f46', color: 'white', cursor: 'pointer', margin: 0 }}>
+            {ediUploading ? 'Processing...' : 'Upload EDI Response'}
+            <input type="file" multiple accept=".edi,.txt" onChange={handleEdiResponseUpload} style={{ display: 'none' }} disabled={ediUploading} />
+          </label>
         </div>
       </div>
 
@@ -1168,6 +1206,53 @@ export default function Invoices() {
           submissionStatus={submissionStatus}
           loadingStatus={loadingStatus}
         />
+      )}
+
+      {ediUploadResults && (
+        <div className="card no-print" style={{ marginBottom: 16, border: '1px solid #86efac', background: '#f0fdf4' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 15, color: '#065f46' }}>EDI Response Results</h3>
+            <button className="btn btn-sm btn-secondary" onClick={() => setEdiUploadResults(null)}>Dismiss</button>
+          </div>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+            <span style={{ fontSize: 13 }}>Total: <strong>{ediUploadResults.summary.total}</strong></span>
+            <span style={{ fontSize: 13, color: '#16a34a' }}>Accepted: <strong>{ediUploadResults.summary.accepted}</strong></span>
+            <span style={{ fontSize: 13, color: '#dc2626' }}>Rejected: <strong>{ediUploadResults.summary.rejected}</strong></span>
+            <span style={{ fontSize: 13, color: '#2563eb' }}>Matched: <strong>{ediUploadResults.summary.matched}</strong></span>
+          </div>
+          {ediUploadResults.results.length > 0 && (
+            <table style={{ width: '100%', fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>File</th>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>Type</th>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>Invoice #</th>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>Status</th>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>Details</th>
+                  <th style={{ textAlign: 'left', padding: '4px 8px' }}>Matched</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ediUploadResults.results.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ padding: '4px 8px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fileName}</td>
+                    <td style={{ padding: '4px 8px' }}>{r.type}</td>
+                    <td style={{ padding: '4px 8px', fontFamily: 'DM Mono, monospace' }}>{r.invoiceNumber || '—'}</td>
+                    <td style={{ padding: '4px 8px' }}>
+                      <span style={{
+                        padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+                        background: r.status === 'accepted' ? '#d1fae5' : '#fee2e2',
+                        color: r.status === 'accepted' ? '#065f46' : '#991b1b'
+                      }}>{r.status}</span>
+                    </td>
+                    <td style={{ padding: '4px 8px', color: '#dc2626', fontSize: 12 }}>{r.errorMessage || ''}</td>
+                    <td style={{ padding: '4px 8px' }}>{r.matched ? '✓' : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       )}
 
       {activeTab === 'invoices' && <>
@@ -1802,6 +1887,7 @@ export default function Invoices() {
                   <th>Paid</th>
                   <SortHeader field="balance">Balance</SortHeader>
                   <th>Status</th>
+                  <th>EDI</th>
                   <th style={{ width: 320 }}>Actions</th>
                 </tr>
               </thead>
@@ -1858,6 +1944,20 @@ export default function Invoices() {
                             <span title={`Received ${new Date(inv.received_at).toLocaleDateString()}`} style={{ color: '#8b5cf6', fontSize: 13 }}>✓</span>
                           )}
                         </div>
+                      </td>
+                      <td>
+                        {inv.edi_status === 'accepted' && (
+                          <span title={inv.edi_response_date ? `Accepted ${formatDate(inv.edi_response_date)}` : 'Accepted'} style={{
+                            padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+                            background: '#d1fae5', color: '#065f46'
+                          }}>OK</span>
+                        )}
+                        {inv.edi_status === 'rejected' && (
+                          <span title={inv.edi_error_details || 'Rejected'} style={{
+                            padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+                            background: '#fee2e2', color: '#991b1b', cursor: 'help'
+                          }}>REJ</span>
+                        )}
                       </td>
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => viewInvoice(inv)} style={{ marginRight: 4 }}>View</button>
