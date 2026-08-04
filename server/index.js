@@ -156,16 +156,16 @@ app.get('/api/me', auth, (req, res) => {
   const db = getDb();
   // Update last_login when session is validated (user opened the app)
   db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(req.user.id);
-  const user = db.prepare('SELECT id, name, email, role, engineer_id, address, city, state, zip, phone, start_date FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT id, name, email, role, engineer_id, address, city, state, zip, phone, carrier, start_date FROM users WHERE id = ?').get(req.user.id);
   res.json(user);
 });
 
-// Self-update profile (engineers can update their own address/phone)
+// Self-update profile (engineers can update their own address/phone/carrier)
 app.put('/api/me/profile', auth, (req, res) => {
-  const { address, city, state, zip, phone } = req.body;
+  const { address, city, state, zip, phone, carrier } = req.body;
   const db = getDb();
-  const current = db.prepare('SELECT address, city, state, zip, phone FROM users WHERE id = ?').get(req.user.id);
-  const fields = { address, city, state, zip, phone };
+  const current = db.prepare('SELECT address, city, state, zip, phone, carrier FROM users WHERE id = ?').get(req.user.id);
+  const fields = { address, city, state, zip, phone, carrier };
   const logChange = db.prepare('INSERT INTO user_profile_history (user_id, changed_by, field_name, old_value, new_value) VALUES (?, ?, ?, ?, ?)');
   for (const [field, newVal] of Object.entries(fields)) {
     const oldVal = current[field] || '';
@@ -174,8 +174,8 @@ app.put('/api/me/profile', auth, (req, res) => {
       logChange.run(req.user.id, 'self', field, oldVal, nv);
     }
   }
-  db.prepare('UPDATE users SET address=?, city=?, state=?, zip=?, phone=? WHERE id=?')
-    .run(address || '', city || '', state || '', zip || '', phone || '', req.user.id);
+  db.prepare('UPDATE users SET address=?, city=?, state=?, zip=?, phone=?, carrier=? WHERE id=?')
+    .run(address || '', city || '', state || '', zip || '', phone || '', carrier || '', req.user.id);
   res.json({ success: true });
 });
 
@@ -495,7 +495,7 @@ app.delete('/api/holidays/:id', auth, adminOnly, (req, res) => {
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, address, city, state, zip, start_date, phone, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
+  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, address, city, state, zip, start_date, phone, carrier, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
   const masked = users.map(u => {
     const decrypted = decryptTaxId(u.tax_id);
     return {
@@ -516,7 +516,7 @@ app.get('/api/users', auth, adminOnly, (req, res) => {
 
 app.post('/api/users', auth, adminOnly, (req, res) => {
   const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
-          address, city, state, zip, start_date, phone, tax_id,
+          address, city, state, zip, start_date, phone, carrier, tax_id,
           bank_routing, bank_account, bank_account_type,
           bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2 } = req.body;
   const db = getDb();
@@ -524,12 +524,12 @@ app.post('/api/users', auth, adminOnly, (req, res) => {
     const hash = bcrypt.hashSync(password, 10);
     const encryptedTaxId = tax_id ? encryptTaxId(tax_id) : '';
     const result = db.prepare(`INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
-      address, city, state, zip, start_date, phone, tax_id,
+      address, city, state, zip, start_date, phone, carrier, tax_id,
       bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         name, email, hash, role || 'engineer', engineer_id || null,
         holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0, parseInt(pay_delay_months) || 0,
-        address || '', city || '', state || '', zip || '', start_date || '', phone || '', encryptedTaxId,
+        address || '', city || '', state || '', zip || '', start_date || '', phone || '', carrier || '', encryptedTaxId,
         bank_routing || null, bank_account || null, bank_account_type || 'checking',
         bank_routing_2 || null, bank_account_2 || null, bank_account_type_2 || 'checking',
         bank_pct_1 ?? 100, bank_pct_2 ?? 0
@@ -542,17 +542,17 @@ app.post('/api/users', auth, adminOnly, (req, res) => {
 
 app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   const { name, email, role, engineer_id, password, holiday_pay_eligible, holiday_pay_rate,
-          address, city, state, zip, start_date, phone, tax_id,
+          address, city, state, zip, start_date, phone, carrier, tax_id,
           bank_routing, bank_account, bank_account_type,
           bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2,
           pay_delay_months } = req.body;
   const db = getDb();
 
   // Get current user to preserve banking info and log profile changes
-  const current = db.prepare('SELECT tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, address, city, state, zip, phone, start_date FROM users WHERE id = ?').get(req.params.id);
+  const current = db.prepare('SELECT tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, address, city, state, zip, phone, carrier, start_date FROM users WHERE id = ?').get(req.params.id);
 
   // Log profile field changes
-  const profileFields = { address, city, state, zip, phone, start_date };
+  const profileFields = { address, city, state, zip, phone, carrier, start_date };
   const logChange = db.prepare('INSERT INTO user_profile_history (user_id, changed_by, field_name, old_value, new_value) VALUES (?, ?, ?, ?, ?)');
   for (const [field, newVal] of Object.entries(profileFields)) {
     const oldVal = current?.[field] || '';
@@ -573,7 +573,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   const finalPct2 = bank_pct_2 ?? current?.bank_pct_2 ?? 0;
 
   const updateFields = `name=?, email=?, role=?, engineer_id=?, holiday_pay_eligible=?, holiday_pay_rate=?,
-    address=?, city=?, state=?, zip=?, start_date=?, phone=?, tax_id=?,
+    address=?, city=?, state=?, zip=?, start_date=?, phone=?, carrier=?, tax_id=?,
     bank_routing=?, bank_account=?, bank_account_type=?,
     bank_routing_2=?, bank_account_2=?, bank_account_type_2=?, bank_pct_1=?, bank_pct_2=?,
     pay_delay_months=?`;
@@ -582,7 +582,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
     const hash = bcrypt.hashSync(password, 10);
     db.prepare(`UPDATE users SET ${updateFields}, password=? WHERE id=?`).run(
       name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
-      address || '', city || '', state || '', zip || '', start_date || '', phone || '', finalTaxId,
+      address || '', city || '', state || '', zip || '', start_date || '', phone || '', carrier || '', finalTaxId,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,
       pay_delay_months || 0,
@@ -591,7 +591,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   } else {
     db.prepare(`UPDATE users SET ${updateFields} WHERE id=?`).run(
       name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
-      address || '', city || '', state || '', zip || '', start_date || '', phone || '', finalTaxId,
+      address || '', city || '', state || '', zip || '', start_date || '', phone || '', carrier || '', finalTaxId,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,
       pay_delay_months || 0,
@@ -2261,6 +2261,68 @@ app.post('/api/send-bulk-email', auth, adminOnly, async (req, res) => {
     res.json({ success: true, sent });
   } catch (err) {
     console.error('Error sending bulk email:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const CARRIER_GATEWAYS = {
+  'verizon': 'vtext.com',
+  'att': 'txt.att.net',
+  'tmobile': 'tmomail.net',
+  'sprint': 'messaging.sprintpcs.com',
+  'uscellular': 'email.uscc.net',
+  'boost': 'sms.myboostmobile.com',
+  'cricket': 'sms.cricketwireless.net',
+  'metro': 'mymetropcs.com',
+  'googlefi': 'msg.fi.google.com',
+  'mint': 'tmomail.net',
+  'visible': 'vtext.com',
+  'xfinity': 'vtext.com',
+};
+
+app.post('/api/send-bulk-text', auth, adminOnly, async (req, res) => {
+  const { recipients, message } = req.body;
+  if (!recipients || !recipients.length || !message) {
+    return res.status(400).json({ error: 'Recipients and message are required' });
+  }
+
+  const db = getDb();
+  const settingsRows = db.prepare('SELECT key, value FROM settings').all();
+  const settings = {};
+  for (const row of settingsRows) settings[row.key] = row.value;
+
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings first.' });
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
+    });
+
+    let sent = 0;
+    const errors = [];
+    for (const r of recipients) {
+      const digits = (r.phone || '').replace(/\D/g, '');
+      const gateway = CARRIER_GATEWAYS[r.carrier];
+      if (!digits || digits.length < 10 || !gateway) {
+        errors.push(`${r.name}: missing phone or carrier`);
+        continue;
+      }
+      const smsEmail = `${digits}@${gateway}`;
+      await transporter.sendMail({
+        from: settings.smtp_email,
+        to: smsEmail,
+        subject: '',
+        text: message,
+      });
+      sent++;
+    }
+
+    res.json({ success: true, sent, errors });
+  } catch (err) {
+    console.error('Error sending bulk text:', err);
     res.status(500).json({ error: err.message });
   }
 });

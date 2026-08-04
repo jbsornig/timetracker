@@ -12,7 +12,7 @@ function formatPhone(value) {
 const emptyUser = {
   name: '', email: '', password: '', engineer_id: '', role: 'engineer',
   holiday_pay_eligible: false, holiday_pay_rate: '',
-  address: '', city: '', state: '', zip: '', start_date: '', phone: '',
+  address: '', city: '', state: '', zip: '', start_date: '', phone: '', carrier: '',
   tax_id: '',
   bank_routing: '', bank_account: '', bank_account_type: 'checking',
   bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
@@ -41,6 +41,10 @@ export default function Engineers() {
   const [emailResult, setEmailResult] = useState(null);
   const [showTaxId, setShowTaxId] = useState(false);
   const [revealedTaxId, setRevealedTaxId] = useState('');
+  const [textModal, setTextModal] = useState(false);
+  const [textForm, setTextForm] = useState({ message: '' });
+  const [sendingText, setSendingText] = useState(false);
+  const [textResult, setTextResult] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -97,6 +101,37 @@ export default function Engineers() {
     }
   };
 
+  const handleSendText = async () => {
+    if (!textForm.message.trim()) {
+      setTextResult({ success: false, error: 'Message is required' });
+      return;
+    }
+    setSendingText(true);
+    setTextResult(null);
+    try {
+      const recipients = selectedEngineers.map(e => ({ name: e.name, phone: e.phone, carrier: e.carrier }));
+      const noPhone = recipients.filter(r => !r.phone || !r.carrier);
+      if (noPhone.length === recipients.length) {
+        setTextResult({ success: false, error: 'None of the selected engineers have a phone and carrier set' });
+        setSendingText(false);
+        return;
+      }
+      const result = await apiFetch('/send-bulk-text', {
+        method: 'POST',
+        body: { recipients, message: textForm.message },
+      });
+      const msg = `Sent to ${result.sent} engineer(s).` +
+        (result.errors?.length ? ` Skipped: ${result.errors.join(', ')}` : '');
+      setTextResult({ success: true, message: msg });
+      setTextForm({ message: '' });
+      setTimeout(() => setTextModal(false), 3000);
+    } catch (e) {
+      setTextResult({ success: false, error: e.message });
+    } finally {
+      setSendingText(false);
+    }
+  };
+
   const openAdd = (role = 'engineer') => {
     setForm({ ...emptyUser, role });
     setError('');
@@ -124,6 +159,7 @@ export default function Engineers() {
       zip: user.zip || '',
       start_date: user.start_date || '',
       phone: user.phone ? formatPhone(user.phone) : '',
+      carrier: user.carrier || '',
     });
     setError('');
     setProfileHistory([]);
@@ -187,6 +223,7 @@ export default function Engineers() {
         zip: form.zip || '',
         start_date: form.start_date || '',
         phone: form.phone || '',
+        carrier: form.carrier || '',
       };
       if (form.tax_id) body.tax_id = form.tax_id;
       // Only include banking info if provided (don't overwrite with empty)
@@ -287,9 +324,14 @@ export default function Engineers() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div className="card-title" style={{ margin: 0 }}>Engineers</div>
           {selectedEngineers.length > 0 && (
-            <button className="btn btn-primary btn-sm" onClick={() => { setEmailResult(null); setEmailModal(true); }}>
-              Email {selectedEngineers.length} Engineer{selectedEngineers.length !== 1 ? 's' : ''}
-            </button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className="btn btn-primary btn-sm" onClick={() => { setEmailResult(null); setEmailModal(true); }}>
+                Email {selectedEngineers.length} Engineer{selectedEngineers.length !== 1 ? 's' : ''}
+              </button>
+              <button className="btn btn-sm" style={{ background: '#065f46', color: 'white' }} onClick={() => { setTextResult(null); setTextModal(true); }}>
+                Text {selectedEngineers.length} Engineer{selectedEngineers.length !== 1 ? 's' : ''}
+              </button>
+            </div>
           )}
         </div>
         {engineers.length === 0 ? (
@@ -493,9 +535,29 @@ export default function Engineers() {
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
                   <div style={{ fontWeight: 600, marginBottom: 12 }}>Contact, Address & Start Date</div>
-                  <div className="form-group">
-                    <label className="form-label">Cell Phone</label>
-                    <input className="form-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })} placeholder="(555) 123-4567" />
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Cell Phone</label>
+                      <input className="form-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })} placeholder="(555) 123-4567" />
+                    </div>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Carrier</label>
+                      <select className="form-select" value={form.carrier} onChange={(e) => setForm({ ...form, carrier: e.target.value })}>
+                        <option value="">Select Carrier</option>
+                        <option value="verizon">Verizon</option>
+                        <option value="att">AT&T</option>
+                        <option value="tmobile">T-Mobile</option>
+                        <option value="sprint">Sprint</option>
+                        <option value="uscellular">US Cellular</option>
+                        <option value="boost">Boost Mobile</option>
+                        <option value="cricket">Cricket</option>
+                        <option value="metro">Metro by T-Mobile</option>
+                        <option value="googlefi">Google Fi</option>
+                        <option value="mint">Mint Mobile</option>
+                        <option value="visible">Visible</option>
+                        <option value="xfinity">Xfinity Mobile</option>
+                      </select>
+                    </div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Street Address</label>
@@ -871,6 +933,50 @@ export default function Engineers() {
               style={{ resize: 'vertical' }}
             />
             <div className="form-hint">The engineer's name will be automatically added as a greeting.</div>
+          </div>
+        </Modal>
+      )}
+      {textModal && (
+        <Modal
+          title={`Text ${selectedEngineers.length} Engineer${selectedEngineers.length !== 1 ? 's' : ''}`}
+          onClose={() => setTextModal(false)}
+          footer={
+            <>
+              <button className="btn btn-secondary" onClick={() => setTextModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSendText} disabled={sendingText}>
+                {sendingText ? 'Sending...' : 'Send Text'}
+              </button>
+            </>
+          }
+        >
+          {textResult && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, fontSize: 13, background: textResult.success ? '#dcfce7' : '#fef2f2', color: textResult.success ? '#16a34a' : '#dc2626' }}>
+              {textResult.success ? textResult.message : `Error: ${textResult.error}`}
+            </div>
+          )}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>To:</div>
+            <div style={{ fontSize: 13, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              {selectedEngineers.map(e => {
+                const hasPhone = e.phone && e.carrier;
+                return <span key={e.id} style={{ marginRight: 8, color: hasPhone ? 'inherit' : '#dc2626' }}>
+                  {e.name}{!hasPhone && ' (no phone/carrier)'}
+                </span>;
+              })}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Message *</label>
+            <textarea
+              className="form-textarea"
+              value={textForm.message}
+              onChange={(e) => setTextForm({ ...textForm, message: e.target.value })}
+              placeholder="Type your text message here..."
+              rows={4}
+              style={{ resize: 'vertical' }}
+              maxLength={160}
+            />
+            <div className="form-hint">{textForm.message.length}/160 characters (SMS limit)</div>
           </div>
         </Modal>
       )}

@@ -17,7 +17,7 @@ export default function Account() {
     confirm_password: '',
   });
   const [profileForm, setProfileForm] = useState({
-    address: '', city: '', state: '', zip: '', phone: ''
+    address: '', city: '', state: '', zip: '', phone: '', carrier: ''
   });
   const [saving, setSaving] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -39,6 +39,7 @@ export default function Account() {
         state: data.state || '',
         zip: data.zip || '',
         phone: data.phone ? formatPhone(data.phone) : '',
+        carrier: data.carrier || '',
       });
     } catch (e) {
       // ignore
@@ -131,15 +132,34 @@ export default function Account() {
         {profileSuccess && <div className="alert alert-success">{profileSuccess}</div>}
 
         <form onSubmit={handleProfileSave}>
-          <div className="form-group">
-            <label className="form-label">Cell Phone</label>
-            <input
-              className="form-input"
-              value={profileForm.phone}
-              onChange={(e) => setProfileForm({ ...profileForm, phone: formatPhone(e.target.value) })}
-              placeholder="(555) 123-4567"
-              style={{ maxWidth: 250 }}
-            />
+          <div style={{ display: 'flex', gap: 12, maxWidth: 500 }}>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label className="form-label">Cell Phone</label>
+              <input
+                className="form-input"
+                value={profileForm.phone}
+                onChange={(e) => setProfileForm({ ...profileForm, phone: formatPhone(e.target.value) })}
+                placeholder="(555) 123-4567"
+              />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label className="form-label">Carrier</label>
+              <select className="form-select" value={profileForm.carrier} onChange={(e) => setProfileForm({ ...profileForm, carrier: e.target.value })}>
+                <option value="">Select Carrier</option>
+                <option value="verizon">Verizon</option>
+                <option value="att">AT&T</option>
+                <option value="tmobile">T-Mobile</option>
+                <option value="sprint">Sprint</option>
+                <option value="uscellular">US Cellular</option>
+                <option value="boost">Boost Mobile</option>
+                <option value="cricket">Cricket</option>
+                <option value="metro">Metro by T-Mobile</option>
+                <option value="googlefi">Google Fi</option>
+                <option value="mint">Mint Mobile</option>
+                <option value="visible">Visible</option>
+                <option value="xfinity">Xfinity Mobile</option>
+              </select>
+            </div>
           </div>
           <div className="form-group">
             <label className="form-label">Street Address</label>

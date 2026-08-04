@@ -879,6 +879,13 @@ function initSchema() {
     console.log('✅ Migration: Added vendor_quote_number column to purchase_orders');
   }
 
+  // Add carrier column to users for SMS via email-to-SMS gateway
+  const userCols2 = db.prepare("PRAGMA table_info(users)").all();
+  if (!userCols2.find(c => c.name === 'carrier')) {
+    db.exec("ALTER TABLE users ADD COLUMN carrier TEXT DEFAULT ''");
+    console.log('✅ Migration: Added carrier column to users');
+  }
+
   // Add EDI response tracking columns to invoices
   const invCols = db.prepare("PRAGMA table_info(invoices)").all();
   if (!invCols.find(c => c.name === 'edi_status')) {
