@@ -2278,6 +2278,7 @@ const CARRIER_GATEWAYS = {
   'mint': 'tmomail.net',
   'visible': 'vtext.com',
   'xfinity': 'vtext.com',
+  'spectrum': 'vtext.com',
 };
 
 app.post('/api/send-bulk-text', auth, adminOnly, async (req, res) => {
