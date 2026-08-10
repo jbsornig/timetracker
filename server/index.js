@@ -1009,6 +1009,12 @@ function parseMercedesPoPdf(text) {
 app.post('/api/projects', auth, adminOnly, (req, res) => {
   const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate } = req.body;
   const db = getDb();
+  if (po_number && po_number.trim()) {
+    const existing = db.prepare('SELECT id, name FROM projects WHERE po_number = ?').get(po_number.trim());
+    if (existing) {
+      return res.status(409).json({ error: `A project with PO number "${po_number}" already exists: "${existing.name}"` });
+    }
+  }
   const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
@@ -1016,6 +1022,13 @@ app.post('/api/projects', auth, adminOnly, (req, res) => {
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
   const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, confirm_inactive } = req.body;
   const db = getDb();
+
+  if (po_number && po_number.trim()) {
+    const existing = db.prepare('SELECT id, name FROM projects WHERE po_number = ? AND id != ?').get(po_number.trim(), req.params.id);
+    if (existing) {
+      return res.status(409).json({ error: `A project with PO number "${po_number}" already exists: "${existing.name}"` });
+    }
+  }
 
   if (status === 'inactive' && !confirm_inactive) {
     const current = db.prepare('SELECT status FROM projects WHERE id = ?').get(req.params.id);

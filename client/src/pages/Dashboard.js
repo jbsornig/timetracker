@@ -335,7 +335,7 @@ export default function Dashboard({ setPage }) {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Project</th><th>Customer</th><th>Pay Rate</th><th>Hours Remaining</th><th>Earnings Remaining</th></tr></thead>
+              <thead><tr><th>Project</th><th>Customer</th><th>Contact</th><th>Pay Rate</th><th>Hours Remaining</th><th>Earnings Remaining</th></tr></thead>
               <tbody>
                 {projects.map(p => {
                   const approved = p.my_hours_approved || 0;
@@ -357,6 +357,7 @@ export default function Dashboard({ setPage }) {
                         <div style={{ fontSize: 12, color: '#94a3b8' }}>{p.po_number || ''}</div>
                       </td>
                       <td>{p.customer_name}</td>
+                      <td style={{ color: p.contact_name ? undefined : '#94a3b8', fontSize: 13 }}>{p.contact_name || '—'}</td>
                       <td>
                         {p.project_type === 'fixed_price' ? (
                           <span style={{ fontSize: 13 }}>${(p.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
