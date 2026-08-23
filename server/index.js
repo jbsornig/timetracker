@@ -2051,11 +2051,52 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     lineItems.push(consolidated);
   }
 
-  res.json({ ...invoice, settings, lineItems, timesheetDetails, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
+  const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(invoiceId);
+  adjustments.forEach(adj => {
+    lineItems.push({
+      description: adj.description,
+      hours: adj.hours || 0,
+      rate: adj.rate || 0,
+      amount: adj.amount,
+      is_adjustment: true,
+      adjustment_id: adj.id,
+    });
+  });
+
+  res.json({ ...invoice, settings, lineItems, timesheetDetails, adjustments, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
   } catch (err) {
     console.error('Error viewing invoice:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+app.post('/api/invoices/:id/adjustments', auth, adminOnly, (req, res) => {
+  const { description, hours, rate, amount } = req.body;
+  if (!description || !description.trim()) return res.status(400).json({ error: 'Description is required' });
+  if (amount == null || amount === 0) return res.status(400).json({ error: 'Amount is required' });
+
+  const db = getDb();
+  const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (invoice.status === 'voided') return res.status(400).json({ error: 'Cannot adjust a voided invoice' });
+
+  db.prepare('INSERT INTO invoice_adjustments (invoice_id, description, hours, rate, amount) VALUES (?, ?, ?, ?, ?)')
+    .run(req.params.id, description.trim(), hours || 0, rate || 0, amount);
+
+  db.prepare('UPDATE invoices SET total_amount = total_amount + ? WHERE id = ?').run(amount, req.params.id);
+
+  res.json({ success: true });
+});
+
+app.delete('/api/invoices/:id/adjustments/:adjId', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const adj = db.prepare('SELECT * FROM invoice_adjustments WHERE id = ? AND invoice_id = ?').get(req.params.adjId, req.params.id);
+  if (!adj) return res.status(404).json({ error: 'Adjustment not found' });
+
+  db.prepare('DELETE FROM invoice_adjustments WHERE id = ?').run(req.params.adjId);
+  db.prepare('UPDATE invoices SET total_amount = total_amount - ? WHERE id = ?').run(adj.amount, req.params.id);
+
+  res.json({ success: true });
 });
 
 app.delete('/api/invoices/:id', auth, adminOnly, (req, res) => {
@@ -3310,6 +3351,11 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     }
   }
 
+  const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(invoice.id);
+  adjustments.forEach(adj => {
+    lineItems.push({ description: adj.description, hours: adj.hours || 0, rate: adj.rate || 0, amount: adj.amount, is_adjustment: true });
+  });
+
   // Currency symbol for this customer
   const cs = invoice.currency_symbol || '$';
 
@@ -3360,11 +3406,14 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const lineItemRows = lineItems.map(item => {
     const qty = item.hours > 0 ? item.hours.toFixed(2) : '1';
     const rate = item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const desc = item.is_adjustment
+      ? item.description
+      : `${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}`;
     return `
     <tr>
       <td style="border: 1px solid #ccc; padding: 8px;">${qty}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${desc}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rate}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -3878,6 +3927,11 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
         }
       });
     }
+
+    const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(req.params.id);
+    adjustments.forEach(adj => {
+      lineItems.push({ description: adj.description, hours: adj.hours || 0, rate: adj.rate || 0, amount: adj.amount, is_adjustment: true });
+    });
 
     // Generate the EDI 810 content
     const ediContent = generateEdi810({

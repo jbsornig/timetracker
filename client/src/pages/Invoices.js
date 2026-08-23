@@ -2214,6 +2214,84 @@ export default function Invoices() {
               <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 24, background: 'white' }}>
                 <InvoiceContent inv={inv} settings={settings} />
               </div>
+
+              {/* Invoice Adjustments */}
+              {inv.status !== 'voided' && (
+                <div style={{ marginTop: 16, padding: 16, border: '1px solid var(--border)', borderRadius: 8, background: '#fefce8' }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Invoice Adjustments</div>
+                  <p style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                    Add line items for prior period adjustments, deductions, or credits. These appear on the invoice but do not affect project budget or engineer pay.
+                  </p>
+                  {inv.adjustments && inv.adjustments.length > 0 && (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12, fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: '#fef3c7' }}>
+                          <th style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'left' }}>Description</th>
+                          <th style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'right', width: 80 }}>Hours</th>
+                          <th style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'right', width: 80 }}>Rate</th>
+                          <th style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'right', width: 100 }}>Amount</th>
+                          <th style={{ border: '1px solid #e5e7eb', padding: 6, width: 60 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inv.adjustments.map(adj => (
+                          <tr key={adj.id}>
+                            <td style={{ border: '1px solid #e5e7eb', padding: 6 }}>{adj.description}</td>
+                            <td style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'right' }}>{adj.hours || '—'}</td>
+                            <td style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'right' }}>{adj.rate ? `$${adj.rate.toFixed(2)}` : '—'}</td>
+                            <td style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'right', fontWeight: 600 }}>${adj.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                            <td style={{ border: '1px solid #e5e7eb', padding: 6, textAlign: 'center' }}>
+                              <button className="btn btn-danger btn-sm" onClick={async () => {
+                                if (!window.confirm('Remove this adjustment?')) return;
+                                try {
+                                  await apiFetch(`/invoices/${inv.id}/adjustments/${adj.id}`, { method: 'DELETE' });
+                                  viewInvoice(inv);
+                                  await loadData();
+                                } catch (err) { alert(err.message); }
+                              }}>x</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 2 }}>Description</label>
+                      <input className="form-input" id="adj-desc" placeholder="Prior period adjustment - Inv #..." style={{ width: 280, fontSize: 13 }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 2 }}>Hours</label>
+                      <input className="form-input" id="adj-hours" type="number" step="0.01" placeholder="0" style={{ width: 70, fontSize: 13 }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 2 }}>Rate</label>
+                      <input className="form-input" id="adj-rate" type="number" step="0.01" placeholder="0.00" style={{ width: 80, fontSize: 13 }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 2 }}>Amount</label>
+                      <input className="form-input" id="adj-amount" type="number" step="0.01" placeholder="0.00" style={{ width: 100, fontSize: 13 }} />
+                    </div>
+                    <button className="btn btn-primary btn-sm" onClick={async () => {
+                      const desc = document.getElementById('adj-desc').value;
+                      const hours = parseFloat(document.getElementById('adj-hours').value) || 0;
+                      const rate = parseFloat(document.getElementById('adj-rate').value) || 0;
+                      let amount = parseFloat(document.getElementById('adj-amount').value) || 0;
+                      if (!amount && hours && rate) amount = hours * rate;
+                      if (!desc.trim() || !amount) { alert('Description and amount are required'); return; }
+                      try {
+                        await apiFetch(`/invoices/${inv.id}/adjustments`, { method: 'POST', body: { description: desc, hours, rate, amount } });
+                        document.getElementById('adj-desc').value = '';
+                        document.getElementById('adj-hours').value = '';
+                        document.getElementById('adj-rate').value = '';
+                        document.getElementById('adj-amount').value = '';
+                        viewInvoice(inv);
+                        await loadData();
+                      } catch (err) { alert(err.message); }
+                    }}>Add</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2741,15 +2819,19 @@ function InvoiceContent({ inv, settings }) {
           {inv.lineItems && inv.lineItems.length > 0 ? (
             <>
             {inv.lineItems.map((item, idx) => (
-              <tr key={idx}>
+              <tr key={idx} style={item.is_adjustment ? { background: '#fffbeb' } : undefined}>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_consolidated
+                  {item.is_adjustment
+                    ? (item.hours ? item.hours.toFixed(2) : '1')
+                    : item.is_consolidated
                     ? (item.hours ? item.hours.toFixed(2) : '1')
                     : item.is_fixed_price ? (inv.billing_method === 'monthly_installment' ? 'Monthly' : `${item.percentage}%`) : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_consolidated
+                  {item.is_adjustment
+                    ? item.description
+                    : item.is_consolidated
                     ? `${projectDescription || 'Engineering Services'} - ${periodRange}`
                     : item.is_fixed_price
                     ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}`
@@ -2759,7 +2841,7 @@ function InvoiceContent({ inv, settings }) {
                   }
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
-                  {item.is_consolidated ? `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}` : item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
+                  {item.is_adjustment ? (item.rate ? `${cs}${item.rate.toFixed(2)}` : `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : item.is_consolidated ? `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}` : item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{cs}{item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>

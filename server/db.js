@@ -900,6 +900,17 @@ function initSchema() {
     db.exec("ALTER TABLE invoices ADD COLUMN edi_error_details TEXT");
     console.log('✅ Migration: Added edi_error_details column to invoices');
   }
+
+  db.exec(`CREATE TABLE IF NOT EXISTS invoice_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id INTEGER NOT NULL,
+    description TEXT NOT NULL,
+    hours REAL DEFAULT 0,
+    rate REAL DEFAULT 0,
+    amount REAL NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+  )`);
 }
 
 function replaceDatabase(newDbPath) {
