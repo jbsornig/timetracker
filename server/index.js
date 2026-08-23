@@ -2051,7 +2051,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     lineItems.push(consolidated);
   }
 
-  const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(invoiceId);
+  const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(req.params.id);
   adjustments.forEach(adj => {
     lineItems.push({
       description: adj.description,
