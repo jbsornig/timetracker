@@ -2834,7 +2834,7 @@ app.delete('/api/payments/:id', auth, adminOnly, (req, res) => {
 
 // Batch payment - record payment on multiple invoices at once
 app.post('/api/invoices/batch-payment', auth, adminOnly, (req, res) => {
-  const { invoice_ids, payment_date, payment_method, reference_number, notes } = req.body;
+  const { invoice_ids, payment_date, payment_method, reference_number, notes, payment_amounts } = req.body;
   if (!invoice_ids || !Array.isArray(invoice_ids) || invoice_ids.length === 0) {
     return res.status(400).json({ error: 'No invoices selected' });
   }
@@ -2861,15 +2861,24 @@ app.post('/api/invoices/batch-payment', auth, adminOnly, (req, res) => {
         continue;
       }
 
-      // Record payment for the full remaining balance
+      const paymentAmount = (payment_amounts && payment_amounts[invoiceId] != null)
+        ? Math.min(payment_amounts[invoiceId], balance)
+        : balance;
+
       db.prepare('INSERT INTO payments (invoice_id, amount, payment_date, payment_method, reference_number, notes) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(invoiceId, balance, payment_date, payment_method || null, reference_number || null, notes || null);
+        .run(invoiceId, paymentAmount, payment_date, payment_method || null, reference_number || null, notes || null);
 
-      // Update invoice to paid
+      const newAmountPaid = (invoice.amount_paid || 0) + paymentAmount;
+      const fullyPaid = newAmountPaid >= invoice.total_amount - 0.01;
       db.prepare('UPDATE invoices SET amount_paid = ?, status = ?, paid_date = ? WHERE id = ?')
-        .run(invoice.total_amount, 'paid', payment_date, invoiceId);
+        .run(newAmountPaid, fullyPaid ? 'paid' : 'partial', payment_date, invoiceId);
 
-      results.push({ id: invoiceId, invoice_number: invoice.invoice_number, amount: balance });
+      results.push({
+        id: invoiceId,
+        invoice_number: invoice.invoice_number,
+        amount: paymentAmount,
+        status: fullyPaid ? 'paid' : 'partial',
+      });
     }
   });
 
@@ -2929,8 +2938,9 @@ function parseMercedesPaymentAdvice(rows, db) {
     throw new Error('Could not find required columns (Your Document No., Amount)');
   }
 
-  const matches = [];
-  const unmatched = [];
+  const grouped = {};
+  const docTypeCol = headers.findIndex(h => h.includes('document type'));
+  const deductionCol = headers.findIndex(h => h.includes('deduction'));
 
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
@@ -2944,7 +2954,17 @@ function parseMercedesPaymentAdvice(rows, db) {
       amount = amount.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
       amount = parseFloat(amount);
     }
-    amount = Math.abs(amount || 0);
+    amount = amount || 0;
+
+    let deduction = 0;
+    if (deductionCol !== -1 && row[deductionCol]) {
+      let ded = row[deductionCol];
+      if (typeof ded === 'string') {
+        ded = ded.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, '');
+        ded = parseFloat(ded);
+      }
+      deduction = ded || 0;
+    }
 
     let paymentDate = null;
     if (dateCol !== -1 && row[dateCol]) {
@@ -2961,11 +2981,31 @@ function parseMercedesPaymentAdvice(rows, db) {
     }
 
     const reference = refCol !== -1 && row[refCol] ? String(row[refCol]).trim() : null;
+    const docType = docTypeCol !== -1 && row[docTypeCol] ? String(row[docTypeCol]).trim() : null;
+
+    if (!grouped[invoiceNum]) {
+      grouped[invoiceNum] = { netAmount: 0, paymentDate, references: [], deductions: [], docTypes: [] };
+    }
+    grouped[invoiceNum].netAmount += amount;
+    if (deduction !== 0) grouped[invoiceNum].netAmount += deduction;
+    if (reference) grouped[invoiceNum].references.push(reference);
+    if (docType && docType !== '31') grouped[invoiceNum].deductions.push({ docType, amount, deduction, reference });
+    if (docType) grouped[invoiceNum].docTypes.push(docType);
+    if (paymentDate) grouped[invoiceNum].paymentDate = paymentDate;
+  }
+
+  const matches = [];
+  const unmatched = [];
+
+  for (const [invoiceNum, group] of Object.entries(grouped)) {
+    const adviceAmount = Math.abs(group.netAmount);
 
     const invoice = db.prepare("SELECT i.*, p.name as project_name, c.name as customer_name FROM invoices i JOIN projects p ON p.id = i.project_id JOIN customers c ON c.id = p.customer_id WHERE i.invoice_number = ?").get(invoiceNum);
 
     if (invoice) {
       const balance = (invoice.total_amount || 0) - (invoice.amount_paid || 0);
+      const isPartial = adviceAmount > 0 && adviceAmount < balance - 0.01;
+      const hasDeductions = group.deductions.length > 0;
       matches.push({
         invoice_id: invoice.id,
         invoice_number: invoice.invoice_number,
@@ -2974,14 +3014,17 @@ function parseMercedesPaymentAdvice(rows, db) {
         invoice_amount: invoice.total_amount,
         amount_paid_already: invoice.amount_paid || 0,
         balance_due: balance,
-        advice_amount: amount,
-        payment_date: paymentDate,
-        reference,
+        advice_amount: adviceAmount,
+        payment_date: group.paymentDate,
+        reference: group.references.join(', ') || null,
         status: invoice.status,
         already_paid: invoice.status === 'paid',
+        is_partial: isPartial,
+        has_deductions: hasDeductions,
+        deduction_details: hasDeductions ? group.deductions : undefined,
       });
     } else {
-      unmatched.push({ invoice_number: invoiceNum, amount, payment_date: paymentDate, reference });
+      unmatched.push({ invoice_number: invoiceNum, amount: adviceAmount, payment_date: group.paymentDate, reference: group.references.join(', ') || null });
     }
   }
 

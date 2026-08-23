@@ -918,12 +918,18 @@ export default function Invoices() {
       return;
     }
     const matched = adviceResults.matches.filter(m => selectedIds.includes(m.invoice_id));
-    const total = matched.reduce((s, m) => s + m.balance_due, 0);
-    if (!window.confirm(`Mark ${selectedIds.length} invoice(s) as paid totaling ${formatCurrency(total)}?`)) return;
+    const hasPartial = matched.some(m => m.is_partial);
+    const total = matched.reduce((s, m) => s + m.advice_amount, 0);
+    const confirmMsg = hasPartial
+      ? `Apply payments for ${selectedIds.length} invoice(s) totaling ${formatCurrency(total)}?\n\nNote: Some invoices have partial payments or deductions and will be marked as "partial" until the remaining balance is paid.`
+      : `Mark ${selectedIds.length} invoice(s) as paid totaling ${formatCurrency(total)}?`;
+    if (!window.confirm(confirmMsg)) return;
 
     setAdviceProcessing(true);
     try {
       const paymentDate = matched[0]?.payment_date || new Date().toISOString().split('T')[0];
+      const paymentAmounts = {};
+      matched.forEach(m => { paymentAmounts[m.invoice_id] = m.advice_amount; });
       const result = await apiFetch('/invoices/batch-payment', {
         method: 'POST',
         body: {
@@ -932,11 +938,16 @@ export default function Invoices() {
           payment_method: 'ACH',
           reference_number: adviceResults.paymentInfo?.document_number || 'Payment Advice Import',
           notes: adviceResults.paymentInfo ? `${adviceResults.paymentInfo.source} payment doc ${adviceResults.paymentInfo.document_number}` : 'Imported from payment advice file',
+          payment_amounts: paymentAmounts,
         },
       });
       await loadData();
       const paidCount = result.paid?.length || 0;
-      alert(`Successfully recorded payment for ${paidCount} invoice(s).`);
+      const partialCount = (result.paid || []).filter(p => p.status === 'partial').length;
+      const msg = partialCount > 0
+        ? `Recorded payments for ${paidCount} invoice(s): ${paidCount - partialCount} paid in full, ${partialCount} partial.`
+        : `Successfully recorded payment for ${paidCount} invoice(s).`;
+      alert(msg);
       setAdviceResults(null);
       setAdviceSelected({});
     } catch (err) {
@@ -1673,6 +1684,7 @@ export default function Invoices() {
                             <th>Project</th>
                             <th>Invoice Amt</th>
                             <th>Advice Amt</th>
+                            <th>Difference</th>
                             <th>Status</th>
                           </tr>
                         </thead>
@@ -1691,9 +1703,18 @@ export default function Invoices() {
                               <td>{m.project_name}<br /><span style={{ fontSize: 11, color: '#94a3b8' }}>{m.customer_name}</span></td>
                               <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(m.invoice_amount)}</td>
                               <td style={{ fontFamily: 'DM Mono, monospace' }}>{formatCurrency(m.advice_amount)}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                                {(() => {
+                                  const diff = m.advice_amount - m.balance_due;
+                                  if (Math.abs(diff) < 0.01) return <span style={{ color: '#16a34a' }}>--</span>;
+                                  return <span style={{ color: '#dc2626', fontWeight: 600 }} title={m.has_deductions ? 'Deduction applied by customer' : 'Partial payment'}>{formatCurrency(diff)}</span>;
+                                })()}
+                              </td>
                               <td>
                                 {m.already_paid
                                   ? <span className="badge badge-paid">Already Paid</span>
+                                  : m.is_partial
+                                  ? <span className="badge" style={{ background: '#fef3c7', color: '#92400e' }}>Partial: {formatCurrency(m.advice_amount)} of {formatCurrency(m.balance_due)}</span>
                                   : <span className="badge badge-unpaid">Balance: {formatCurrency(m.balance_due)}</span>
                                 }
                               </td>
@@ -1711,6 +1732,13 @@ export default function Invoices() {
                             </td>
                             <td style={{ fontFamily: 'DM Mono, monospace' }}>
                               {formatCurrency(adviceResults.matches.filter(m => adviceSelected[m.invoice_id]).reduce((s, m) => s + m.advice_amount, 0))}
+                            </td>
+                            <td style={{ fontFamily: 'DM Mono, monospace' }}>
+                              {(() => {
+                                const sel = adviceResults.matches.filter(m => adviceSelected[m.invoice_id]);
+                                const diff = sel.reduce((s, m) => s + m.advice_amount, 0) - sel.reduce((s, m) => s + m.balance_due, 0);
+                                return Math.abs(diff) < 0.01 ? '--' : <span style={{ color: '#dc2626' }}>{formatCurrency(diff)}</span>;
+                              })()}
                             </td>
                             <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
                               Balance: {formatCurrency(adviceResults.matches.filter(m => adviceSelected[m.invoice_id]).reduce((s, m) => s + m.balance_due, 0))}
