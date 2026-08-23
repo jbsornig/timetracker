@@ -17,7 +17,8 @@ const emptyUser = {
   bank_routing: '', bank_account: '', bank_account_type: 'checking',
   bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
   bank_pct_1: 100, bank_pct_2: 0,
-  pay_delay_months: 0
+  pay_delay_months: 0,
+  active: 1
 };
 
 export default function Engineers() {
@@ -45,6 +46,7 @@ export default function Engineers() {
   const [textForm, setTextForm] = useState({ message: '' });
   const [sendingText, setSendingText] = useState(false);
   const [textResult, setTextResult] = useState(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -75,7 +77,8 @@ export default function Engineers() {
     }).length;
   };
 
-  const selectedEngineers = engineers.filter(e => emailSelections[e.id]);
+  const displayedEngineers = showInactive ? engineers : engineers.filter(e => e.active !== 0);
+  const selectedEngineers = displayedEngineers.filter(e => emailSelections[e.id]);
 
   const handleSendEmail = async () => {
     if (!emailForm.subject.trim() || !emailForm.body.trim()) {
@@ -160,6 +163,7 @@ export default function Engineers() {
       start_date: user.start_date || '',
       phone: user.phone ? formatPhone(user.phone) : '',
       carrier: user.carrier || '',
+      active: user.active ?? 1,
     });
     setError('');
     setProfileHistory([]);
@@ -224,6 +228,7 @@ export default function Engineers() {
         start_date: form.start_date || '',
         phone: form.phone || '',
         carrier: form.carrier || '',
+        active: form.active ? 1 : 0,
       };
       if (form.tax_id) body.tax_id = form.tax_id;
       // Only include banking info if provided (don't overwrite with empty)
@@ -322,7 +327,13 @@ export default function Engineers() {
       {/* Engineers Section */}
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div className="card-title" style={{ margin: 0 }}>Engineers</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="card-title" style={{ margin: 0 }}>Engineers</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
+              <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} style={{ width: 14, height: 14 }} />
+              Show Inactive
+            </label>
+          </div>
           {selectedEngineers.length > 0 && (
             <div style={{ display: 'flex', gap: 4 }}>
               <button className="btn btn-primary btn-sm" onClick={() => { setEmailResult(null); setEmailModal(true); }}>
@@ -334,10 +345,10 @@ export default function Engineers() {
             </div>
           )}
         </div>
-        {engineers.length === 0 ? (
+        {displayedEngineers.length === 0 ? (
           <div className="empty-state">
-            <h3>No engineers yet</h3>
-            <p>Add your first engineer to get started.</p>
+            <h3>{showInactive ? 'No engineers yet' : 'No active engineers'}</h3>
+            <p>{showInactive ? 'Add your first engineer to get started.' : 'Toggle "Show Inactive" to see inactive engineers.'}</p>
           </div>
         ) : (
           <div className="table-wrap">
@@ -346,10 +357,10 @@ export default function Engineers() {
                 <tr>
                   <th style={{ width: 30 }}>
                     <input type="checkbox"
-                      checked={engineers.length > 0 && engineers.every(e => emailSelections[e.id])}
+                      checked={displayedEngineers.length > 0 && displayedEngineers.every(e => emailSelections[e.id])}
                       onChange={(e) => {
                         const next = {};
-                        if (e.target.checked) engineers.forEach(eng => { next[eng.id] = true; });
+                        if (e.target.checked) displayedEngineers.forEach(eng => { next[eng.id] = true; });
                         setEmailSelections(next);
                       }}
                       style={{ width: 14, height: 14 }}
@@ -366,8 +377,8 @@ export default function Engineers() {
                 </tr>
               </thead>
               <tbody>
-                {engineers.map((eng) => (
-                  <tr key={eng.id}>
+                {displayedEngineers.map((eng) => (
+                  <tr key={eng.id} style={eng.active === 0 ? { opacity: 0.6 } : undefined}>
                     <td>
                       <input type="checkbox"
                         checked={!!emailSelections[eng.id]}
@@ -377,6 +388,11 @@ export default function Engineers() {
                     </td>
                     <td>
                       <strong>{eng.name}</strong>
+                      {eng.active === 0 && (
+                        <span style={{ marginLeft: 6, fontSize: 10, background: '#fee2e2', color: '#991b1b', padding: '1px 5px', borderRadius: 4 }}>
+                          Inactive
+                        </span>
+                      )}
                       {eng.pay_delay_months > 0 && (
                         <span style={{ marginLeft: 6, fontSize: 10, background: '#dbeafe', color: '#1e40af', padding: '1px 5px', borderRadius: 4 }}>
                           {eng.pay_delay_months}mo delay
@@ -653,6 +669,25 @@ export default function Engineers() {
                     <div className="form-hint">Engineers paid behind will show previous month's work in payroll</div>
                   </div>
                 </div>
+                {modal === 'edit' && (
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 12 }}>Account Status</div>
+                    <div className="form-group">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={!!form.active}
+                          onChange={(e) => setForm({ ...form, active: e.target.checked ? 1 : 0 })}
+                          style={{ width: 16, height: 16 }}
+                        />
+                        <span style={{ fontWeight: 500 }}>Active</span>
+                      </label>
+                      <div className="form-hint">
+                        {form.active ? 'Engineer can log in and appears in assignment dropdowns' : 'Engineer cannot log in and is hidden from dropdowns. Historical data is preserved.'}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
                   <div style={{ fontWeight: 600, marginBottom: 12 }}>Direct Deposit / ACH</div>
 

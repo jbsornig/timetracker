@@ -106,7 +106,7 @@ export default function Settings() {
   const loadEngineers = async () => {
     try {
       const data = await apiFetch('/users');
-      setEngineers(data.filter(u => u.role === 'engineer'));
+      setEngineers(data.filter(u => u.role === 'engineer' && u.active !== 0));
     } catch (e) { /* ignore */ }
   };
 

@@ -144,6 +144,8 @@ app.post('/api/login', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (!user || !bcrypt.compareSync(password, user.password))
     return res.status(401).json({ error: 'Invalid credentials' });
+  if (user.active === 0)
+    return res.status(403).json({ error: 'Account is inactive. Contact your administrator.' });
 
   // Update last_login timestamp
   db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
@@ -495,7 +497,7 @@ app.delete('/api/holidays/:id', auth, adminOnly, (req, res) => {
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, address, city, state, zip, start_date, phone, carrier, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
+  const users = db.prepare('SELECT id, name, email, role, engineer_id, active, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, address, city, state, zip, start_date, phone, carrier, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
   const masked = users.map(u => {
     const decrypted = decryptTaxId(u.tax_id);
     return {
@@ -545,7 +547,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
           address, city, state, zip, start_date, phone, carrier, tax_id,
           bank_routing, bank_account, bank_account_type,
           bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2,
-          pay_delay_months } = req.body;
+          pay_delay_months, active } = req.body;
   const db = getDb();
 
   // Get current user to preserve banking info and log profile changes
@@ -572,7 +574,8 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   const finalPct1 = bank_pct_1 ?? current?.bank_pct_1 ?? 100;
   const finalPct2 = bank_pct_2 ?? current?.bank_pct_2 ?? 0;
 
-  const updateFields = `name=?, email=?, role=?, engineer_id=?, holiday_pay_eligible=?, holiday_pay_rate=?,
+  const finalActive = active !== undefined ? (active ? 1 : 0) : 1;
+  const updateFields = `name=?, email=?, role=?, engineer_id=?, active=?, holiday_pay_eligible=?, holiday_pay_rate=?,
     address=?, city=?, state=?, zip=?, start_date=?, phone=?, carrier=?, tax_id=?,
     bank_routing=?, bank_account=?, bank_account_type=?,
     bank_routing_2=?, bank_account_2=?, bank_account_type_2=?, bank_pct_1=?, bank_pct_2=?,
@@ -581,7 +584,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
   if (password) {
     const hash = bcrypt.hashSync(password, 10);
     db.prepare(`UPDATE users SET ${updateFields}, password=? WHERE id=?`).run(
-      name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
+      name, email, role, engineer_id, finalActive, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
       address || '', city || '', state || '', zip || '', start_date || '', phone || '', carrier || '', finalTaxId,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,
@@ -590,7 +593,7 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
     );
   } else {
     db.prepare(`UPDATE users SET ${updateFields} WHERE id=?`).run(
-      name, email, role, engineer_id, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
+      name, email, role, engineer_id, finalActive, holiday_pay_eligible ? 1 : 0, holiday_pay_rate || 0,
       address || '', city || '', state || '', zip || '', start_date || '', phone || '', carrier || '', finalTaxId,
       finalRouting, finalAccount, finalAccountType,
       finalRouting2, finalAccount2, finalAccountType2, finalPct1, finalPct2,

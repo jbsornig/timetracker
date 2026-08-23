@@ -885,6 +885,10 @@ function initSchema() {
     db.exec("ALTER TABLE users ADD COLUMN carrier TEXT DEFAULT ''");
     console.log('✅ Migration: Added carrier column to users');
   }
+  if (!userCols2.find(c => c.name === 'active')) {
+    db.exec("ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1");
+    console.log('✅ Migration: Added active column to users');
+  }
 
   // Add EDI response tracking columns to invoices
   const invCols = db.prepare("PRAGMA table_info(invoices)").all();

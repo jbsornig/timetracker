@@ -43,7 +43,7 @@ export default function Projects() {
       ]);
       setProjects(p);
       setCustomers(c);
-      setEngineers(u.filter((user) => user.role === 'engineer'));
+      setEngineers(u.filter((user) => user.role === 'engineer' && user.active !== 0));
       setEngineerAssignments(ep);
     } catch (e) {
       setError(e.message);

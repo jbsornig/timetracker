@@ -507,7 +507,7 @@ export default function Timesheets() {
             apiFetch('/users'),
             apiFetch('/settings'),
           ]);
-          setEngineers(users.filter((u) => u.role === 'engineer'));
+          setEngineers(users.filter((u) => u.role === 'engineer' && u.active !== 0));
           setSettings(fullSettings);
         }
       } catch (e) {
