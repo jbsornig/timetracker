@@ -3189,7 +3189,8 @@ app.put('/api/invoices/:id/void', auth, adminOnly, (req, res) => {
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
   const today = new Date().toISOString().split('T')[0];
-  db.prepare('UPDATE invoices SET status = ?, voided_date = ? WHERE id = ?').run('voided', today, req.params.id);
+  const voidReason = (req.body && req.body.reason) ? req.body.reason.trim() : null;
+  db.prepare('UPDATE invoices SET status = ?, voided_date = ?, void_reason = ? WHERE id = ?').run('voided', today, voidReason, req.params.id);
 
   // Un-stamp timesheet entries and timesheets so they can be re-invoiced
   db.prepare('UPDATE timesheet_entries SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
@@ -3213,7 +3214,7 @@ app.put('/api/invoices/:id/unvoid', auth, adminOnly, (req, res) => {
     newStatus = 'partial';
   }
 
-  db.prepare('UPDATE invoices SET status = ?, voided_date = NULL WHERE id = ?').run(newStatus, req.params.id);
+  db.prepare('UPDATE invoices SET status = ?, voided_date = NULL, void_reason = NULL WHERE id = ?').run(newStatus, req.params.id);
   res.json({ success: true });
 });
 

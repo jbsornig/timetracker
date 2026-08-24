@@ -905,6 +905,11 @@ function initSchema() {
     console.log('✅ Migration: Added edi_error_details column to invoices');
   }
 
+  if (!invCols.find(c => c.name === 'void_reason')) {
+    db.exec("ALTER TABLE invoices ADD COLUMN void_reason TEXT");
+    console.log('✅ Migration: Added void_reason column to invoices');
+  }
+
   db.exec(`CREATE TABLE IF NOT EXISTS invoice_adjustments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id INTEGER NOT NULL,

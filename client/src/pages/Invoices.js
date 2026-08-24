@@ -797,11 +797,10 @@ export default function Invoices() {
   };
 
   const handleVoid = async (invoice) => {
-    if (!window.confirm(`Void Invoice #${invoice.invoice_number}? This will mark the invoice as voided and exclude it from outstanding balances.`)) {
-      return;
-    }
+    const reason = window.prompt(`Void Invoice #${invoice.invoice_number}?\n\nThis will exclude it from outstanding balances.\n\nEnter a reason (optional):`);
+    if (reason === null) return;
     try {
-      await apiFetch(`/invoices/${invoice.id}/void`, { method: 'PUT' });
+      await apiFetch(`/invoices/${invoice.id}/void`, { method: 'PUT', body: { reason: reason || '' } });
       await loadData();
     } catch (e) {
       alert('Error: ' + e.message);
@@ -1963,8 +1962,11 @@ export default function Invoices() {
                         {formatCurrency(balance)}
                       </td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {getStatusBadge(getStatus(inv))}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span title={inv.void_reason || undefined}>{getStatusBadge(getStatus(inv))}</span>
+                          {inv.void_reason && inv.status === 'voided' && (
+                            <span style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic', width: '100%' }}>{inv.void_reason}</span>
+                          )}
                           {inv.emailed_at && (
                             <span title={`Emailed ${new Date(inv.emailed_at).toLocaleDateString()}`} style={{ color: '#16a34a', fontSize: 13 }}>✉</span>
                           )}
