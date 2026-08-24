@@ -4064,8 +4064,10 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
           break;
         case 'EA':
           if (poQuantity && poUnitPrice) {
-            quantity = String(poQuantity);
-            unitPrice = Number(poUnitPrice).toFixed(2);
+            const perUnit = Number(poUnitPrice);
+            unitPrice = perUnit.toFixed(2);
+            const invoiceAmount = item.amount || 0;
+            quantity = perUnit > 0 ? String(Math.round(invoiceAmount / perUnit)) : '1';
           } else {
             quantity = item.hours ? item.hours.toFixed(2) : '1';
             unitPrice = item.rate ? item.rate.toFixed(2) : item.amount ? item.amount.toFixed(2) : '0.00';
