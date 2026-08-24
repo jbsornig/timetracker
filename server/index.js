@@ -4148,20 +4148,20 @@ function parseEdiResponse(content) {
     if (fileType === '997' && seg[0] === 'AK5') {
       const status = seg[1];
       let invoiceNumber = null;
-      // Walk back to find AK1 which has the group info, then AK2 for transaction set
+      let gsControlNumber = null;
       for (let j = i - 1; j >= 0; j--) {
-        if (segments[j][0] === 'AK2' && segments[j][1] === '810') {
+        if (segments[j][0] === 'AK1') {
+          gsControlNumber = segments[j][2] || null;
           break;
         }
         if (segments[j][0] === 'ST') break;
       }
-      // For 997, we need to match via the GS control number or transaction set number
-      // 997s acknowledge entire functional groups, so we mark by matching ISA/GS info
       const errorCode = status === 'R' ? (seg[2] || '') : '';
       results.push({
         type: '997',
         status: status === 'A' ? 'accepted' : 'rejected',
         invoiceNumber,
+        gsControlNumber,
         errorCode,
         errorMessage: status === 'R' ? `997 Rejected: error code ${errorCode}` : ''
       });
@@ -4218,6 +4218,13 @@ app.post('/api/invoices/upload-edi-response', auth, adminOnly, ediUpload.array('
 
       for (const result of parsed) {
         let matched = false;
+        if (!result.invoiceNumber && result.gsControlNumber) {
+          const invoiceId = parseInt(result.gsControlNumber, 10);
+          if (invoiceId) {
+            const inv = db.prepare('SELECT invoice_number FROM invoices WHERE id = ?').get(invoiceId);
+            if (inv) result.invoiceNumber = inv.invoice_number;
+          }
+        }
         if (result.invoiceNumber) {
           const invoice = db.prepare('SELECT id, invoice_number FROM invoices WHERE invoice_number = ?').get(result.invoiceNumber);
           if (invoice) {
