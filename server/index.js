@@ -842,9 +842,12 @@ app.post('/api/parse-po', auth, adminOnly, poUpload.single('file'), async (req, 
 
     const isMercedes = text.includes('Mercedes-Benz') || text.includes('MBUSI') || text.includes('Document Number:\n');
     const isFCA = text.includes('Plant Code:') || text.includes('Chrysler') || text.includes('Stellantis');
+    const isAlabama = text.includes('State of Alabama') && text.includes('Division of Procurement');
 
     let result;
-    if (isMercedes && !isFCA) {
+    if (isAlabama) {
+      result = parseAlabamaPoPdf(text);
+    } else if (isMercedes && !isFCA) {
       result = parseMercedesPoPdf(text);
     } else {
       result = parseFcaPoPdf(text);
@@ -856,6 +859,70 @@ app.post('/api/parse-po', auth, adminOnly, poUpload.single('file'), async (req, 
     res.status(500).json({ error: 'Failed to parse PO PDF: ' + err.message });
   }
 });
+
+function parseAlabamaPoPdf(text) {
+  const poMatch = text.match(/ORDER\s*#\s*(PO\d+)/);
+  const poNumber = poMatch ? poMatch[1] : '';
+
+  const dateMatch = text.match(/ORDER\s*#\s*PO\d+\s*\n([\d/]+)/);
+  const poDate = dateMatch ? dateMatch[1] : '';
+
+  let description = '';
+  const descMatch = text.match(/TOTAL\n\d+([A-Z][\s\S]*?)(?:\nComments:|\n-)/);
+  if (descMatch) {
+    description = descMatch[1].trim().split('\n')[0].trim();
+  }
+
+  let netAmount = '';
+  const totalMatch = text.match(/Total\s+([\d,.]+)\s*USD/);
+  if (totalMatch) netAmount = totalMatch[1].replace(/,/g, '');
+
+  let unitPrice = '';
+  let quantity = '';
+
+  const priceMatch = text.match(/\@\s*\n?\$\s*([\d,.]+)/);
+  if (priceMatch) {
+    unitPrice = priceMatch[1].replace(/,/g, '');
+  }
+
+  if (!netAmount) {
+    const amtMatch = text.match(/Total\s+([\d,.]+)\s*USD/);
+    if (amtMatch) netAmount = amtMatch[1].replace(/,/g, '');
+  }
+
+  if (unitPrice && netAmount) {
+    const up = parseFloat(unitPrice);
+    const na = parseFloat(netAmount);
+    if (up > 0) quantity = Math.round(na / up).toString();
+  }
+
+  let requesterName = '';
+  let requesterEmail = '';
+  const reqMatch = text.match(/Requestor:\s*(.+?)(?:\n|$)/);
+  if (reqMatch) requesterName = reqMatch[1].trim();
+  const emailMatch = text.match(/Email:\s*([\w.@-]+)/);
+  if (emailMatch) requesterEmail = emailMatch[1].trim();
+
+  let location = '';
+  const deliverMatch = text.match(/DELIVER TO[\s\S]*?Address:\s*([\s\S]*?)(?:\n\s*UNITED STATES)/);
+  if (deliverMatch) {
+    location = deliverMatch[1].replace(/\n/g, ', ').replace(/\s{2,}/g, ' ').replace(/,\s*,/g, ',').trim();
+  }
+
+  return {
+    po_number: poNumber,
+    name: description,
+    edi_plant_code: '',
+    edi_uom: '',
+    po_amount: netAmount ? parseFloat(netAmount).toFixed(2) : (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
+    unit_price: unitPrice ? parseFloat(unitPrice).toFixed(2) : '',
+    quantity: quantity,
+    location: location,
+    po_date: poDate,
+    requester_name: requesterName,
+    requester_email: requesterEmail,
+  };
+}
 
 function parseFcaPoPdf(text) {
   const poMatch = text.match(/Purchase Order:\s*(\d+)/);
