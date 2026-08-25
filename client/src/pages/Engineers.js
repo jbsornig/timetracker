@@ -273,6 +273,19 @@ export default function Engineers() {
           <div className="page-subtitle">Manage admin and engineer accounts</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => {
+            const token = localStorage.getItem('tt_token');
+            fetch('/api/users/export-csv', { headers: { 'Authorization': 'Bearer ' + token } })
+              .then(r => r.blob())
+              .then(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `UTech_Users_Export_${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              });
+          }}>Export CSV</button>
           <button className="btn btn-secondary" onClick={() => openAdd('admin')}>+ Add Admin</button>
           <button className="btn btn-primary" onClick={() => openAdd('engineer')}>+ Add Engineer</button>
         </div>

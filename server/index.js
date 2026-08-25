@@ -516,6 +516,46 @@ app.get('/api/users', auth, adminOnly, (req, res) => {
   res.json(masked);
 });
 
+app.get('/api/users/export-csv', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const users = db.prepare('SELECT name, email, role, engineer_id, phone, carrier, address, city, state, zip, start_date, active, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, last_login FROM users ORDER BY role, name').all();
+
+  const csvEscape = (val) => {
+    if (val == null || val === '') return '';
+    const str = String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  };
+
+  const headers = ['Name','Email','Role','Engineer ID','Phone','Carrier','Address','City','State','Zip','Start Date','Active','Holiday Eligible','Holiday Rate','Pay Delay Months','Tax ID','Bank Routing','Bank Account','Account Type','Bank Routing 2','Bank Account 2','Account Type 2','Split 1 %','Split 2 %','Last Login'];
+  const rows = [headers.join(',')];
+
+  for (const u of users) {
+    const taxId = decryptTaxId(u.tax_id);
+    rows.push([
+      u.name, u.email, u.role, u.engineer_id || '', u.phone || '', u.carrier || '',
+      u.address || '', u.city || '', u.state || '', u.zip || '', u.start_date || '',
+      u.active === 0 ? 'No' : 'Yes',
+      u.holiday_pay_eligible ? 'Yes' : 'No',
+      u.holiday_pay_rate || '',
+      u.pay_delay_months || '',
+      taxId || '',
+      u.bank_routing || '', u.bank_account || '', u.bank_account_type || '',
+      u.bank_routing_2 || '', u.bank_account_2 || '', u.bank_account_type_2 || '',
+      u.bank_pct_1 ?? 100, u.bank_pct_2 ?? 0,
+      u.last_login || 'Never'
+    ].map(csvEscape).join(','));
+  }
+
+  const csv = rows.join('\r\n');
+  const date = new Date().toISOString().split('T')[0];
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="UTech_Users_Export_${date}.csv"`);
+  res.send(csv);
+});
+
 app.post('/api/users', auth, adminOnly, (req, res) => {
   const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
           address, city, state, zip, start_date, phone, carrier, tax_id,
