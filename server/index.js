@@ -1369,6 +1369,13 @@ app.get('/api/timesheets', auth, (req, res) => {
   if (week_ending) { query += ' AND ts.week_ending = ?'; params.push(week_ending); }
   if (project_id) { query += ' AND ts.project_id = ?'; params.push(project_id); }
   if (status) { query += ' AND ts.status = ?'; params.push(status); }
+  if (period_start && period_end) {
+    query += ` AND (
+      (ts.period_start IS NOT NULL AND ts.period_start <= ? AND ts.period_end >= ?)
+      OR (ts.period_start IS NULL AND ts.week_ending >= date(?, '-6 days') AND date(ts.week_ending, '-6 days') <= ?)
+    )`;
+    params.push(period_end, period_start, period_start, period_end);
+  }
   query += ' GROUP BY ts.id ORDER BY ts.week_ending DESC, u.name';
   let results = db.prepare(query).all(...params);
 

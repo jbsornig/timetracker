@@ -494,21 +494,18 @@ export default function Timesheets() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [ts, projs, printSettings] = await Promise.all([
-          apiFetch('/timesheets'),
+        const promises = [
           apiFetch('/projects'),
           apiFetch('/settings/print'),
-        ]);
-        setTimesheets(ts);
-        setProjects(projs);
-        setSettings(printSettings);
+        ];
         if (isAdmin) {
-          const [users, fullSettings] = await Promise.all([
-            apiFetch('/users'),
-            apiFetch('/settings'),
-          ]);
-          setEngineers(users.filter((u) => u.role === 'engineer' && u.active !== 0));
-          setSettings(fullSettings);
+          promises.push(apiFetch('/users'), apiFetch('/settings'));
+        }
+        const results = await Promise.all(promises);
+        setProjects(results[0]);
+        setSettings(isAdmin ? results[3] : results[1]);
+        if (isAdmin) {
+          setEngineers(results[2].filter((u) => u.role === 'engineer' && u.active !== 0));
         }
       } catch (e) {
         setError(e.message);
