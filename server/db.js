@@ -920,6 +920,27 @@ function initSchema() {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
   )`);
+
+  const indexes = [
+    'CREATE INDEX IF NOT EXISTS idx_timesheets_user_id ON timesheets(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_timesheets_project_id ON timesheets(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_timesheets_week_ending ON timesheets(week_ending)',
+    'CREATE INDEX IF NOT EXISTS idx_timesheets_status ON timesheets(status)',
+    'CREATE INDEX IF NOT EXISTS idx_timesheet_entries_timesheet_id ON timesheet_entries(timesheet_id)',
+    'CREATE INDEX IF NOT EXISTS idx_timesheet_entries_entry_date ON timesheet_entries(entry_date)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_project_id ON invoices(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)',
+    'CREATE INDEX IF NOT EXISTS idx_projects_customer_id ON projects(customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)',
+    'CREATE INDEX IF NOT EXISTS idx_projects_po_number ON projects(po_number)',
+    'CREATE INDEX IF NOT EXISTS idx_engineer_projects_user_id ON engineer_projects(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_engineer_projects_project_id ON engineer_projects(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_invoice_id ON payments(invoice_id)',
+    'CREATE INDEX IF NOT EXISTS idx_engineer_payments_user_id ON engineer_payments(user_id)',
+  ];
+  for (const sql of indexes) {
+    try { db.exec(sql); } catch (e) { /* table may not exist yet */ }
+  }
 }
 
 function replaceDatabase(newDbPath) {

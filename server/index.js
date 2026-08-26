@@ -7840,6 +7840,10 @@ async function generateInvoicePdf(invoiceId, outputPath) {
   return outputPath;
 }
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
 // Catch-all: serve React app for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
@@ -7848,4 +7852,16 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+
+  const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+  if (RENDER_URL) {
+    const KEEP_ALIVE_INTERVAL = 10 * 60 * 1000;
+    setInterval(() => {
+      const http = require(RENDER_URL.startsWith('https') ? 'https' : 'http');
+      http.get(`${RENDER_URL}/api/health`, () => {}).on('error', () => {});
+    }, KEEP_ALIVE_INTERVAL);
+    console.log('✅ Keep-alive ping enabled (every 10 min)');
+  }
+});
