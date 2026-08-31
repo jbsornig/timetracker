@@ -86,6 +86,7 @@ export default function Reports() {
   const [paidSelections, setPaidSelections] = useState({});
   const [markingPaid, setMarkingPaid] = useState(false);
   const [paidForPeriod, setPaidForPeriod] = useState([]);
+  const [paidDetailData, setPaidDetailData] = useState([]);
 
   // Engineer payments state
   const [overpayments, setOverpayments] = useState([]);
@@ -189,6 +190,7 @@ export default function Reports() {
       setPayrollHolidays(response.holidays || []);
       setUnclearedAdvances(response.unclearedAdvances || []);
       setPaidForPeriod(response.paidForPeriod || []);
+      setPaidDetailData(response.paidData || []);
       setBankSplits(response.bankSplits || {});
     } catch (e) {
       setError(e.message);
@@ -1197,7 +1199,10 @@ export default function Reports() {
                   </table>
                 </div>
                 {payrollDetailEngineer && (() => {
-                  const details = payrollData.filter(r => r.engineer_name === payrollDetailEngineer);
+                  let details = payrollData.filter(r => r.engineer_name === payrollDetailEngineer);
+                  if (details.length === 0) {
+                    details = paidDetailData.filter(r => r.engineer_name === payrollDetailEngineer);
+                  }
                   const summary = payrollSummary.find(r => r.engineer_name === payrollDetailEngineer);
                   return (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setPayrollDetailEngineer(null)}>
@@ -1278,7 +1283,7 @@ export default function Reports() {
                                 {formatCurrency(details.filter(d => d.pay_type === 'hourly').reduce((s, d) => s + ((d.ot_hours || 0) * (d.ot_pay_rate || 0)), 0))}
                               </td>
                               <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 14, color: '#16a34a' }}>
-                                {formatCurrency(summary ? summary.gross_pay : details.reduce((s, d) => s + (d.total_pay || 0), 0))}
+                                {formatCurrency(details.reduce((s, d) => s + (d.total_pay || 0), 0))}
                               </td>
                             </tr>
                             {summary && summary.advance_deduction > 0 && (

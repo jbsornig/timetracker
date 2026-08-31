@@ -4440,10 +4440,11 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   }
 
   // Hourly query function — handles overtime splitting per timesheet
-  function hourlyQuery(start, end, userIds, excludeIds) {
+  function hourlyQuery(start, end, userIds, excludeIds, includePaid) {
     const idFilter = userIds.length > 0
       ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
       : '';
+    const paidFilter = includePaid ? 'AND ts.paid_date IS NOT NULL' : 'AND ts.paid_date IS NULL';
     const rows = db.prepare(`
       SELECT ts.id as ts_id, ts.ot_hours as ts_ot_hours,
              u.id as user_id, u.name as engineer_name, u.engineer_id,
@@ -4455,7 +4456,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-      WHERE ts.status = 'approved' AND ts.paid_date IS NULL AND p.project_type = 'hourly'
+      WHERE ts.status = 'approved' ${paidFilter} AND p.project_type = 'hourly'
         AND ts.id IN (
           SELECT DISTINCT te2.timesheet_id FROM timesheet_entries te2
           WHERE te2.entry_date BETWEEN ? AND ? AND te2.hours > 0
@@ -4520,10 +4521,11 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   }
 
   // Fixed monthly query function
-  function fixedMonthlyQuery(start, end, userIds, excludeIds) {
+  function fixedMonthlyQuery(start, end, userIds, excludeIds, includePaid) {
     const idFilter = userIds.length > 0
       ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
       : '';
+    const paidFilter = includePaid ? 'AND ts.paid_date IS NOT NULL' : 'AND ts.paid_date IS NULL';
     return db.prepare(`
       SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
              u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
@@ -4539,7 +4541,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-      WHERE ts.status = 'approved' AND ts.paid_date IS NULL AND p.project_type = 'fixed_monthly'
+      WHERE ts.status = 'approved' ${paidFilter} AND p.project_type = 'fixed_monthly'
         AND te.entry_date BETWEEN ? AND ? ${idFilter}
       GROUP BY u.id, p.id
       ORDER BY u.name, p.name
@@ -4547,10 +4549,11 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   }
 
   // Fixed price query function
-  function fixedPriceQuery(start, end, userIds, excludeIds) {
+  function fixedPriceQuery(start, end, userIds, excludeIds, includePaid) {
     const idFilter = userIds.length > 0
       ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
       : '';
+    const paidFilter = includePaid ? 'AND ts.paid_date IS NOT NULL' : 'AND ts.paid_date IS NULL';
     return db.prepare(`
       SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
              u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
@@ -4574,7 +4577,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
       JOIN users u ON u.id = ts.user_id
       JOIN projects p ON p.id = ts.project_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-      WHERE ts.status = 'approved' AND ts.paid_date IS NULL AND p.project_type = 'fixed_price'
+      WHERE ts.status = 'approved' ${paidFilter} AND p.project_type = 'fixed_price'
         AND ts.week_ending BETWEEN ? AND ? ${idFilter}
       ORDER BY u.name, p.name
     `).all(start, end);
@@ -4676,7 +4679,17 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     }
   }
 
-  res.json({ data, holidays, unclearedAdvances, paidForPeriod, bankSplits });
+  // Get detail breakdown for already-paid engineers (for the popup)
+  const paidUserIds = paidForPeriod.map(p => p.user_id);
+  let paidData = [];
+  if (paidUserIds.length > 0) {
+    const paidHourly = hourlyQuery(period_start, period_end, paidUserIds, false, true);
+    const paidFixed = fixedMonthlyQuery(period_start, period_end, paidUserIds, false, true);
+    const paidFP = fixedPriceQuery(period_start, period_end, paidUserIds, false, true);
+    paidData = [...paidHourly, ...paidFixed, ...paidFP];
+  }
+
+  res.json({ data, paidData, holidays, unclearedAdvances, paidForPeriod, bankSplits });
 });
 
 // ACH Export - Generate Chase CSV file for payroll (supports GET for backward compat and POST with overrides)
@@ -5429,6 +5442,7 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
 
   const timesheets = rawTimesheets.map(ts => {
     let amount;
+    let regularHrs = ts.total_hours || 0, otHrs = 0;
     if (ts.project_type === 'fixed_price') {
       amount = ts.fixed_amount || 0;
     } else if (ts.project_type === 'fixed_monthly') {
@@ -5438,7 +5452,7 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
       const otPayRate = ts.ot_pay_rate || 0;
       const otType = ts.overtime_type;
       const isMonthlyTs = ts.project_type !== 'fixed_price' && ts.requires_daily_logs === 0;
-      let regularHrs = ts.total_hours, otHrs = 0;
+      regularHrs = ts.total_hours; otHrs = 0;
 
       if (isMonthlyTs) {
         if (ts.ts_ot_hours > 0 && otPayRate > 0) {
@@ -5459,7 +5473,7 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
       }
       amount = regularHrs * payRate + otHrs * otPayRate;
     }
-    return { ...ts, amount, regular_hours: ts.total_hours - (ts.ts_ot_hours || 0), ot_hours: ts.ts_ot_hours || 0 };
+    return { ...ts, amount, regular_hours: regularHrs, ot_hours: otHrs };
   });
 
   // Calculate totals
@@ -5489,10 +5503,12 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
     }
   }
 
+  const safeTimesheets = timesheets.map(({ monthly_bill, total_payment, fixed_amount, ts_ot_hours, requires_daily_logs, overtime_type, ...safe }) => safe);
+
   res.json({
     start_date: dateStart,
     end_date: dateEnd,
-    timesheets,
+    timesheets: safeTimesheets,
     byProject: Object.values(byProject),
     summary: {
       total_hours: totalHours,

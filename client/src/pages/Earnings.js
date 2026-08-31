@@ -103,29 +103,45 @@ export default function Earnings() {
                           <th>Percentage</th>
                         ) : (
                           <>
-                            <th>Hours</th>
+                            <th>Reg Hrs</th>
                             <th>Rate</th>
+                            <th>Reg Pay</th>
+                            <th>OT Hrs</th>
+                            <th>OT Rate</th>
+                            <th>OT Pay</th>
                           </>
                         )}
-                        <th>Amount</th>
+                        <th>Total</th>
                         <th>Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {proj.timesheets.map(ts => (
+                      {proj.timesheets.map(ts => {
+                        const isFixed = proj.project_type === 'fixed_price' || proj.project_type === 'fixed_monthly';
+                        const regHrs = ts.regular_hours || ts.total_hours || 0;
+                        const otHrs = ts.ot_hours || 0;
+                        const payRate = ts.pay_rate || 0;
+                        const otPayRate = ts.ot_pay_rate || 0;
+                        const regPay = isFixed ? 0 : regHrs * payRate;
+                        const otPay = isFixed ? 0 : otHrs * otPayRate;
+                        return (
                         <tr key={ts.id}>
                           <td>
                             {proj.project_type === 'fixed_price'
                               ? `${new Date(ts.period_start + 'T00:00:00').toLocaleDateString()} - ${new Date(ts.period_end + 'T00:00:00').toLocaleDateString()}`
-                              : new Date(ts.week_ending + 'T00:00:00').toLocaleDateString()
+                              : new Date((ts.week_ending || ts.period_end) + 'T00:00:00').toLocaleDateString()
                             }
                           </td>
                           {proj.project_type === 'fixed_price' ? (
                             <td>{ts.percentage}%</td>
                           ) : (
                             <>
-                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{(ts.total_hours || 0).toFixed(2)}</td>
-                              <td style={{ fontFamily: 'DM Mono, monospace' }}>${(ts.pay_rate || 0).toFixed(2)}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{isFixed ? (ts.total_hours || 0).toFixed(2) : regHrs.toFixed(2)}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{isFixed ? '—' : `$${payRate.toFixed(2)}`}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace' }}>{isFixed ? '—' : `$${regPay.toFixed(2)}`}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', color: otHrs > 0 ? '#ea580c' : '#94a3b8' }}>{otHrs > 0 ? otHrs.toFixed(2) : '—'}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', color: otHrs > 0 ? '#ea580c' : '#94a3b8' }}>{otHrs > 0 ? `$${otPayRate.toFixed(2)}` : '—'}</td>
+                              <td style={{ fontFamily: 'DM Mono, monospace', color: otHrs > 0 ? '#ea580c' : '#94a3b8' }}>{otHrs > 0 ? `$${otPay.toFixed(2)}` : '—'}</td>
                             </>
                           )}
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 500 }}>
@@ -133,7 +149,8 @@ export default function Earnings() {
                           </td>
                           <td><span className={`badge badge-${ts.status}`}>{ts.status}</span></td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -238,34 +255,55 @@ export default function Earnings() {
                 <tr>
                   <th>Week Ending</th>
                   <th>Project</th>
-                  <th>Hours</th>
+                  <th>Reg Hrs</th>
                   <th>Rate</th>
-                  <th>Amount</th>
+                  <th>Reg Pay</th>
+                  <th>OT Hrs</th>
+                  <th>OT Rate</th>
+                  <th>OT Pay</th>
+                  <th>Total</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {data.timesheets.map(t => (
+                {data.timesheets.map(t => {
+                  const isFixed = t.project_type === 'fixed_price' || t.project_type === 'fixed_monthly';
+                  const regHrs = t.regular_hours || t.total_hours || 0;
+                  const otHrs = t.ot_hours || 0;
+                  const payRate = t.pay_rate || 0;
+                  const otPayRate = t.ot_pay_rate || 0;
+                  const regPay = isFixed ? 0 : regHrs * payRate;
+                  const otPay = isFixed ? 0 : otHrs * otPayRate;
+                  return (
                   <tr key={t.id}>
-                    <td>{new Date(t.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                    <td>{new Date((t.week_ending || t.period_end) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
                     <td>
                       {t.project_name}
                       <br />
                       <span style={{ fontSize: 12, color: '#94a3b8' }}>{t.customer_name}</span>
                     </td>
-                    <td style={{ fontFamily: 'DM Mono, monospace' }}>{(t.total_hours || 0).toFixed(2)}</td>
-                    <td style={{ fontFamily: 'DM Mono, monospace' }}>${(t.pay_rate || 0).toFixed(2)}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace' }}>{isFixed ? (t.total_hours || 0).toFixed(2) : regHrs.toFixed(2)}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace' }}>{isFixed ? '—' : `$${payRate.toFixed(2)}`}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace' }}>{isFixed ? '—' : `$${regPay.toFixed(2)}`}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace', color: otHrs > 0 ? '#ea580c' : '#94a3b8' }}>{otHrs > 0 ? otHrs.toFixed(2) : '—'}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace', color: otHrs > 0 ? '#ea580c' : '#94a3b8' }}>{otHrs > 0 ? `$${otPayRate.toFixed(2)}` : '—'}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace', color: otHrs > 0 ? '#ea580c' : '#94a3b8' }}>{otHrs > 0 ? `$${otPay.toFixed(2)}` : '—'}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: t.status === 'approved' ? '#10b981' : '#64748b' }}>
                       ${(t.amount || 0).toFixed(2)}
                     </td>
                     <td><span className={`badge badge-${t.status}`}>{t.status}</span></td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
                   <td colSpan="2">Total Approved</td>
                   <td style={{ fontFamily: 'DM Mono, monospace' }}>{(data.summary.total_hours || 0).toFixed(2)}</td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
                   <td></td>
                   <td style={{ fontFamily: 'DM Mono, monospace', color: '#10b981' }}>${(data.summary.total_earnings || 0).toFixed(2)}</td>
                   <td></td>
