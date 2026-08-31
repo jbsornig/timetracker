@@ -745,7 +745,10 @@ app.get('/api/projects', auth, (req, res) => {
                   WHERE ts.project_id = p.id AND ts.user_id = ? AND ts.status = 'approved'), 0) as my_hours_approved,
         COALESCE((SELECT SUM(i.total_amount) FROM invoices i
                   WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_invoiced,
-        COALESCE((SELECT SUM(te2.hours * ep2.bill_rate) FROM timesheet_entries te2
+        COALESCE((SELECT SUM(
+                    (te2.hours - COALESCE(ts2.ot_hours, 0)) * ep2.bill_rate
+                    + COALESCE(ts2.ot_hours, 0) * COALESCE(ep2.ot_bill_rate, ep2.bill_rate)
+                  ) FROM timesheet_entries te2
                   JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
                   LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
                   WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated,
@@ -767,7 +770,10 @@ app.get('/api/projects', auth, (req, res) => {
           WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_billed,
         COALESCE((SELECT SUM(i.amount_paid) FROM invoices i
           WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_paid,
-        COALESCE((SELECT SUM(te2.hours * ep2.bill_rate) FROM timesheet_entries te2
+        COALESCE((SELECT SUM(
+                    (te2.hours - COALESCE(ts2.ot_hours, 0)) * ep2.bill_rate
+                    + COALESCE(ts2.ot_hours, 0) * COALESCE(ep2.ot_bill_rate, ep2.bill_rate)
+                  ) FROM timesheet_entries te2
           JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
           LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
           WHERE ts2.project_id = p.id AND ts2.status IN ('submitted', 'approved')
@@ -810,7 +816,10 @@ app.get('/api/projects', auth, (req, res) => {
         COALESCE((SELECT SUM(i.total_amount) FROM invoices i
                   WHERE i.project_id = p.id AND i.voided_date IS NULL), 0) as amount_invoiced,
         -- Amount allocated (all hours * bill rate, including draft/submitted/approved)
-        COALESCE((SELECT SUM(te2.hours * ep2.bill_rate) FROM timesheet_entries te2
+        COALESCE((SELECT SUM(
+                    (te2.hours - COALESCE(ts2.ot_hours, 0)) * ep2.bill_rate
+                    + COALESCE(ts2.ot_hours, 0) * COALESCE(ep2.ot_bill_rate, ep2.bill_rate)
+                  ) FROM timesheet_entries te2
                   JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
                   LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
                   WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated,
@@ -1439,7 +1448,10 @@ app.post('/api/timesheets', auth, (req, res) => {
   } else if (project.po_amount > 0) {
     // Hourly/fixed monthly: check hours * bill_rate against PO amount
     const billed = db.prepare(`
-      SELECT COALESCE(SUM(te.hours * ep.bill_rate), 0) as total
+      SELECT COALESCE(SUM(
+        (te.hours - COALESCE(ts.ot_hours, 0)) * ep.bill_rate
+        + COALESCE(ts.ot_hours, 0) * COALESCE(ep.ot_bill_rate, ep.bill_rate)
+      ), 0) as total
       FROM timesheet_entries te
       JOIN timesheets ts ON ts.id = te.timesheet_id
       LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
@@ -1464,7 +1476,10 @@ app.post('/api/timesheets', auth, (req, res) => {
     const otBillRate = ep?.ot_bill_rate || 0;
     if (billRate > 0) {
       const allocated = db.prepare(`
-        SELECT COALESCE(SUM(te.hours * ep2.bill_rate), 0) as total
+        SELECT COALESCE(SUM(
+          (te.hours - COALESCE(ts.ot_hours, 0)) * ep2.bill_rate
+          + COALESCE(ts.ot_hours, 0) * COALESCE(ep2.ot_bill_rate, ep2.bill_rate)
+        ), 0) as total
         FROM timesheet_entries te
         JOIN timesheets ts ON ts.id = te.timesheet_id
         LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts.user_id AND ep2.project_id = ts.project_id
@@ -1808,7 +1823,10 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       COUNT(DISTINCT ts.id) as timesheet_count,
       COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN ts.amount ELSE 0 END), 0) as fixed_amount,
       COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours ELSE 0 END), 0) as total_hours,
-      COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'fixed_monthly') THEN te.hours * ep.bill_rate ELSE 0 END), 0) as hourly_amount
+      COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'fixed_monthly') THEN
+        (te.hours - COALESCE(ts.ot_hours, 0)) * ep.bill_rate
+        + COALESCE(ts.ot_hours, 0) * COALESCE(ep.ot_bill_rate, ep.bill_rate)
+      ELSE 0 END), 0) as hourly_amount
     FROM projects p
     JOIN customers c ON c.id = p.customer_id
     JOIN timesheets ts ON ts.project_id = p.id
