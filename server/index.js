@@ -4503,13 +4503,16 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
           user_id: ts.user_id, engineer_name: ts.engineer_name, engineer_id: ts.engineer_id,
           holiday_pay_eligible: ts.holiday_pay_eligible, holiday_pay_rate: ts.holiday_pay_rate,
           pay_delay_months: ts.pay_delay_months,
-          total_hours: 0, pay_rate: payRate, total_pay: 0,
-          bill_rate: billRate, total_billed: 0,
+          total_hours: 0, regular_hours: 0, ot_hours: 0,
+          pay_rate: payRate, ot_pay_rate: otPayRate, total_pay: 0,
+          bill_rate: billRate, ot_bill_rate: otBillRate, total_billed: 0,
           project_name: ts.project_name, po_number: ts.po_number,
           pay_type: 'hourly'
         };
       }
       grouped[key].total_hours += regularHrs + otHrs;
+      grouped[key].regular_hours += regularHrs;
+      grouped[key].ot_hours += otHrs;
       grouped[key].total_pay += (regularHrs * payRate) + (otHrs * otPayRate);
       grouped[key].total_billed += (regularHrs * billRate) + (otHrs * otBillRate);
     }

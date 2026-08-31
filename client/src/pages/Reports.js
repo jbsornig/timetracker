@@ -109,6 +109,7 @@ export default function Reports() {
   const [overdueData, setOverdueData] = useState([]);
   const [unclearedAdvances, setUnclearedAdvances] = useState([]);
   const [bankSplits, setBankSplits] = useState({});
+  const [payrollDetailEngineer, setPayrollDetailEngineer] = useState(null);
 
   // Profitability state
   const [profitData, setProfitData] = useState([]);
@@ -1143,7 +1144,7 @@ export default function Reports() {
                             />
                           </td>
                           <td>
-                            <strong>{row.engineer_name}</strong>
+                            <strong style={{ cursor: 'pointer', color: 'var(--primary)', textDecoration: 'underline' }} onClick={() => setPayrollDetailEngineer(row.engineer_name)}>{row.engineer_name}</strong>
                             {isPaid && (
                               <>
                                 <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>PAID</span>
@@ -1195,6 +1196,110 @@ export default function Reports() {
                     </tfoot>
                   </table>
                 </div>
+                {payrollDetailEngineer && (() => {
+                  const details = payrollData.filter(r => r.engineer_name === payrollDetailEngineer);
+                  const summary = payrollSummary.find(r => r.engineer_name === payrollDetailEngineer);
+                  return (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setPayrollDetailEngineer(null)}>
+                      <div style={{ background: 'var(--bg)', borderRadius: 12, padding: 24, maxWidth: 800, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                          <h3 style={{ margin: 0, fontSize: 18 }}>Pay Breakdown: {payrollDetailEngineer}</h3>
+                          <button onClick={() => setPayrollDetailEngineer(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px 8px' }}>&times;</button>
+                        </div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                              <th style={{ textAlign: 'left', padding: '8px 6px', fontSize: 13 }}>Project</th>
+                              <th style={{ textAlign: 'left', padding: '8px 6px', fontSize: 13 }}>Type</th>
+                              <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>Reg Hrs</th>
+                              <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>Rate</th>
+                              <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>Reg Pay</th>
+                              <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>OT Hrs</th>
+                              <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>OT Rate</th>
+                              <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>OT Pay</th>
+                              <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13, fontWeight: 700 }}>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {details.map((d, i) => {
+                              const regHrs = d.regular_hours || d.total_hours || 0;
+                              const otHrs = d.ot_hours || 0;
+                              const payRate = d.pay_rate || 0;
+                              const otPayRate = d.ot_pay_rate || 0;
+                              const regPay = d.pay_type === 'hourly' ? regHrs * payRate : 0;
+                              const otPay = d.pay_type === 'hourly' ? otHrs * otPayRate : 0;
+                              const isFixed = d.pay_type !== 'hourly';
+                              return (
+                                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '8px 6px', fontSize: 13 }}>{d.project_name}</td>
+                                  <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    {d.is_holiday_pay ? 'Holiday' : d.pay_type === 'fixed_monthly' ? 'Fixed Mo.' : d.pay_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                                    {isFixed ? (d.total_hours || 0).toFixed(2) : regHrs.toFixed(2)}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                                    {isFixed ? '—' : formatCurrency(payRate)}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                                    {isFixed ? '—' : formatCurrency(regPay)}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: otHrs > 0 ? '#ea580c' : 'var(--text-secondary)' }}>
+                                    {otHrs > 0 ? otHrs.toFixed(2) : '—'}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: otHrs > 0 ? '#ea580c' : 'var(--text-secondary)' }}>
+                                    {otHrs > 0 ? formatCurrency(otPayRate) : '—'}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: otHrs > 0 ? '#ea580c' : 'var(--text-secondary)' }}>
+                                    {otHrs > 0 ? formatCurrency(otPay) : '—'}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600 }}>
+                                    {formatCurrency(d.total_pay || 0)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                              <td colSpan={2} style={{ padding: '10px 6px', fontSize: 14 }}>Total</td>
+                              <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                                {details.reduce((s, d) => s + (d.regular_hours || d.total_hours || 0), 0).toFixed(2)}
+                              </td>
+                              <td></td>
+                              <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                                {formatCurrency(details.filter(d => d.pay_type === 'hourly').reduce((s, d) => s + ((d.regular_hours || d.total_hours || 0) * (d.pay_rate || 0)), 0))}
+                              </td>
+                              <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#ea580c' }}>
+                                {details.reduce((s, d) => s + (d.ot_hours || 0), 0).toFixed(2)}
+                              </td>
+                              <td></td>
+                              <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#ea580c' }}>
+                                {formatCurrency(details.filter(d => d.pay_type === 'hourly').reduce((s, d) => s + ((d.ot_hours || 0) * (d.ot_pay_rate || 0)), 0))}
+                              </td>
+                              <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 14, color: '#16a34a' }}>
+                                {formatCurrency(summary ? summary.gross_pay : details.reduce((s, d) => s + (d.total_pay || 0), 0))}
+                              </td>
+                            </tr>
+                            {summary && summary.advance_deduction > 0 && (
+                              <tr>
+                                <td colSpan={8} style={{ textAlign: 'right', padding: '6px 6px', fontSize: 13, color: '#dc2626' }}>Advance Deduction:</td>
+                                <td style={{ textAlign: 'right', padding: '6px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#dc2626' }}>({formatCurrency(summary.advance_deduction)})</td>
+                              </tr>
+                            )}
+                            {summary && summary.advance_deduction > 0 && (
+                              <tr style={{ borderTop: '1px solid var(--border)' }}>
+                                <td colSpan={8} style={{ textAlign: 'right', padding: '8px 6px', fontSize: 14, fontWeight: 700 }}>Net Pay:</td>
+                                <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 700, color: '#16a34a' }}>{formatCurrency(summary.total_pay)}</td>
+                              </tr>
+                            )}
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {Object.values(paidSelections).some(v => v) && (() => {
                   const selectedEngineers = payrollSummary.filter(r => paidSelections[r.engineer_name]);
                   const selectedTotal = selectedEngineers.reduce((sum, r) => sum + r.total_pay, 0);
