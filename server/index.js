@@ -2094,9 +2094,11 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
         const otType = invoice.overtime_type;
         const otBillRate = ts.ot_bill_rate || 0;
         const isMonthlyTs = invoice.project_type !== 'fixed_price' && invoice.requires_daily_logs === 0;
-        if (isMonthlyTs && otType && otType !== 'none' && ts.ot_hours > 0) {
-          otHrs = ts.ot_hours;
-          regularHrs = hrs - otHrs;
+        if (isMonthlyTs) {
+          if (ts.ot_hours > 0 && otBillRate > 0) {
+            otHrs = ts.ot_hours;
+            regularHrs = hrs - otHrs;
+          }
         } else if (otType === 'weekly_40' && hrs > 40 && otBillRate > 0) {
           regularHrs = 40;
           otHrs = hrs - 40;
@@ -2700,10 +2702,11 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         const otType = project.overtime_type;
         const otBillRate = ts.ot_bill_rate || 0;
         const isMonthlyTs = project.requires_daily_logs === 0;
-        if (isMonthlyTs && otType && otType !== 'none' && ts.ot_hours > 0) {
-          // Monthly OT: use explicitly entered OT hours from timesheet
-          otHrs = ts.ot_hours;
-          regularHrs = hrs - otHrs;
+        if (isMonthlyTs) {
+          if (ts.ot_hours > 0 && otBillRate > 0) {
+            otHrs = ts.ot_hours;
+            regularHrs = hrs - otHrs;
+          }
         } else if (otType === 'weekly_40' && hrs > 40 && otBillRate > 0) {
           regularHrs = 40;
           otHrs = hrs - 40;
@@ -4459,9 +4462,11 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
       const isMonthlyTs = ts.requires_daily_logs === 0;
       let regularHrs = totalHrs, otHrs = 0;
 
-      if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
-        otHrs = ts.ts_ot_hours;
-        regularHrs = totalHrs - otHrs;
+      if (isMonthlyTs) {
+        if (ts.ts_ot_hours > 0 && otPayRate > 0) {
+          otHrs = ts.ts_ot_hours;
+          regularHrs = totalHrs - otHrs;
+        }
       } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
         regularHrs = 40;
         otHrs = totalHrs - 40;
@@ -5284,9 +5289,11 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
       const isMonthlyTs = ts.requires_daily_logs === 0;
       let regularHrs = totalHrs, otHrs = 0;
 
-      if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
-        otHrs = ts.ts_ot_hours;
-        regularHrs = totalHrs - otHrs;
+      if (isMonthlyTs) {
+        if (ts.ts_ot_hours > 0 && otPayRate > 0) {
+          otHrs = ts.ts_ot_hours;
+          regularHrs = totalHrs - otHrs;
+        }
       } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
         regularHrs = 40;
         otHrs = totalHrs - 40;
@@ -5412,10 +5419,11 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
       const isMonthlyTs = ts.project_type !== 'fixed_price' && ts.requires_daily_logs === 0;
       let regularHrs = ts.total_hours, otHrs = 0;
 
-      if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
-        // Monthly OT: use the explicitly entered ST/OT hours
-        otHrs = ts.ts_ot_hours;
-        regularHrs = ts.total_hours - otHrs;
+      if (isMonthlyTs) {
+        if (ts.ts_ot_hours > 0 && otPayRate > 0) {
+          otHrs = ts.ts_ot_hours;
+          regularHrs = ts.total_hours - otHrs;
+        }
       } else if (otType === 'weekly_40' && ts.total_hours > 40 && otPayRate > 0) {
         regularHrs = 40;
         otHrs = ts.total_hours - 40;
@@ -5886,9 +5894,11 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
     const isMonthlyTs = ts.requires_daily_logs === 0;
     let regularHrs = totalHrs, otHrs = 0;
 
-    if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
-      otHrs = ts.ts_ot_hours;
-      regularHrs = totalHrs - otHrs;
+    if (isMonthlyTs) {
+      if (ts.ts_ot_hours > 0 && otPayRate > 0) {
+        otHrs = ts.ts_ot_hours;
+        regularHrs = totalHrs - otHrs;
+      }
     } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
       regularHrs = 40;
       otHrs = totalHrs - 40;
@@ -6096,9 +6106,11 @@ app.get('/api/reports/year-end', auth, adminOnly, (req, res) => {
     const otPayRate = ts.ot_pay_rate || 0;
     const isMonthlyTs = ts.requires_daily_logs === 0;
     let regularHrs = totalHrs, otHrs = 0;
-    if (isMonthlyTs && otType && otType !== 'none' && ts.ts_ot_hours > 0) {
-      otHrs = ts.ts_ot_hours;
-      regularHrs = totalHrs - otHrs;
+    if (isMonthlyTs) {
+      if (ts.ts_ot_hours > 0 && otPayRate > 0) {
+        otHrs = ts.ts_ot_hours;
+        regularHrs = totalHrs - otHrs;
+      }
     } else if (otType === 'weekly_40' && totalHrs > 40 && otPayRate > 0) {
       regularHrs = 40;
       otHrs = totalHrs - 40;
