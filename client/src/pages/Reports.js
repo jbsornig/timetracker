@@ -1210,11 +1210,19 @@ export default function Reports() {
                     details = paidDetailData.filter(r => r.engineer_name === payrollDetailEngineer);
                   }
                   const summary = payrollSummary.find(r => r.engineer_name === payrollDetailEngineer);
+                  const paidRecord = paidForPeriod.find(p => p.engineer_name === payrollDetailEngineer);
                   return (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setPayrollDetailEngineer(null)}>
                       <div style={{ background: 'var(--bg)', borderRadius: 12, padding: 24, maxWidth: 800, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                          <h3 style={{ margin: 0, fontSize: 18 }}>Pay Breakdown: {payrollDetailEngineer}</h3>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: 18 }}>Pay Breakdown: {payrollDetailEngineer}</h3>
+                            {paidRecord && (
+                              <div style={{ fontSize: 13, color: '#16a34a', marginTop: 4 }}>
+                                Paid {formatCurrency(paidRecord.amount)} on {formatDate(paidRecord.payment_date)}
+                              </div>
+                            )}
+                          </div>
                           <button onClick={() => setPayrollDetailEngineer(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px 8px' }}>&times;</button>
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
