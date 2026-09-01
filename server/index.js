@@ -5524,11 +5524,19 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
 
   const safeTimesheets = timesheets.map(({ monthly_bill, total_payment, fixed_amount, ts_ot_hours, requires_daily_logs, overtime_type, ...safe }) => safe);
 
+  const payments = db.prepare(`
+    SELECT id, amount, payment_date, payment_type, period_start, period_end, payment_method, notes
+    FROM engineer_payments
+    WHERE user_id = ? AND payment_date BETWEEN ? AND ?
+    ORDER BY payment_date DESC
+  `).all(req.user.id, dateStart, dateEnd);
+
   res.json({
     start_date: dateStart,
     end_date: dateEnd,
     timesheets: safeTimesheets,
     byProject: Object.values(byProject),
+    payments,
     summary: {
       total_hours: totalHours,
       total_earnings: totalEarnings,

@@ -158,6 +158,50 @@ export default function Earnings() {
             ))
           )}
 
+          {reportData.payments?.length > 0 && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>Payments Received</div>
+              <div className="table-wrap">
+                <table style={{ fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th>Payment Date</th>
+                      <th>Period</th>
+                      <th>Type</th>
+                      <th>Method</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportData.payments.map(p => (
+                      <tr key={p.id}>
+                        <td>{new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                        <td style={{ color: '#64748b' }}>
+                          {p.period_start && p.period_end
+                            ? `${new Date(p.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(p.period_end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                            : '—'}
+                        </td>
+                        <td style={{ textTransform: 'capitalize' }}>{(p.payment_type || 'payroll').replace(/_/g, ' ')}</td>
+                        <td style={{ textTransform: 'capitalize' }}>{(p.payment_method || '').replace(/_/g, ' ') || '—'}</td>
+                        <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>
+                          ${(p.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
+                      <td colSpan="4">Total Paid</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', color: '#10b981' }}>
+                        ${reportData.payments.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="card" style={{ background: '#f0fdf4', borderColor: '#10b981' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontWeight: 600, fontSize: 18 }}>Total Earnings</div>
@@ -241,6 +285,50 @@ export default function Earnings() {
           Generate a printable report of your earnings sorted by project for any date range.
         </div>
       </div>
+
+      {data?.payments?.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-title">{year} Payments Received</div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Payment Date</th>
+                  <th>Period</th>
+                  <th>Type</th>
+                  <th>Method</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.payments.map(p => (
+                  <tr key={p.id}>
+                    <td>{new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                    <td style={{ fontSize: 13, color: '#64748b' }}>
+                      {p.period_start && p.period_end
+                        ? `${new Date(p.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(p.period_end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                        : '—'}
+                    </td>
+                    <td style={{ textTransform: 'capitalize' }}>{(p.payment_type || 'payroll').replace(/_/g, ' ')}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{(p.payment_method || '').replace(/_/g, ' ') || '—'}</td>
+                    <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>
+                      ${(p.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#f8fafc', fontWeight: 600 }}>
+                  <td colSpan="4">Total Paid</td>
+                  <td style={{ fontFamily: 'DM Mono, monospace', color: '#10b981' }}>
+                    ${data.payments.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-title">{year} Timesheet Details</div>
