@@ -753,14 +753,14 @@ app.get('/api/projects', auth, (req, res) => {
                   LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
                   WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated,
         COALESCE((SELECT SUM(ts3.amount) FROM timesheets ts3
-                  WHERE ts3.project_id = p.id AND ts3.status IN ('draft', 'submitted', 'approved')), 0) as amount_claimed
+                  WHERE ts3.project_id = p.id AND ts3.user_id = ? AND ts3.status IN ('draft', 'submitted', 'approved')), 0) as amount_claimed
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
       JOIN engineer_projects ep ON ep.project_id = p.id AND ep.user_id = ?
       WHERE p.status = 'active'
       ORDER BY c.name, p.name
-    `).all(forUserId, forUserId);
+    `).all(forUserId, forUserId, forUserId);
   } else if (req.user.role === 'admin') {
     // For admin, compute amount_billed, amount_paid, and amount_allocated from timesheets/invoices
     projects = db.prepare(`
@@ -823,16 +823,16 @@ app.get('/api/projects', auth, (req, res) => {
                   JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
                   LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
                   WHERE ts2.project_id = p.id AND ts2.status IN ('draft', 'submitted', 'approved')), 0) as amount_allocated,
-        -- Fixed price: total claimed via timesheets
+        -- Fixed price: total claimed via timesheets (this engineer only)
         COALESCE((SELECT SUM(ts3.amount) FROM timesheets ts3
-                  WHERE ts3.project_id = p.id AND ts3.status IN ('draft', 'submitted', 'approved')), 0) as amount_claimed
+                  WHERE ts3.project_id = p.id AND ts3.user_id = ? AND ts3.status IN ('draft', 'submitted', 'approved')), 0) as amount_claimed
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
       JOIN engineer_projects ep ON ep.project_id = p.id AND ep.user_id = ?
       WHERE p.status = 'active'
       ORDER BY c.name, p.name
-    `).all(req.user.id, req.user.id, req.user.id);
+    `).all(req.user.id, req.user.id, req.user.id, req.user.id);
   }
   res.json(projects);
 });
