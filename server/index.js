@@ -4211,13 +4211,8 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
           break;
         case 'LO':
         case 'PCE':
-          if (item.hours && item.rate) {
-            quantity = item.hours.toFixed(2);
-            unitPrice = item.rate.toFixed(2);
-          } else {
-            quantity = '1';
-            unitPrice = item.amount ? item.amount.toFixed(2) : '0.00';
-          }
+          quantity = '1';
+          unitPrice = item.amount ? item.amount.toFixed(2) : '0.00';
           break;
         default:
           quantity = item.hours ? item.hours.toFixed(2) : '1';
