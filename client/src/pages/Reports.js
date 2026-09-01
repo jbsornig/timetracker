@@ -1205,10 +1205,9 @@ export default function Reports() {
                   </table>
                 </div>
                 {payrollDetailEngineer && (() => {
-                  let details = payrollData.filter(r => r.engineer_name === payrollDetailEngineer);
-                  if (details.length === 0) {
-                    details = paidDetailData.filter(r => r.engineer_name === payrollDetailEngineer);
-                  }
+                  const unpaidDetails = payrollData.filter(r => r.engineer_name === payrollDetailEngineer);
+                  const paidDetails = paidDetailData.filter(r => r.engineer_name === payrollDetailEngineer);
+                  const details = [...unpaidDetails, ...paidDetails];
                   const summary = payrollSummary.find(r => r.engineer_name === payrollDetailEngineer);
                   const paidRecord = paidForPeriod.find(p => p.engineer_name === payrollDetailEngineer);
                   return (
