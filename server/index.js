@@ -6893,6 +6893,102 @@ app.get('/api/my-payments', auth, (req, res) => {
   res.json(payments);
 });
 
+app.get('/api/my-payments/:id/details', auth, (req, res) => {
+  const db = getDb();
+  const payment = db.prepare('SELECT * FROM engineer_payments WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!payment) return res.status(404).json({ error: 'Payment not found' });
+
+  const { period_start, period_end } = payment;
+  if (!period_start || !period_end) return res.json({ payment, details: [] });
+
+  const userId = req.user.id;
+  const userInfo = db.prepare('SELECT pay_delay_months FROM users WHERE id = ?').get(userId);
+  const delayMonths = userInfo?.pay_delay_months || 0;
+
+  let tsStart = period_start, tsEnd = period_end;
+  if (delayMonths > 0) {
+    const shifted = getShiftedMonthRange(period_start, delayMonths);
+    tsStart = shifted.start;
+    tsEnd = shifted.end;
+  }
+
+  const rawTimesheets = db.prepare(`
+    SELECT ts.id, ts.week_ending, ts.status, ts.period_start, ts.period_end, ts.percentage, ts.amount as fixed_amount,
+           ts.ot_hours as ts_ot_hours, p.requires_daily_logs,
+           p.id as project_id, p.name as project_name, p.project_type, p.overtime_type, c.name as customer_name,
+           COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) as total_hours,
+           ep.pay_rate, ep.ot_pay_rate, ep.total_payment, ep.monthly_pay
+    FROM timesheets ts
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.user_id = ?
+    AND ts.status = 'approved'
+    AND (
+      (p.project_type != 'fixed_price' AND EXISTS (
+        SELECT 1 FROM timesheet_entries te2 WHERE te2.timesheet_id = ts.id AND te2.entry_date BETWEEN ? AND ?
+      ))
+      OR (p.project_type = 'fixed_price' AND (
+        ts.week_ending BETWEEN ? AND ?
+        OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
+      ))
+    )
+    GROUP BY ts.id
+    ORDER BY p.name, ts.week_ending, ts.period_end
+  `).all(tsStart, tsEnd, userId, tsStart, tsEnd, tsStart, tsEnd, tsStart, tsEnd);
+
+  const details = rawTimesheets.map(ts => {
+    let amount, payType = 'hourly';
+    let regularHrs = ts.total_hours || 0, otHrs = 0;
+    if (ts.project_type === 'fixed_price') {
+      amount = ts.fixed_amount || 0;
+      payType = 'fixed_price';
+    } else if (ts.project_type === 'fixed_monthly') {
+      amount = ts.monthly_pay || 0;
+      payType = 'fixed_monthly';
+    } else {
+      const payRate = ts.pay_rate || 0;
+      const otPayRate = ts.ot_pay_rate || 0;
+      const otType = ts.overtime_type;
+      const isMonthlyTs = ts.project_type !== 'fixed_price' && ts.requires_daily_logs === 0;
+      regularHrs = ts.total_hours; otHrs = 0;
+
+      if (isMonthlyTs) {
+        if (ts.ts_ot_hours > 0 && otPayRate > 0) {
+          otHrs = ts.ts_ot_hours;
+          regularHrs = ts.total_hours - otHrs;
+        }
+      } else if (otType === 'weekly_40' && ts.total_hours > 40 && otPayRate > 0) {
+        regularHrs = 40;
+        otHrs = ts.total_hours - 40;
+      } else if (otType === 'daily_8' && otPayRate > 0) {
+        const entries = db.prepare('SELECT hours FROM timesheet_entries WHERE timesheet_id = ? AND entry_date BETWEEN ? AND ?').all(ts.id, tsStart, tsEnd);
+        regularHrs = 0; otHrs = 0;
+        for (const e of entries) {
+          const h = e.hours || 0;
+          regularHrs += Math.min(h, 8);
+          otHrs += Math.max(0, h - 8);
+        }
+      }
+      amount = regularHrs * payRate + otHrs * otPayRate;
+    }
+    return {
+      project_name: ts.project_name,
+      customer_name: ts.customer_name,
+      pay_type: payType,
+      total_hours: ts.total_hours,
+      regular_hours: regularHrs,
+      ot_hours: otHrs,
+      pay_rate: ts.pay_rate || 0,
+      ot_pay_rate: ts.ot_pay_rate || 0,
+      total_pay: amount,
+    };
+  });
+
+  res.json({ payment, details });
+});
+
 // ─── PURCHASE ORDERS ──────────────────────────────────────────────────────────
 
 // Vendors CRUD

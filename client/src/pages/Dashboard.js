@@ -14,6 +14,8 @@ export default function Dashboard({ setPage }) {
   const [overpayments, setOverpayments] = useState([]);
   const [writeoffTarget, setWriteoffTarget] = useState(null);
   const [writeoffReason, setWriteoffReason] = useState('');
+  const [paymentDetail, setPaymentDetail] = useState(null);
+  const [paymentDetailLoading, setPaymentDetailLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,6 +46,19 @@ export default function Dashboard({ setPage }) {
       alert('Failed to write off overpayment');
     }
   };
+
+  const openPaymentDetail = async (paymentId) => {
+    setPaymentDetailLoading(true);
+    try {
+      const data = await apiFetch(`/my-payments/${paymentId}/details`);
+      setPaymentDetail(data);
+    } catch (e) {
+      alert('Failed to load payment details');
+    }
+    setPaymentDetailLoading(false);
+  };
+
+  const formatCurrency = (val) => `$${parseFloat(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const dismissMessage = async (id) => {
     try {
@@ -310,7 +325,7 @@ export default function Dashboard({ setPage }) {
               <thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Method</th><th>Period</th></tr></thead>
               <tbody>
                 {payments.map(p => (
-                  <tr key={p.id}>
+                  <tr key={p.id} onClick={() => openPaymentDetail(p.id)} style={{ cursor: 'pointer' }} className="clickable-row">
                     <td>{new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>${parseFloat(p.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td><span className="badge" style={{ background: p.payment_type === 'advance' ? '#fef3c7' : '#e0f2fe', color: p.payment_type === 'advance' ? '#92400e' : '#0369a1' }}>{p.payment_type}</span></td>
@@ -324,6 +339,108 @@ export default function Dashboard({ setPage }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {paymentDetail && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setPaymentDetail(null)}>
+          <div style={{ background: 'var(--bg)', borderRadius: 12, padding: 24, maxWidth: 800, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18 }}>Payment Breakdown</h3>
+                <div style={{ fontSize: 13, color: '#16a34a', marginTop: 4 }}>
+                  Paid {formatCurrency(paymentDetail.payment.amount)} on {new Date(paymentDetail.payment.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                </div>
+                {paymentDetail.payment.period_start && paymentDetail.payment.period_end && (
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    Period: {new Date(paymentDetail.payment.period_start + 'T00:00:00').toLocaleDateString()} – {new Date(paymentDetail.payment.period_end + 'T00:00:00').toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setPaymentDetail(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px 8px' }}>&times;</button>
+            </div>
+            {paymentDetail.details.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No timesheet details found for this payment period.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 6px', fontSize: 13 }}>Project</th>
+                    <th style={{ textAlign: 'left', padding: '8px 6px', fontSize: 13 }}>Type</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>Reg Hrs</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>Rate</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>Reg Pay</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>OT Hrs</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>OT Rate</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13 }}>OT Pay</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', fontSize: 13, fontWeight: 700 }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentDetail.details.map((d, i) => {
+                    const regHrs = d.regular_hours || d.total_hours || 0;
+                    const otHrs = d.ot_hours || 0;
+                    const payRate = d.pay_rate || 0;
+                    const otPayRate = d.ot_pay_rate || 0;
+                    const regPay = d.pay_type === 'hourly' ? regHrs * payRate : 0;
+                    const otPay = d.pay_type === 'hourly' ? otHrs * otPayRate : 0;
+                    const isFixed = d.pay_type !== 'hourly';
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{d.project_name}</td>
+                        <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--text-secondary)' }}>
+                          {d.pay_type === 'fixed_monthly' ? 'Fixed Mo.' : d.pay_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                          {isFixed ? (d.total_hours || 0).toFixed(2) : regHrs.toFixed(2)}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                          {isFixed ? '—' : formatCurrency(payRate)}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                          {isFixed ? '—' : formatCurrency(regPay)}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: otHrs > 0 ? '#ea580c' : 'var(--text-secondary)' }}>
+                          {otHrs > 0 ? otHrs.toFixed(2) : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: otHrs > 0 ? '#ea580c' : 'var(--text-secondary)' }}>
+                          {otHrs > 0 ? formatCurrency(otPayRate) : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: otHrs > 0 ? '#ea580c' : 'var(--text-secondary)' }}>
+                          {otHrs > 0 ? formatCurrency(otPay) : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600 }}>
+                          {formatCurrency(d.total_pay || 0)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                    <td colSpan={2} style={{ padding: '10px 6px', fontSize: 14 }}>Total</td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                      {paymentDetail.details.reduce((s, d) => s + (d.regular_hours || d.total_hours || 0), 0).toFixed(2)}
+                    </td>
+                    <td></td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                      {formatCurrency(paymentDetail.details.filter(d => d.pay_type === 'hourly').reduce((s, d) => s + ((d.regular_hours || d.total_hours || 0) * (d.pay_rate || 0)), 0))}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#ea580c' }}>
+                      {paymentDetail.details.reduce((s, d) => s + (d.ot_hours || 0), 0).toFixed(2)}
+                    </td>
+                    <td></td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#ea580c' }}>
+                      {formatCurrency(paymentDetail.details.filter(d => d.pay_type === 'hourly').reduce((s, d) => s + ((d.ot_hours || 0) * (d.ot_pay_rate || 0)), 0))}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: '10px 6px', fontFamily: 'DM Mono, monospace', fontSize: 14, color: '#16a34a' }}>
+                      {formatCurrency(paymentDetail.details.reduce((s, d) => s + (d.total_pay || 0), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
           </div>
         </div>
       )}
