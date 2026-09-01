@@ -4683,10 +4683,29 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
   const paidUserIds = paidForPeriod.map(p => p.user_id);
   let paidData = [];
   if (paidUserIds.length > 0) {
-    const paidHourly = hourlyQuery(period_start, period_end, paidUserIds, false, true);
-    const paidFixed = fixedMonthlyQuery(period_start, period_end, paidUserIds, false, true);
-    const paidFP = fixedPriceQuery(period_start, period_end, paidUserIds, false, true);
-    paidData = [...paidHourly, ...paidFixed, ...paidFP];
+    const normalPaidIds = paidUserIds.filter(id => !delayMap[id]);
+    if (normalPaidIds.length > 0) {
+      paidData = [
+        ...hourlyQuery(period_start, period_end, normalPaidIds, false, true),
+        ...fixedMonthlyQuery(period_start, period_end, normalPaidIds, false, true),
+        ...fixedPriceQuery(period_start, period_end, normalPaidIds, false, true),
+      ];
+    }
+    const paidDelayGroups = {};
+    for (const id of paidUserIds) {
+      if (delayMap[id]) {
+        if (!paidDelayGroups[delayMap[id]]) paidDelayGroups[delayMap[id]] = [];
+        paidDelayGroups[delayMap[id]].push(id);
+      }
+    }
+    for (const [months, userIds] of Object.entries(paidDelayGroups)) {
+      const { start, end } = getShiftedMonthRange(period_start, parseInt(months));
+      paidData = paidData.concat(
+        hourlyQuery(start, end, userIds, false, true),
+        fixedMonthlyQuery(start, end, userIds, false, true),
+        fixedPriceQuery(start, end, userIds, false, true),
+      );
+    }
   }
 
   res.json({ data, paidData, holidays, unclearedAdvances, paidForPeriod, bankSplits });
