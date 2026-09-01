@@ -698,16 +698,22 @@ export default function Reports() {
 
   const hasAnyAdvances = unclearedAdvances.length > 0;
   const totalAdvanceDeductions = payrollSummary.reduce((s, r) => s + r.advance_deduction, 0);
-  const billedTotal = payrollData.filter(r => !paidUserIds.has(r.user_id)).reduce((s, r) => s + (r.total_billed || 0), 0);
+  const unpaidBilled = payrollData.filter(r => !paidUserIds.has(r.user_id)).reduce((s, r) => s + (r.total_billed || 0), 0);
+  const paidBilled = paidDetailData.reduce((s, r) => s + (r.total_billed || 0), 0);
+  const billedTotal = unpaidBilled + paidBilled;
   const payrollTotals = payrollSummary.reduce(
-    (acc, row) => ({
-      hours: acc.hours + (row.total_hours || 0),
-      holidayHours: acc.holidayHours + (row.holiday_hours || 0),
-      grossPay: acc.grossPay + (row.gross_pay || 0),
-      pay: acc.pay + (row.total_pay || 0),
-      billed: billedTotal,
-      advanceDeductions: acc.advanceDeductions + (row.advance_deduction || 0),
-    }),
+    (acc, row) => {
+      const isPaid = alreadyPaidUserIds.has(row.user_id);
+      const displayGross = isPaid && row.paid_amount ? row.paid_amount : (row.gross_pay || 0);
+      return {
+        hours: acc.hours + (row.total_hours || 0),
+        holidayHours: acc.holidayHours + (row.holiday_hours || 0),
+        grossPay: acc.grossPay + displayGross,
+        pay: acc.pay + (row.total_pay || 0),
+        billed: billedTotal,
+        advanceDeductions: acc.advanceDeductions + (row.advance_deduction || 0),
+      };
+    },
     { hours: 0, holidayHours: 0, grossPay: 0, pay: 0, billed: billedTotal, advanceDeductions: 0 }
   );
   payrollTotals.pay = Math.max(0, payrollTotals.grossPay - totalAdvanceDeductions);
@@ -1065,7 +1071,7 @@ export default function Reports() {
               <button className="btn btn-primary" type="submit" disabled={loading}>
                 {loading ? 'Loading...' : 'Run Report'}
               </button>
-              {payrollData.length > 0 && (
+              {(payrollData.length > 0 || paidForPeriod.length > 0) && (
                 <>
                   <button className="btn btn-secondary" type="button" onClick={() => window.print()}>
                     Print Report
@@ -1078,7 +1084,7 @@ export default function Reports() {
             </div>
           </form>
 
-          {payrollData.length === 0 ? (
+          {payrollData.length === 0 && paidForPeriod.length === 0 ? (
             <div className="empty-state no-print">
               <h3>No data</h3>
               <p>Select a date range and run the report to see payroll data.</p>
@@ -1374,13 +1380,14 @@ export default function Reports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {payrollData.map((row, idx) => {
+                    {[...payrollData, ...paidDetailData].map((row, idx) => {
                       const isFixed = row.pay_type === 'fixed_price';
                       const isFixedMonthly = row.pay_type === 'fixed_monthly';
                       const isHoliday = row.is_holiday_pay;
+                      const isPaidRow = alreadyPaidUserIds.has(row.user_id);
                       const rowBg = isHoliday ? { background: '#eff6ff' } : (isFixed || isFixedMonthly) ? { background: '#fefce8' } : undefined;
                       return (
-                        <tr key={idx} style={rowBg}>
+                        <tr key={idx} style={{ ...rowBg, ...(isPaidRow ? { opacity: 0.5 } : {}) }}>
                           <td><strong>{row.engineer_name}</strong></td>
                           <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{row.engineer_id || '-'}</td>
                           <td>
