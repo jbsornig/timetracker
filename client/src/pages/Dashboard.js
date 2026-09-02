@@ -320,12 +320,15 @@ export default function Dashboard({ setPage }) {
       {payments.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-title">Recent Payments</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: -8, marginBottom: 12 }}>Click a payment to see the project-by-project breakdown</div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Method</th><th>Period</th></tr></thead>
+              <thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Method</th><th>Period</th><th></th></tr></thead>
               <tbody>
                 {payments.map(p => (
-                  <tr key={p.id} onClick={() => openPaymentDetail(p.id)} style={{ cursor: 'pointer' }} className="clickable-row">
+                  <tr key={p.id} onClick={() => openPaymentDetail(p.id)} style={{ cursor: 'pointer', transition: 'background 0.15s' }} className="clickable-row"
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--hover-bg, #f1f5f9)'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
                     <td>{new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>${parseFloat(p.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td><span className="badge" style={{ background: p.payment_type === 'advance' ? '#fef3c7' : '#e0f2fe', color: p.payment_type === 'advance' ? '#92400e' : '#0369a1' }}>{p.payment_type}</span></td>
@@ -335,6 +338,7 @@ export default function Dashboard({ setPage }) {
                         ? `${new Date(p.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(p.period_end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
                         : '—'}
                     </td>
+                    <td style={{ fontSize: 12, color: '#3b82f6', whiteSpace: 'nowrap' }}>View Details →</td>
                   </tr>
                 ))}
               </tbody>
