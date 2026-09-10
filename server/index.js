@@ -852,10 +852,13 @@ app.post('/api/parse-po', auth, adminOnly, poUpload.single('file'), async (req, 
     const isMercedes = text.includes('Mercedes-Benz') || text.includes('MBUSI') || text.includes('Document Number:\n');
     const isFCA = text.includes('Plant Code:') || text.includes('Chrysler') || text.includes('Stellantis');
     const isAlabama = text.includes('State of Alabama') && text.includes('Division of Procurement');
+    const isRockwell = text.includes('Rockwell Automation') || text.includes('rockwellautomation.com');
 
     let result;
     if (isAlabama) {
       result = parseAlabamaPoPdf(text);
+    } else if (isRockwell && !isFCA && !isMercedes) {
+      result = parseRockwellPoPdf(text);
     } else if (isMercedes && !isFCA) {
       result = parseMercedesPoPdf(text);
     } else {
@@ -931,6 +934,101 @@ function parseAlabamaPoPdf(text) {
     requester_name: requesterName,
     requester_email: requesterEmail,
   };
+}
+
+function parseRockwellPoPdf(text) {
+  const poMatch = text.match(/PO number\/date\n(\d+)\s*\/\s*([\d/]+)/);
+  const poNumber = poMatch ? poMatch[1] : '';
+  const poDate = poMatch ? poMatch[2] : '';
+
+  const vendorMatch = text.match(/Your vendor number with us\n(\d+)/);
+  const vendorNumber = vendorMatch ? vendorMatch[1] : '';
+
+  let requesterName = '';
+  let requesterEmail = '';
+  const contactMatch = text.match(/contact:([\s\S]*?)\/([\w.@]+)/i);
+  if (contactMatch) {
+    requesterName = contactMatch[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    requesterEmail = contactMatch[2].trim();
+  }
+  if (!requesterName) {
+    const reqMatch = text.match(/REQUESTOR:\s*(.+?)(?:\n|$)/);
+    if (reqMatch) requesterName = reqMatch[1].trim();
+  }
+
+  let location = '';
+  const cityStateMatch = text.match(/REQUESTOR:[\s\S]*?(\w+)\s+(MI|OH|WI|IN|IL|CA|TX|NY|PA|GA|NC|SC|FL|AL|TN|KY|VA|WA|OR|AZ|CO|MN|IA|MO|WV|MD|NJ|CT|MA|NH|VT|ME|RI|DE|DC|NM|NV|UT|ID|MT|WY|ND|SD|NE|KS|OK|AR|LA|MS|HI|AK|PR)\s+(\d{5})/);
+  if (cityStateMatch) {
+    location = cityStateMatch[1] + ' ' + cityStateMatch[2] + ' ' + cityStateMatch[3];
+  }
+
+  const lineItems = [];
+  const serviceSection = text.match(/The item covers the following services:([\s\S]*?)(?:The following documents|_{5,}|Total net value)/);
+  if (serviceSection) {
+    const svcText = serviceSection[1];
+    const svcLinePattern = /(\d+)([\w\s.,'/-]+)\n\s+([\d,.]+)\s+(HR|LO|EA|MON|PCE)\s+([\d,.]+)\s+([\d,.]+)/g;
+    let svcMatch;
+    while ((svcMatch = svcLinePattern.exec(svcText)) !== null) {
+      lineItems.push({
+        line_number: parseInt(svcMatch[1]),
+        description: svcMatch[2].trim(),
+        quantity: parseFloat(svcMatch[3].replace(/,/g, '')),
+        uom: svcMatch[4],
+        unit_price: parseFloat(svcMatch[5].replace(/,/g, '')),
+        po_line_amount: parseFloat(svcMatch[6].replace(/,/g, '')),
+      });
+    }
+  }
+
+  let description = '';
+  let quantity = '';
+  let unitPrice = '';
+  let uom = '';
+  let netAmount = '';
+
+  if (lineItems.length > 0) {
+    description = lineItems[0].description;
+    quantity = String(lineItems[0].quantity);
+    unitPrice = String(lineItems[0].unit_price);
+    uom = lineItems[0].uom;
+    netAmount = lineItems.reduce((sum, li) => sum + li.po_line_amount, 0).toFixed(2);
+  } else {
+    const totalMatch = text.match(/Total net value incl\. tax\s*USD\s*([\d,.]+)/);
+    if (totalMatch) netAmount = totalMatch[1].replace(/,/g, '');
+
+    const itemDescMatch = text.match(/The item covers the following services:\n\d+([\w\s.,'/-]+?)(?:\n)/);
+    if (itemDescMatch) description = itemDescMatch[1].trim();
+
+    const priceMatch = text.match(/([\d,.]+)\s+(HR|LO|EA|MON|PCE)\s+([\d,.]+)\s+([\d,.]+)/);
+    if (priceMatch) {
+      quantity = parseFloat(priceMatch[1].replace(/,/g, '')).toString();
+      uom = priceMatch[2];
+      unitPrice = priceMatch[3].replace(/,/g, '');
+    }
+  }
+
+  const result = {
+    po_number: poNumber,
+    name: description,
+    edi_plant_code: '',
+    edi_uom: lineItems.length <= 1 ? uom : '',
+    po_amount: netAmount || '',
+    unit_price: lineItems.length <= 1 ? unitPrice : '',
+    quantity: lineItems.length <= 1 ? quantity : '',
+    edi_po_quantity: lineItems.length <= 1 ? quantity : '',
+    edi_unit_price: lineItems.length <= 1 ? unitPrice : '',
+    location: location,
+    po_date: poDate,
+    requester_name: requesterName,
+    requester_email: requesterEmail,
+    vendor_number: vendorNumber,
+  };
+
+  if (lineItems.length > 1) {
+    result.line_items = lineItems;
+  }
+
+  return result;
 }
 
 function parseFcaPoPdf(text) {
