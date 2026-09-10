@@ -6909,6 +6909,62 @@ app.post('/api/timesheets/unmark-paid', auth, adminOnly, (req, res) => {
   res.json({ success: true, cleared: r1.changes + r2.changes + r3.changes });
 });
 
+// Reassign timesheets from one project to another
+app.post('/api/projects/:id/reassign-timesheets', auth, adminOnly, (req, res) => {
+  const { target_project_id, timesheet_ids, copy_assignments } = req.body;
+  if (!target_project_id) return res.status(400).json({ error: 'target_project_id is required' });
+  if (!Array.isArray(timesheet_ids) || timesheet_ids.length === 0) return res.status(400).json({ error: 'timesheet_ids array is required' });
+
+  const db = getDb();
+  const sourceProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+  if (!sourceProject) return res.status(404).json({ error: 'Source project not found' });
+  const targetProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(target_project_id);
+  if (!targetProject) return res.status(404).json({ error: 'Target project not found' });
+
+  const transaction = db.transaction(() => {
+    const updateTs = db.prepare('UPDATE timesheets SET project_id = ? WHERE id = ? AND project_id = ?');
+    let moved = 0;
+    for (const tsId of timesheet_ids) {
+      const result = updateTs.run(target_project_id, tsId, req.params.id);
+      moved += result.changes;
+    }
+
+    // Copy engineer assignments if requested
+    let assignmentsCopied = 0;
+    if (copy_assignments !== false) {
+      const sourceAssignments = db.prepare('SELECT * FROM engineer_projects WHERE project_id = ?').all(req.params.id);
+      for (const sa of sourceAssignments) {
+        const existing = db.prepare('SELECT id FROM engineer_projects WHERE project_id = ? AND user_id = ?').get(target_project_id, sa.user_id);
+        if (!existing) {
+          db.prepare('INSERT INTO engineer_projects (user_id, project_id, pay_rate, bill_rate, total_payment, monthly_pay, monthly_bill, max_hours, ot_pay_rate, ot_bill_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(sa.user_id, target_project_id, sa.pay_rate, sa.bill_rate, sa.total_payment, sa.monthly_pay, sa.monthly_bill, sa.max_hours, sa.ot_pay_rate, sa.ot_bill_rate);
+          assignmentsCopied++;
+        }
+      }
+    }
+
+    return { moved, assignmentsCopied };
+  });
+
+  const result = transaction();
+  res.json({ success: true, timesheets_moved: result.moved, assignments_copied: result.assignmentsCopied });
+});
+
+// Get timesheets for a project (admin summary for reassignment)
+app.get('/api/projects/:id/timesheets-summary', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const timesheets = db.prepare(`
+    SELECT ts.id, ts.user_id, ts.week_ending, ts.status, ts.paid_date, ts.invoice_id,
+           u.name as engineer_name,
+           (SELECT COALESCE(SUM(te.hours), 0) FROM timesheet_entries te WHERE te.timesheet_id = ts.id) as total_hours
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    WHERE ts.project_id = ?
+    ORDER BY ts.week_ending DESC, u.name
+  `).all(req.params.id);
+  res.json(timesheets);
+});
+
 // Update an engineer payment
 app.put('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
   const db = getDb();

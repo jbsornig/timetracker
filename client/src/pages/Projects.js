@@ -31,6 +31,11 @@ export default function Projects() {
   const [poLines, setPoLines] = useState([]);
   const [poLineForm, setPoLineForm] = useState({ line_number: '', description: '', engineer_id: '', edi_uom: 'HR', edi_po_quantity: '', edi_unit_price: '', po_line_amount: '' });
   const [showAddPoLine, setShowAddPoLine] = useState(false);
+  const [reassignProject, setReassignProject] = useState(null);
+  const [reassignTimesheets, setReassignTimesheets] = useState([]);
+  const [reassignSelected, setReassignSelected] = useState([]);
+  const [reassignTarget, setReassignTarget] = useState('');
+  const [reassigning, setReassigning] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -274,6 +279,39 @@ export default function Projects() {
       setError(e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openReassign = async (project) => {
+    setReassignProject(project);
+    setReassignTarget('');
+    setReassignSelected([]);
+    setReassigning(false);
+    try {
+      const ts = await apiFetch(`/projects/${project.id}/timesheets-summary`);
+      setReassignTimesheets(ts);
+      setReassignSelected(ts.map(t => t.id));
+    } catch { setReassignTimesheets([]); }
+    setModal('reassign');
+  };
+
+  const handleReassign = async () => {
+    if (!reassignTarget || reassignSelected.length === 0) return;
+    const targetName = projects.find(p => String(p.id) === String(reassignTarget))?.name || reassignTarget;
+    if (!window.confirm(`Move ${reassignSelected.length} timesheet(s) to "${targetName}"?\n\nEngineer assignments (rates) will also be copied to the target project.`)) return;
+    setReassigning(true);
+    try {
+      const result = await apiFetch(`/projects/${reassignProject.id}/reassign-timesheets`, {
+        method: 'POST',
+        body: { target_project_id: parseInt(reassignTarget), timesheet_ids: reassignSelected },
+      });
+      alert(`Moved ${result.timesheets_moved} timesheet(s). ${result.assignments_copied > 0 ? `Copied ${result.assignments_copied} engineer assignment(s).` : ''}`);
+      setModal(null);
+      await loadData();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setReassigning(false);
     }
   };
 
@@ -595,6 +633,7 @@ export default function Projects() {
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => openAssign(p)} style={{ marginRight: 4 }}>Engineers</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)} style={{ marginRight: 4 }}>Edit</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => openReassign(p)} style={{ marginRight: 4 }}>Reassign</button>
                         <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}>Delete</button>
                       </td>
                     </tr>
@@ -1404,6 +1443,88 @@ export default function Projects() {
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 16 }}>
             <button className="btn btn-secondary" onClick={() => setEmailPreview(null)}>Cancel</button>
             <button className="btn btn-primary" onClick={handleSendNotification}>Send Email</button>
+          </div>
+        </Modal>
+      )}
+      {modal === 'reassign' && reassignProject && (
+        <Modal title={`Reassign Timesheets — ${reassignProject.name}`} onClose={() => setModal(null)} width={700}>
+          <div style={{ marginBottom: 12 }}>
+            <label className="form-label">Move selected timesheets to:</label>
+            <select className="form-select" value={reassignTarget} onChange={e => setReassignTarget(e.target.value)}>
+              <option value="">— Select destination project —</option>
+              {projects.filter(p => p.id !== reassignProject.id && p.status === 'active').map(p => (
+                <option key={p.id} value={p.id}>{p.name} {p.po_number ? `(PO: ${p.po_number})` : ''}</option>
+              ))}
+            </select>
+          </div>
+          {reassignTimesheets.length === 0 ? (
+            <p style={{ color: '#64748b', fontSize: 14 }}>No timesheets found for this project.</p>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, color: '#475569' }}>{reassignSelected.length} of {reassignTimesheets.length} selected</span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 8px' }}
+                    onClick={() => setReassignSelected(reassignTimesheets.map(t => t.id))}>Select All</button>
+                  <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 8px' }}
+                    onClick={() => setReassignSelected([])}>Deselect All</button>
+                </div>
+              </div>
+              <div className="table-wrap" style={{ maxHeight: 350, overflowY: 'auto' }}>
+                <table style={{ fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 30 }}></th>
+                      <th>Engineer</th>
+                      <th>Week Ending</th>
+                      <th>Hours</th>
+                      <th>Status</th>
+                      <th>Invoiced</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reassignTimesheets.map(ts => (
+                      <tr key={ts.id} style={{ opacity: ts.invoice_id ? 0.5 : 1 }}>
+                        <td>
+                          <input type="checkbox" checked={reassignSelected.includes(ts.id)} disabled={!!ts.invoice_id}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setReassignSelected([...reassignSelected, ts.id]);
+                              } else {
+                                setReassignSelected(reassignSelected.filter(id => id !== ts.id));
+                              }
+                            }} />
+                        </td>
+                        <td>{ts.engineer_name}</td>
+                        <td>{new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                        <td style={{ textAlign: 'right' }}>{parseFloat(ts.total_hours || 0).toFixed(1)}</td>
+                        <td>
+                          <span className="badge" style={{
+                            background: ts.status === 'approved' ? '#dcfce7' : ts.status === 'submitted' ? '#dbeafe' : '#f1f5f9',
+                            color: ts.status === 'approved' ? '#166534' : ts.status === 'submitted' ? '#1e40af' : '#475569'
+                          }}>{ts.status}</span>
+                        </td>
+                        <td style={{ fontSize: 12, color: ts.invoice_id ? '#dc2626' : '#64748b' }}>
+                          {ts.invoice_id ? `Inv #${ts.invoice_id}` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {reassignTimesheets.some(ts => ts.invoice_id) && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 10px', marginTop: 8, fontSize: 12, color: '#991b1b' }}>
+                  Timesheets already linked to an invoice are grayed out and cannot be moved. Void the invoice first if you need to reassign them.
+                </div>
+              )}
+            </>
+          )}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleReassign}
+              disabled={reassigning || !reassignTarget || reassignSelected.length === 0}>
+              {reassigning ? 'Moving...' : `Move ${reassignSelected.length} Timesheet(s)`}
+            </button>
           </div>
         </Modal>
       )}
