@@ -28,6 +28,8 @@ export default function Projects() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [importingPo, setImportingPo] = useState(false);
+  const [poLines, setPoLines] = useState([]);
+  const [poLineForm, setPoLineForm] = useState({ line_number: '', description: '', engineer_id: '', edi_uom: 'HR', edi_po_quantity: '', edi_unit_price: '', po_line_amount: '' });
 
   useEffect(() => {
     loadData();
@@ -68,6 +70,7 @@ export default function Projects() {
   const openAdd = () => {
     setForm(emptyProject);
     setContacts([]);
+    setPoLines([]);
     setError('');
     setModal('add');
   };
@@ -97,6 +100,10 @@ export default function Projects() {
     if (project.customer_id) {
       await loadContacts(project.customer_id);
     }
+    try {
+      const lines = await apiFetch(`/projects/${project.id}/po-lines`);
+      setPoLines(lines);
+    } catch { setPoLines([]); }
     setModal('edit');
   };
 
@@ -190,6 +197,18 @@ export default function Projects() {
         po_amount: data.po_amount || prev.po_amount,
         location: data.location || prev.location,
       }));
+
+      if (data.line_items && data.line_items.length > 1) {
+        setPoLines(data.line_items.map((li, idx) => ({
+          line_number: li.line_number || (idx + 1) * 10,
+          description: li.description || '',
+          engineer_id: null,
+          edi_uom: li.uom || li.edi_uom || 'HR',
+          edi_po_quantity: parseFloat(li.quantity || li.edi_po_quantity) || 0,
+          edi_unit_price: parseFloat(li.unit_price || li.edi_unit_price) || 0,
+          po_line_amount: (parseFloat(li.quantity || li.edi_po_quantity) || 0) * (parseFloat(li.unit_price || li.edi_unit_price) || 0),
+        })));
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -216,9 +235,12 @@ export default function Projects() {
         monthly_invoice_amount: form.monthly_invoice_amount ? parseFloat(form.monthly_invoice_amount) : 0,
         ...(confirmInactive ? { confirm_inactive: true } : {}),
       };
+      let projectId;
       if (modal === 'add') {
-        await apiFetch('/projects', { method: 'POST', body });
+        const result = await apiFetch('/projects', { method: 'POST', body });
+        projectId = result.id;
       } else {
+        projectId = form.id;
         try {
           await apiFetch(`/projects/${form.id}`, { method: 'PUT', body });
         } catch (err) {
@@ -233,6 +255,17 @@ export default function Projects() {
           }
           throw err;
         }
+      }
+      if (poLines.length > 0 && projectId) {
+        await apiFetch(`/projects/${projectId}/po-lines/bulk`, {
+          method: 'POST',
+          body: { lines: poLines },
+        });
+      } else if (poLines.length === 0 && projectId && modal === 'edit') {
+        await apiFetch(`/projects/${projectId}/po-lines/bulk`, {
+          method: 'POST',
+          body: { lines: [] },
+        });
       }
       await loadData();
       setModal(null);
@@ -891,6 +924,135 @@ export default function Projects() {
                   </div>
                 </div>
                 <div className="form-hint">UOM, plant code, PO quantity and unit price from the FCA PO — used in EDI 810 generation</div>
+                {poLines.length > 0 && (
+                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px', marginTop: 8, fontSize: 12, color: '#92400e' }}>
+                    PO line items are defined below — per-line EDI settings override the project-level defaults above.
+                  </div>
+                )}
+                <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <strong style={{ fontSize: 14 }}>PO Line Items</strong>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>For multi-line POs (e.g. one line per engineer)</span>
+                  </div>
+                  {poLines.length > 0 && (
+                    <div className="table-wrap" style={{ marginBottom: 8 }}>
+                      <table style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Line #</th>
+                            <th>Description</th>
+                            <th>Engineer</th>
+                            <th>UOM</th>
+                            <th>Qty</th>
+                            <th>Unit Price</th>
+                            <th>Amount</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {poLines.map((pl, idx) => (
+                            <tr key={idx}>
+                              <td>{pl.line_number}</td>
+                              <td>{pl.description || '—'}</td>
+                              <td>
+                                <select
+                                  className="form-select"
+                                  style={{ fontSize: 12, padding: '2px 4px', minWidth: 120 }}
+                                  value={pl.engineer_id || ''}
+                                  onChange={(e) => {
+                                    const updated = poLines.map((l, i) => i === idx ? { ...l, engineer_id: e.target.value ? parseInt(e.target.value) : null } : l);
+                                    setPoLines(updated);
+                                  }}
+                                >
+                                  <option value="">— Select —</option>
+                                  {engineers.filter(u => u.role === 'engineer').map(u => (
+                                    <option key={u.id} value={u.id}>{u.name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>{pl.edi_uom || '—'}</td>
+                              <td style={{ textAlign: 'right' }}>{pl.edi_po_quantity || '—'}</td>
+                              <td style={{ textAlign: 'right' }}>{pl.edi_unit_price ? `$${parseFloat(pl.edi_unit_price).toFixed(2)}` : '—'}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{pl.po_line_amount ? `$${parseFloat(pl.po_line_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'}</td>
+                              <td>
+                                <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 6px', color: '#dc2626' }}
+                                  onClick={() => setPoLines(poLines.filter((_, i) => i !== idx))}>Remove</button>
+                              </td>
+                            </tr>
+                          ))}
+                          <tr style={{ fontWeight: 600, background: '#f8fafc' }}>
+                            <td colSpan="6" style={{ textAlign: 'right' }}>Total:</td>
+                            <td style={{ textAlign: 'right' }}>${poLines.reduce((s, l) => s + (parseFloat(l.po_line_amount) || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                            <td></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Line #</label>
+                      <input className="form-input" style={{ width: 60, fontSize: 12, padding: '4px 6px' }} type="number"
+                        value={poLineForm.line_number} onChange={e => setPoLineForm({ ...poLineForm, line_number: e.target.value })} placeholder="10" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Description</label>
+                      <input className="form-input" style={{ width: 140, fontSize: 12, padding: '4px 6px' }}
+                        value={poLineForm.description} onChange={e => setPoLineForm({ ...poLineForm, description: e.target.value })} placeholder="Engineer name / service" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Engineer</label>
+                      <select className="form-select" style={{ fontSize: 12, padding: '4px 6px', minWidth: 120 }}
+                        value={poLineForm.engineer_id} onChange={e => setPoLineForm({ ...poLineForm, engineer_id: e.target.value })}>
+                        <option value="">— None —</option>
+                        {engineers.filter(u => u.role === 'engineer').map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>UOM</label>
+                      <select className="form-select" style={{ fontSize: 12, padding: '4px 6px', width: 70 }}
+                        value={poLineForm.edi_uom} onChange={e => setPoLineForm({ ...poLineForm, edi_uom: e.target.value })}>
+                        <option value="HR">HR</option>
+                        <option value="LO">LO</option>
+                        <option value="EA">EA</option>
+                        <option value="MON">MON</option>
+                        <option value="PCE">PCE</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Qty</label>
+                      <input className="form-input" style={{ width: 70, fontSize: 12, padding: '4px 6px' }} type="number"
+                        value={poLineForm.edi_po_quantity} onChange={e => setPoLineForm({ ...poLineForm, edi_po_quantity: e.target.value })} placeholder="4725" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Unit Price</label>
+                      <input className="form-input" style={{ width: 80, fontSize: 12, padding: '4px 6px' }} type="number" step="0.01"
+                        value={poLineForm.edi_unit_price} onChange={e => setPoLineForm({ ...poLineForm, edi_unit_price: e.target.value })} placeholder="1.00" />
+                    </div>
+                    <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }}
+                      onClick={() => {
+                        if (!poLineForm.line_number) return;
+                        if (poLines.some(l => String(l.line_number) === String(poLineForm.line_number))) {
+                          alert(`Line number ${poLineForm.line_number} already exists`);
+                          return;
+                        }
+                        const qty = parseFloat(poLineForm.edi_po_quantity) || 0;
+                        const price = parseFloat(poLineForm.edi_unit_price) || 0;
+                        setPoLines([...poLines, {
+                          line_number: parseInt(poLineForm.line_number),
+                          description: poLineForm.description,
+                          engineer_id: poLineForm.engineer_id ? parseInt(poLineForm.engineer_id) : null,
+                          edi_uom: poLineForm.edi_uom,
+                          edi_po_quantity: qty,
+                          edi_unit_price: price,
+                          po_line_amount: qty * price,
+                        }].sort((a, b) => a.line_number - b.line_number));
+                        setPoLineForm({ line_number: '', description: '', engineer_id: '', edi_uom: 'HR', edi_po_quantity: '', edi_unit_price: '', po_line_amount: '' });
+                      }}>+ Add Line</button>
+                  </div>
+                </div>
               </>
             )}
             <div className="form-group" style={{ marginTop: 8 }}>

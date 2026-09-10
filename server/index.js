@@ -1221,6 +1221,71 @@ app.delete('/api/projects/:id/engineers/:userId', auth, adminOnly, (req, res) =>
   res.json({ success: true });
 });
 
+// ─── CUSTOMER PO LINES ──────────────────────────────────────────────────────
+
+app.get('/api/projects/:id/po-lines', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const lines = db.prepare(`
+    SELECT cpl.*, u.name as engineer_name
+    FROM customer_po_lines cpl
+    LEFT JOIN users u ON u.id = cpl.engineer_id
+    WHERE cpl.project_id = ?
+    ORDER BY cpl.line_number
+  `).all(req.params.id);
+  res.json(lines);
+});
+
+app.post('/api/projects/:id/po-lines', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount } = req.body;
+  if (!line_number) return res.status(400).json({ error: 'line_number is required' });
+  const existing = db.prepare('SELECT id FROM customer_po_lines WHERE project_id = ? AND line_number = ?').get(req.params.id, line_number);
+  if (existing) return res.status(400).json({ error: `Line number ${line_number} already exists for this project` });
+  const result = db.prepare(
+    'INSERT INTO customer_po_lines (project_id, line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(req.params.id, line_number, description || '', engineer_id || null, edi_uom || '', edi_po_quantity || 0, edi_unit_price || 0, po_line_amount || 0);
+  res.json({ id: result.lastInsertRowid });
+});
+
+app.put('/api/projects/:id/po-lines/:lineId', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const line = db.prepare('SELECT * FROM customer_po_lines WHERE id = ? AND project_id = ?').get(req.params.lineId, req.params.id);
+  if (!line) return res.status(404).json({ error: 'PO line not found' });
+  const { line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount } = req.body;
+  db.prepare(
+    'UPDATE customer_po_lines SET line_number = ?, description = ?, engineer_id = ?, edi_uom = ?, edi_po_quantity = ?, edi_unit_price = ?, po_line_amount = ? WHERE id = ?'
+  ).run(
+    line_number ?? line.line_number, description ?? line.description, engineer_id !== undefined ? (engineer_id || null) : line.engineer_id,
+    edi_uom ?? line.edi_uom, edi_po_quantity ?? line.edi_po_quantity, edi_unit_price ?? line.edi_unit_price, po_line_amount ?? line.po_line_amount, req.params.lineId
+  );
+  res.json({ success: true });
+});
+
+app.delete('/api/projects/:id/po-lines/:lineId', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM customer_po_lines WHERE id = ? AND project_id = ?').run(req.params.lineId, req.params.id);
+  res.json({ success: true });
+});
+
+app.post('/api/projects/:id/po-lines/bulk', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { lines } = req.body;
+  if (!Array.isArray(lines)) return res.status(400).json({ error: 'lines array is required' });
+  const deleteAll = db.prepare('DELETE FROM customer_po_lines WHERE project_id = ?');
+  const insert = db.prepare(
+    'INSERT INTO customer_po_lines (project_id, line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  const transaction = db.transaction(() => {
+    deleteAll.run(req.params.id);
+    for (const l of lines) {
+      insert.run(req.params.id, l.line_number || 0, l.description || '', l.engineer_id || null, l.edi_uom || '', l.edi_po_quantity || 0, l.edi_unit_price || 0, l.po_line_amount || 0);
+    }
+  });
+  transaction();
+  const saved = db.prepare('SELECT * FROM customer_po_lines WHERE project_id = ? ORDER BY line_number').all(req.params.id);
+  res.json(saved);
+});
+
 app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) => {
   const { user_id, preview } = req.body;
   if (!user_id) return res.status(400).json({ error: 'user_id is required' });
@@ -4031,7 +4096,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
         }
         totalEngineerAmountClaimed += engineerAmt;
         if (engineerAmt > 0 || ts.percentage > 0) {
-          lineItems.push({ engineer: ts.engineer_name, amount: engineerAmt, is_fixed_price: true });
+          lineItems.push({ engineer: ts.engineer_name, user_id: ts.user_id, amount: engineerAmt, is_fixed_price: true });
         }
       } else if (isFixedMonthly) {
         const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ?')
@@ -4042,7 +4107,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
           if (existing) {
             existing.hours += hrs;
           } else {
-            lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.monthly_bill || 0, amount: ts.monthly_bill || 0 });
+            lineItems.push({ engineer: ts.engineer_name, user_id: ts.user_id, hours: hrs, rate: ts.monthly_bill || 0, amount: ts.monthly_bill || 0 });
           }
         }
       } else {
@@ -4050,7 +4115,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
           .all(ts.id, req.params.id);
         const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
         if (hrs > 0) {
-          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate, amount: hrs * (ts.bill_rate || 0) });
+          lineItems.push({ engineer: ts.engineer_name, user_id: ts.user_id, hours: hrs, rate: ts.bill_rate, amount: hrs * (ts.bill_rate || 0) });
         }
       }
     }
@@ -4071,6 +4136,30 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
     adjustments.forEach(adj => {
       lineItems.push({ description: adj.description, hours: adj.hours || 0, rate: adj.rate || 0, amount: adj.amount, is_adjustment: true });
     });
+
+    // Check for multi-line PO: enrich line items with per-line EDI overrides
+    const poLines = db.prepare(
+      'SELECT * FROM customer_po_lines WHERE project_id = ? ORDER BY line_number'
+    ).all(invoice.project_id);
+
+    if (poLines.length > 0) {
+      for (const item of lineItems) {
+        if (item.is_adjustment) continue;
+        const matchedLine = item.user_id
+          ? poLines.find(pl => pl.engineer_id === item.user_id)
+          : poLines.find(pl => {
+              if (!pl.engineer_id) return false;
+              const eng = db.prepare('SELECT name FROM users WHERE id = ?').get(pl.engineer_id);
+              return eng && eng.name === item.engineer;
+            });
+        if (matchedLine) {
+          item.edi_uom = matchedLine.edi_uom;
+          item.edi_po_quantity = matchedLine.edi_po_quantity;
+          item.edi_unit_price = matchedLine.edi_unit_price;
+          item.po_line_number = matchedLine.line_number;
+        }
+      }
+    }
 
     // Generate the EDI 810 content
     const ediContent = generateEdi810({
@@ -4165,7 +4254,9 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
   }
 
   // For LO (Lot) UOM, consolidate all line items into a single line
-  const consolidatedItems = (ediUom === 'LO') && lineItems.length > 1
+  // Skip consolidation when items have per-line EDI overrides (multi-line PO)
+  const hasPerLineEdi = lineItems.some(li => li.edi_uom);
+  const consolidatedItems = (!hasPerLineEdi && ediUom === 'LO') && lineItems.length > 1
     ? [{
         engineer: lineItems[0].engineer,
         hours: lineItems.reduce((s, li) => s + (li.hours || 0), 0),
@@ -4185,10 +4276,14 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
 
     let quantity, unitPrice, uom;
 
-    if (ediUom) {
-      const normalizedUom = ediUom === 'MON' ? 'MO' : ediUom;
+    const itemEdiUom = item.edi_uom || ediUom;
+    const itemPoQuantity = item.edi_po_quantity || poQuantity;
+    const itemPoUnitPrice = item.edi_unit_price || poUnitPrice;
+
+    if (itemEdiUom) {
+      const normalizedUom = itemEdiUom === 'MON' ? 'MO' : itemEdiUom;
       uom = normalizedUom;
-      switch (ediUom) {
+      switch (itemEdiUom) {
         case 'MON':
         case 'MO':
           quantity = '1';
@@ -4199,8 +4294,8 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
           unitPrice = item.rate ? item.rate.toFixed(2) : '0.00';
           break;
         case 'EA':
-          if (poQuantity && poUnitPrice) {
-            const perUnit = Number(poUnitPrice);
+          if (itemPoQuantity && itemPoUnitPrice) {
+            const perUnit = Number(itemPoUnitPrice);
             unitPrice = perUnit.toFixed(2);
             const invoiceAmount = item.amount || 0;
             quantity = perUnit > 0 ? String(Math.round(invoiceAmount / perUnit)) : '1';

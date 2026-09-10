@@ -873,6 +873,24 @@ function initSchema() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS customer_po_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      line_number INTEGER NOT NULL,
+      description TEXT,
+      engineer_id INTEGER,
+      edi_uom TEXT DEFAULT '',
+      edi_po_quantity REAL DEFAULT 0,
+      edi_unit_price REAL DEFAULT 0,
+      po_line_amount REAL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (engineer_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_customer_po_lines_project_id ON customer_po_lines(project_id)`);
+
   const poCols = db.prepare("PRAGMA table_info(purchase_orders)").all();
   if (!poCols.find(c => c.name === 'vendor_quote_number')) {
     db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_quote_number TEXT");
