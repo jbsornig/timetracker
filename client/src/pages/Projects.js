@@ -875,21 +875,23 @@ export default function Projects() {
             {!!customers.find(c => String(c.id) === String(form.customer_id) && c.edi_invoicing) && (
               <>
                 <div className="form-row" style={{ marginTop: 8 }}>
-                  <div className="form-group">
-                    <label className="form-label">EDI Unit of Measure</label>
-                    <select
-                      className="form-select"
-                      value={form.edi_uom}
-                      onChange={(e) => setForm({ ...form, edi_uom: e.target.value })}
-                    >
-                      <option value="">None (no EDI)</option>
-                      <option value="HR">HR - Hourly</option>
-                      <option value="MON">MON - Monthly</option>
-                      <option value="EA">EA - Each</option>
-                      <option value="LO">LO - Lot</option>
-                      <option value="PCE">PCE - Piece</option>
-                    </select>
-                  </div>
+                  {poLines.length === 0 && (
+                    <div className="form-group">
+                      <label className="form-label">EDI Unit of Measure</label>
+                      <select
+                        className="form-select"
+                        value={form.edi_uom}
+                        onChange={(e) => setForm({ ...form, edi_uom: e.target.value })}
+                      >
+                        <option value="">None (no EDI)</option>
+                        <option value="HR">HR - Hourly</option>
+                        <option value="MON">MON - Monthly</option>
+                        <option value="EA">EA - Each</option>
+                        <option value="LO">LO - Lot</option>
+                        <option value="PCE">PCE - Piece</option>
+                      </select>
+                    </div>
+                  )}
                   <div className="form-group">
                     <label className="form-label">EDI Plant Code</label>
                     <input
@@ -900,34 +902,33 @@ export default function Projects() {
                     />
                   </div>
                 </div>
-                <div className="form-row" style={{ marginTop: 8 }}>
-                  <div className="form-group">
-                    <label className="form-label">EDI PO Quantity</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      value={form.edi_po_quantity}
-                      onChange={(e) => setForm({ ...form, edi_po_quantity: e.target.value })}
-                      placeholder="e.g. 4725"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">EDI Unit Price</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      step="0.01"
-                      value={form.edi_unit_price}
-                      onChange={(e) => setForm({ ...form, edi_unit_price: e.target.value })}
-                      placeholder="e.g. 1.00"
-                    />
-                  </div>
-                </div>
-                <div className="form-hint">UOM, plant code, PO quantity and unit price from the FCA PO — used in EDI 810 generation</div>
-                {poLines.length > 0 && (
-                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px', marginTop: 8, fontSize: 12, color: '#92400e' }}>
-                    PO line items are defined below — per-line EDI settings override the project-level defaults above.
-                  </div>
+                {poLines.length === 0 && (
+                  <>
+                    <div className="form-row" style={{ marginTop: 8 }}>
+                      <div className="form-group">
+                        <label className="form-label">EDI PO Quantity</label>
+                        <input
+                          className="form-input"
+                          type="number"
+                          value={form.edi_po_quantity}
+                          onChange={(e) => setForm({ ...form, edi_po_quantity: e.target.value })}
+                          placeholder="e.g. 4725"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">EDI Unit Price</label>
+                        <input
+                          className="form-input"
+                          type="number"
+                          step="0.01"
+                          value={form.edi_unit_price}
+                          onChange={(e) => setForm({ ...form, edi_unit_price: e.target.value })}
+                          placeholder="e.g. 1.00"
+                        />
+                      </div>
+                    </div>
+                    <div className="form-hint">UOM, plant code, PO quantity and unit price from the FCA PO — used in EDI 810 generation</div>
+                  </>
                 )}
                 <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
