@@ -938,27 +938,58 @@ function parseFcaPoPdf(text) {
   const plantMatch = text.match(/Plant Code:\s*(\d+)/);
   const dateMatch = text.match(/Original Document Date:\s*([\d/]+)/);
 
+  // Extract all line items: pattern is "<line_number><description>\nDelivery date: ...\n<qty><UOM><price>/1/"
+  const lineItems = [];
+  const linePattern = /\n(\d+)([\w\s.,'/-]+?)(?:\n\s*Delivery date:.*?\n)\s*([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//g;
+  let lineMatch;
+  while ((lineMatch = linePattern.exec(text)) !== null) {
+    const lineNum = parseInt(lineMatch[1]);
+    const desc = lineMatch[2].trim();
+    const qty = parseFloat(lineMatch[3].replace(/,/g, ''));
+    const uomVal = lineMatch[4];
+    const price = parseFloat(lineMatch[5].replace(/,/g, ''));
+    lineItems.push({
+      line_number: lineNum,
+      description: desc,
+      quantity: qty,
+      uom: uomVal,
+      unit_price: price,
+      po_line_amount: qty * price,
+    });
+  }
+
   let description = '';
   let uom = '';
   let quantity = '';
   let unitPrice = '';
-  let netAmount = '';
 
-  const uomMatch = text.match(/([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//);
-  if (uomMatch) {
-    quantity = parseFloat(uomMatch[1].replace(/,/g, '')).toString();
-    uom = uomMatch[2];
-    unitPrice = uomMatch[3].replace(/,/g, '');
+  if (lineItems.length > 0) {
+    description = lineItems[0].description;
+    uom = lineItems[0].uom;
+    quantity = String(lineItems[0].quantity);
+    unitPrice = String(lineItems[0].unit_price);
+  } else {
+    const uomMatch = text.match(/([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//);
+    if (uomMatch) {
+      quantity = parseFloat(uomMatch[1].replace(/,/g, '')).toString();
+      uom = uomMatch[2];
+      unitPrice = uomMatch[3].replace(/,/g, '');
+    }
+    const descMatch = text.match(/Item\s*Material[\s\S]*?\n\d+(.+?)(?:\n|Delivery date)/);
+    if (descMatch) description = descMatch[1].trim();
   }
 
-  const descMatch = text.match(/Item\s*Material[\s\S]*?\n\d+(.+?)(?:\n|Delivery date)/);
-  if (descMatch) description = descMatch[1].trim();
-
-  const amounts = [...text.matchAll(/([\d,.]+)\s*USD/g)];
-  if (amounts.length >= 2) {
-    netAmount = amounts[amounts.length - 1][1].replace(/,/g, '');
-  } else if (amounts.length === 1) {
-    netAmount = amounts[0][1].replace(/,/g, '');
+  // Calculate total PO amount from all line items, or fall back to USD amounts in text
+  let netAmount = '';
+  if (lineItems.length > 0) {
+    netAmount = lineItems.reduce((sum, li) => sum + li.po_line_amount, 0).toFixed(2);
+  } else {
+    const amounts = [...text.matchAll(/([\d,.]+)\s*USD/g)];
+    if (amounts.length >= 2) {
+      netAmount = amounts[amounts.length - 1][1].replace(/,/g, '');
+    } else if (amounts.length === 1) {
+      netAmount = amounts[0][1].replace(/,/g, '');
+    }
   }
 
   let requesterName = '';
@@ -987,21 +1018,27 @@ function parseFcaPoPdf(text) {
     location = deliveryMatch[1].replace(/\n/g, ', ').replace(/\s+/g, ' ').trim();
   }
 
-  return {
+  const result = {
     po_number: poMatch ? poMatch[1] : '',
     name: description,
     edi_plant_code: plantMatch ? plantMatch[1] : '',
-    edi_uom: uom,
+    edi_uom: lineItems.length <= 1 ? uom : '',
     po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
-    unit_price: unitPrice,
-    quantity: quantity,
-    edi_po_quantity: quantity,
-    edi_unit_price: unitPrice,
+    unit_price: lineItems.length <= 1 ? unitPrice : '',
+    quantity: lineItems.length <= 1 ? quantity : '',
+    edi_po_quantity: lineItems.length <= 1 ? quantity : '',
+    edi_unit_price: lineItems.length <= 1 ? unitPrice : '',
     location: location,
     po_date: dateMatch ? dateMatch[1] : '',
     requester_name: requesterName,
     requester_email: requesterEmail,
   };
+
+  if (lineItems.length > 1) {
+    result.line_items = lineItems;
+  }
+
+  return result;
 }
 
 function parseMercedesPoPdf(text) {
