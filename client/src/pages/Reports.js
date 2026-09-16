@@ -110,6 +110,10 @@ export default function Reports() {
   const [overdueData, setOverdueData] = useState([]);
   const [unclearedAdvances, setUnclearedAdvances] = useState([]);
   const [bankSplits, setBankSplits] = useState({});
+  const [pendingAdjustments, setPendingAdjustments] = useState([]);
+  const [adjForm, setAdjForm] = useState({ user_id: '', amount: '', reason: '' });
+  const [showAdjForm, setShowAdjForm] = useState(false);
+  const [adjSaving, setAdjSaving] = useState(false);
   const [payrollDetailEngineer, setPayrollDetailEngineer] = useState(null);
 
   // Profitability state
@@ -145,6 +149,7 @@ export default function Reports() {
     } else if (activeTab === 'engineer-payments') {
       loadEngineers();
       loadEngPayments();
+      loadPendingAdjustments();
       apiFetch(`/reports/overpayments?year=${new Date().getFullYear()}`).then(data => setOverpayments(data || [])).catch(() => {});
     } else if (activeTab === 'overdue') {
       loadOverdueInvoices();
@@ -357,6 +362,53 @@ export default function Reports() {
       setError(e.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPendingAdjustments = async () => {
+    try {
+      const data = await apiFetch('/payment-adjustments?status=pending');
+      setPendingAdjustments(data);
+    } catch (e) {}
+  };
+
+  const handleCreateAdjustment = async (e) => {
+    e.preventDefault();
+    if (!adjForm.user_id || !adjForm.amount || !adjForm.reason.trim()) {
+      setError('Engineer, amount, and reason are required');
+      return;
+    }
+    setAdjSaving(true);
+    setError('');
+    try {
+      await apiFetch('/payment-adjustments', { method: 'POST', body: { user_id: adjForm.user_id, amount: parseFloat(adjForm.amount), reason: adjForm.reason.trim() } });
+      setAdjForm({ user_id: '', amount: '', reason: '' });
+      setShowAdjForm(false);
+      loadPendingAdjustments();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAdjSaving(false);
+    }
+  };
+
+  const handleApplyAdjustment = async (adjId) => {
+    if (!window.confirm('Apply this adjustment? This marks it as resolved.')) return;
+    try {
+      await apiFetch(`/payment-adjustments/${adjId}/apply`, { method: 'PUT', body: {} });
+      loadPendingAdjustments();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const handleDeleteAdjustment = async (adjId) => {
+    if (!window.confirm('Delete this pending adjustment?')) return;
+    try {
+      await apiFetch(`/payment-adjustments/${adjId}`, { method: 'DELETE' });
+      loadPendingAdjustments();
+    } catch (e) {
+      alert('Error: ' + e.message);
     }
   };
 
@@ -2078,6 +2130,72 @@ export default function Reports() {
                   <button onClick={handleWriteoff} disabled={!writeoffReason.trim()} style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: writeoffReason.trim() ? '#dc2626' : '#e5e7eb', color: '#fff', cursor: writeoffReason.trim() ? 'pointer' : 'default', fontSize: 13, fontWeight: 500 }}>Confirm Write-Off</button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Pending Adjustments Banner */}
+          {pendingAdjustments.length > 0 && (
+            <div style={{ background: '#fefce8', border: '1px solid #fde68a', borderLeft: '4px solid #f59e0b', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>&#128221;</span>
+                  <strong style={{ color: '#b45309', fontSize: 14 }}>Pending Payment Adjustments</strong>
+                </div>
+                <button onClick={() => setShowAdjForm(!showAdjForm)} style={{ fontSize: 12, padding: '4px 12px', background: '#fff', border: '1px solid #fde68a', borderRadius: 6, cursor: 'pointer', color: '#b45309' }}>
+                  + New Adjustment
+                </button>
+              </div>
+              {pendingAdjustments.map(adj => (
+                <div key={adj.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #fef3c7', fontSize: 13 }}>
+                  <div>
+                    <strong>{adj.engineer_name}</strong> — <span style={{ color: adj.amount < 0 ? '#dc2626' : '#16a34a', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{adj.amount < 0 ? '-' : ''}${Math.abs(adj.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span style={{ color: '#78716c', marginLeft: 8 }}>{adj.reason}</span>
+                    <span style={{ color: '#a8a29e', marginLeft: 8, fontSize: 11 }}>{new Date(adj.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => handleApplyAdjustment(adj.id)} style={{ fontSize: 12, padding: '3px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 500 }}>Apply</button>
+                    <button onClick={() => handleDeleteAdjustment(adj.id)} style={{ fontSize: 12, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer', color: '#64748b' }}>Delete</button>
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: '#a8a29e', marginTop: 6 }}>Click "Apply" after deducting the amount from the engineer's payment.</div>
+            </div>
+          )}
+
+          {/* New Adjustment Form */}
+          {(showAdjForm || pendingAdjustments.length === 0) && summary1099.length === 0 && !verificationData && !showReconciliation && !showVerification && (
+            <div style={{ marginBottom: 16 }}>
+              {pendingAdjustments.length === 0 && !showAdjForm && (
+                <button onClick={() => setShowAdjForm(true)} style={{ fontSize: 13, padding: '6px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', color: '#64748b', marginBottom: 12 }}>+ Create Payment Adjustment</button>
+              )}
+              {showAdjForm && (
+                <div className="card no-print" style={{ marginBottom: 16, borderLeft: '4px solid #f59e0b' }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: '#b45309' }}>Create Payment Adjustment</div>
+                  <form onSubmit={handleCreateAdjustment}>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Engineer *</label>
+                        <select className="form-select" value={adjForm.user_id} onChange={(e) => setAdjForm({ ...adjForm, user_id: e.target.value })} style={{ width: 200 }}>
+                          <option value="">Select...</option>
+                          {engineers.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Amount * <span style={{ fontSize: 11, color: '#a8a29e' }}>(negative to deduct)</span></label>
+                        <input className="form-input" type="number" step="0.01" value={adjForm.amount} onChange={(e) => setAdjForm({ ...adjForm, amount: e.target.value })} placeholder="-500.00" style={{ width: 140 }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Reason *</label>
+                        <input className="form-input" value={adjForm.reason} onChange={(e) => setAdjForm({ ...adjForm, reason: e.target.value })} placeholder="e.g., Customer rejected invoice - PO fully paid, deduct from next payment" style={{ width: '100%' }} />
+                      </div>
+                      <button className="btn btn-primary" type="submit" disabled={adjSaving} style={{ background: '#f59e0b', borderColor: '#f59e0b' }}>
+                        {adjSaving ? 'Saving...' : 'Create Adjustment'}
+                      </button>
+                      <button type="button" onClick={() => { setShowAdjForm(false); setAdjForm({ user_id: '', amount: '', reason: '' }); }} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </div>
           )}
 

@@ -891,6 +891,22 @@ function initSchema() {
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_customer_po_lines_project_id ON customer_po_lines(project_id)`);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payment_adjustments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      applied_at DATETIME,
+      applied_to_payment_id INTEGER,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (applied_to_payment_id) REFERENCES engineer_payments(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_payment_adjustments_user_status ON payment_adjustments(user_id, status)`);
+
   const poCols = db.prepare("PRAGMA table_info(purchase_orders)").all();
   if (!poCols.find(c => c.name === 'vendor_quote_number')) {
     db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_quote_number TEXT");

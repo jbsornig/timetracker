@@ -7088,6 +7088,54 @@ app.delete('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
+// Payment Adjustments CRUD
+app.get('/api/payment-adjustments', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { user_id, status } = req.query;
+  let sql = `
+    SELECT pa.*, u.name as engineer_name, u.engineer_id
+    FROM payment_adjustments pa
+    JOIN users u ON pa.user_id = u.id
+    WHERE 1=1
+  `;
+  const params = [];
+  if (user_id) { sql += ' AND pa.user_id = ?'; params.push(user_id); }
+  if (status) { sql += ' AND pa.status = ?'; params.push(status); }
+  sql += ' ORDER BY pa.created_at DESC';
+  res.json(db.prepare(sql).all(...params));
+});
+
+app.post('/api/payment-adjustments', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const { user_id, amount, reason } = req.body;
+  if (!user_id || !amount || !reason) return res.status(400).json({ error: 'user_id, amount, and reason are required' });
+  const result = db.prepare(
+    'INSERT INTO payment_adjustments (user_id, amount, reason) VALUES (?, ?, ?)'
+  ).run(user_id, parseFloat(amount), reason);
+  res.json({ id: result.lastInsertRowid });
+});
+
+app.put('/api/payment-adjustments/:id/apply', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const adj = db.prepare('SELECT * FROM payment_adjustments WHERE id = ?').get(req.params.id);
+  if (!adj) return res.status(404).json({ error: 'Adjustment not found' });
+  if (adj.status === 'applied') return res.status(400).json({ error: 'Already applied' });
+  const { payment_id } = req.body;
+  db.prepare(
+    'UPDATE payment_adjustments SET status = ?, applied_at = datetime(?), applied_to_payment_id = ? WHERE id = ?'
+  ).run('applied', new Date().toISOString(), payment_id || null, req.params.id);
+  res.json({ success: true });
+});
+
+app.delete('/api/payment-adjustments/:id', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const adj = db.prepare('SELECT * FROM payment_adjustments WHERE id = ?').get(req.params.id);
+  if (!adj) return res.status(404).json({ error: 'Adjustment not found' });
+  if (adj.status === 'applied') return res.status(400).json({ error: 'Cannot delete an applied adjustment' });
+  db.prepare('DELETE FROM payment_adjustments WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // 1099 Summary - totals per engineer for a tax year
 app.get('/api/engineer-payments/1099-summary', auth, adminOnly, (req, res) => {
   const db = getDb();
