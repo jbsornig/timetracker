@@ -1650,6 +1650,33 @@ function getProjectBudgetStatus(db, projectId, excludeTimesheetId) {
   };
 }
 
+app.get('/api/projects/over-budget', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const projects = db.prepare(`
+    SELECT p.id, p.name, p.po_number, p.po_amount, p.project_type, c.name as customer_name
+    FROM projects p
+    JOIN customers c ON c.id = p.customer_id
+    WHERE p.po_amount > 0 AND p.status != 'closed'
+  `).all();
+
+  const overBudget = [];
+  for (const proj of projects) {
+    const budget = getProjectBudgetStatus(db, proj.id);
+    if (budget && budget.total_billed > budget.po_amount) {
+      overBudget.push({
+        project_id: proj.id,
+        project_name: proj.name,
+        po_number: proj.po_number,
+        customer_name: proj.customer_name,
+        po_amount: budget.po_amount,
+        total_billed: budget.total_billed,
+        over_by: budget.total_billed - budget.po_amount,
+      });
+    }
+  }
+  res.json(overBudget);
+});
+
 app.post('/api/timesheets', auth, (req, res) => {
   const { project_id, week_ending, period_start, period_end, percentage, monthly_hours, description, ot_hours } = req.body;
   const user_id = req.user.role === 'admin' && req.body.user_id ? req.body.user_id : req.user.id;

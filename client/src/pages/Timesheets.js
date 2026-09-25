@@ -289,6 +289,7 @@ export default function Timesheets() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const [timesheets, setTimesheets] = useState([]);
+  const [overBudgetProjects, setOverBudgetProjects] = useState([]);
   const [projects, setProjects] = useState([]);
   const [engineers, setEngineers] = useState([]);
   const [settings, setSettings] = useState({});
@@ -499,13 +500,14 @@ export default function Timesheets() {
           apiFetch('/settings/print'),
         ];
         if (isAdmin) {
-          promises.push(apiFetch('/users'), apiFetch('/settings'));
+          promises.push(apiFetch('/users'), apiFetch('/settings'), apiFetch('/projects/over-budget'));
         }
         const results = await Promise.all(promises);
         setProjects(results[0]);
         setSettings(isAdmin ? results[3] : results[1]);
         if (isAdmin) {
           setEngineers(results[2].filter((u) => u.role === 'engineer' && u.active !== 0));
+          setOverBudgetProjects(results[4] || []);
         }
       } catch (e) {
         setError(e.message);
@@ -1678,6 +1680,27 @@ export default function Timesheets() {
         </div>
       </div>
 
+      {/* Over Budget Banner */}
+      {isAdmin && overBudgetProjects.length > 0 && (
+        <div style={{
+          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
+          padding: '12px 16px', marginBottom: 16
+        }}>
+          <div style={{ fontWeight: 600, color: '#991b1b', marginBottom: 6, fontSize: 14 }}>
+            Projects Over Budget ({overBudgetProjects.length})
+          </div>
+          {overBudgetProjects.map(p => (
+            <div key={p.project_id} style={{ fontSize: 13, color: '#7f1d1d', marginBottom: 4, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <span><strong>{p.project_name}</strong> — {p.customer_name}</span>
+              <span style={{ fontFamily: 'DM Mono, monospace' }}>
+                ${p.total_billed.toLocaleString('en-US', { minimumFractionDigits: 2 })} / ${p.po_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {' '}(<span style={{ color: '#dc2626', fontWeight: 600 }}>+${p.over_by.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>)
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Desktop Table View */}
       <div className="card timesheet-desktop">
         {sortedTimesheets.length === 0 ? (
@@ -1751,6 +1774,13 @@ export default function Timesheets() {
                       )}
                       <td>
                         <strong>{ts.project_name}</strong>
+                        {isAdmin && overBudgetProjects.some(p => p.project_id === ts.project_id) && (
+                          <span style={{
+                            display: 'inline-block', marginLeft: 6, padding: '1px 6px',
+                            background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5',
+                            borderRadius: 4, fontSize: 10, fontWeight: 600, verticalAlign: 'middle'
+                          }}>OVER BUDGET</span>
+                        )}
                         <br />
                         <span style={{ fontSize: 12, color: '#94a3b8' }}>{ts.customer_name}</span>
                       </td>
@@ -1910,6 +1940,13 @@ export default function Timesheets() {
                       <span className={`badge ${getBadgeClass()}`} style={{ fontSize: 10, marginLeft: 8 }}>
                         {getBadgeText()}
                       </span>
+                      {isAdmin && overBudgetProjects.some(p => p.project_id === ts.project_id) && (
+                        <span style={{
+                          display: 'inline-block', marginLeft: 6, padding: '1px 6px',
+                          background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5',
+                          borderRadius: 4, fontSize: 10, fontWeight: 600
+                        }}>OVER BUDGET</span>
+                      )}
                     </div>
                     {isAdmin && (
                       <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>
