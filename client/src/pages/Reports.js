@@ -2167,39 +2167,10 @@ export default function Reports() {
             </div>
           )}
 
-          {/* Pending Adjustments Banner */}
-          {pendingAdjustments.length > 0 && (
-            <div style={{ background: '#fefce8', border: '1px solid #fde68a', borderLeft: '4px solid #f59e0b', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 16 }}>&#128221;</span>
-                  <strong style={{ color: '#b45309', fontSize: 14 }}>Pending Payment Adjustments</strong>
-                </div>
-                <button onClick={() => setShowAdjForm(!showAdjForm)} style={{ fontSize: 12, padding: '4px 12px', background: '#fff', border: '1px solid #fde68a', borderRadius: 6, cursor: 'pointer', color: '#b45309' }}>
-                  + New Adjustment
-                </button>
-              </div>
-              {pendingAdjustments.map(adj => (
-                <div key={adj.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #fef3c7', fontSize: 13 }}>
-                  <div>
-                    <strong>{adj.engineer_name}</strong> — <span style={{ color: adj.amount < 0 ? '#dc2626' : '#16a34a', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{adj.amount < 0 ? '-' : ''}${Math.abs(adj.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    <span style={{ color: '#78716c', marginLeft: 8 }}>{adj.reason}</span>
-                    <span style={{ color: '#a8a29e', marginLeft: 8, fontSize: 11 }}>{new Date(adj.created_at).toLocaleDateString()}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => handleApplyAdjustment(adj.id)} style={{ fontSize: 12, padding: '3px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 500 }}>Apply</button>
-                    <button onClick={() => handleDeleteAdjustment(adj.id)} style={{ fontSize: 12, padding: '3px 8px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, cursor: 'pointer', color: '#64748b' }}>Delete</button>
-                  </div>
-                </div>
-              ))}
-              <div style={{ fontSize: 11, color: '#a8a29e', marginTop: 6 }}>Click "Apply" after deducting the amount from the engineer's payment.</div>
-            </div>
-          )}
-
           {/* New Adjustment Form */}
-          {(showAdjForm || pendingAdjustments.length === 0) && summary1099.length === 0 && !verificationData && !showReconciliation && !showVerification && (
+          {summary1099.length === 0 && !verificationData && !showReconciliation && !showVerification && (
             <div style={{ marginBottom: 16 }}>
-              {pendingAdjustments.length === 0 && !showAdjForm && (
+              {!showAdjForm && (
                 <button onClick={() => setShowAdjForm(true)} style={{ fontSize: 13, padding: '6px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', color: '#64748b', marginBottom: 12 }}>+ Create Payment Adjustment</button>
               )}
               {showAdjForm && (

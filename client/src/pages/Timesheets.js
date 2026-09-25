@@ -897,16 +897,23 @@ export default function Timesheets() {
     }
   };
 
-  const handleApprove = async () => {
-    if (!window.confirm('Approve this timesheet?')) return;
+  const handleApprove = async (force) => {
+    if (!force && !window.confirm('Approve this timesheet?')) return;
     setSaving(true);
     try {
-      await apiFetch(`/timesheets/${selectedTimesheet.id}/approve`, { method: 'PUT' });
+      const result = await apiFetch(`/timesheets/${selectedTimesheet.id}/approve`, { method: 'PUT', body: force ? { force: true } : {} });
+      if (result.warning) alert(result.warning);
       const ts = await apiFetch(`/timesheets/${selectedTimesheet.id}`);
       setSelectedTimesheet(ts);
       await loadTimesheets();
     } catch (e) {
-      alert('Error: ' + e.message);
+      if (e.message && e.message.includes('exceed the PO budget')) {
+        if (window.confirm(`BUDGET WARNING: ${e.message}\n\nApprove anyway?`)) {
+          return handleApprove(true);
+        }
+      } else {
+        alert('Error: ' + e.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -947,7 +954,11 @@ export default function Timesheets() {
       await apiFetch(`/timesheets/${id}/submit`, { method: 'PUT' });
       await loadTimesheets();
     } catch (e) {
-      alert('Error: ' + e.message);
+      if (e.message && e.message.includes('exceed the PO budget')) {
+        alert(`BUDGET BLOCKED: ${e.message}`);
+      } else {
+        alert('Error: ' + e.message);
+      }
     }
   };
 
@@ -958,17 +969,27 @@ export default function Timesheets() {
       await apiFetch(`/timesheets/${id}/submit`, { method: 'PUT' });
       await loadTimesheets();
     } catch (e) {
-      alert('Error: ' + e.message);
+      if (e.message && e.message.includes('exceed the PO budget')) {
+        alert(`BUDGET BLOCKED: ${e.message}`);
+      } else {
+        alert('Error: ' + e.message);
+      }
     }
   };
 
-  const handleApproveFixedPrice = async (id) => {
-    if (!window.confirm('Approve this invoice?')) return;
+  const handleApproveFixedPrice = async (id, force) => {
+    if (!force && !window.confirm('Approve this invoice?')) return;
     try {
-      await apiFetch(`/timesheets/${id}/approve`, { method: 'PUT' });
+      await apiFetch(`/timesheets/${id}/approve`, { method: 'PUT', body: force ? { force: true } : {} });
       await loadTimesheets();
     } catch (e) {
-      alert('Error: ' + e.message);
+      if (e.message && e.message.includes('exceed the PO budget')) {
+        if (window.confirm(`BUDGET WARNING: ${e.message}\n\nApprove anyway?`)) {
+          return handleApproveFixedPrice(id, true);
+        }
+      } else {
+        alert('Error: ' + e.message);
+      }
     }
   };
 
@@ -982,13 +1003,19 @@ export default function Timesheets() {
     }
   };
 
-  const handleApproveFromList = async (id) => {
-    if (!window.confirm('Approve this timesheet?')) return;
+  const handleApproveFromList = async (id, force) => {
+    if (!force && !window.confirm('Approve this timesheet?')) return;
     try {
-      await apiFetch(`/timesheets/${id}/approve`, { method: 'PUT' });
+      await apiFetch(`/timesheets/${id}/approve`, { method: 'PUT', body: force ? { force: true } : {} });
       await loadTimesheets();
     } catch (e) {
-      alert('Error: ' + e.message);
+      if (e.message && e.message.includes('exceed the PO budget')) {
+        if (window.confirm(`BUDGET WARNING: ${e.message}\n\nApprove anyway?`)) {
+          return handleApproveFromList(id, true);
+        }
+      } else {
+        alert('Error: ' + e.message);
+      }
     }
   };
 

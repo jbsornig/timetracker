@@ -1621,6 +1621,35 @@ app.get('/api/timesheets/:id', auth, (req, res) => {
   res.json({ ...ts, entries });
 });
 
+function getProjectBudgetStatus(db, projectId, excludeTimesheetId) {
+  const project = db.prepare('SELECT po_amount, project_type FROM projects WHERE id = ?').get(projectId);
+  if (!project || !project.po_amount || project.po_amount <= 0) return null;
+
+  const excludeClause = excludeTimesheetId ? 'AND ts.id != ?' : '';
+  const params = excludeTimesheetId ? [projectId, excludeTimesheetId] : [projectId];
+
+  const billed = db.prepare(`
+    SELECT COALESCE(SUM(
+      CASE
+        WHEN p.project_type = 'fixed_price' THEN COALESCE(ts.amount, 0)
+        ELSE (te.hours - COALESCE(ts.ot_hours, 0)) * COALESCE(ep.bill_rate, 0)
+             + COALESCE(ts.ot_hours, 0) * COALESCE(NULLIF(ep.ot_bill_rate, 0), ep.bill_rate, 0)
+      END
+    ), 0) as total
+    FROM timesheet_entries te
+    JOIN timesheets ts ON ts.id = te.timesheet_id
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved') ${excludeClause}
+  `).get(...params);
+
+  return {
+    po_amount: project.po_amount,
+    total_billed: billed.total || 0,
+    remaining: project.po_amount - (billed.total || 0),
+  };
+}
+
 app.post('/api/timesheets', auth, (req, res) => {
   const { project_id, week_ending, period_start, period_end, percentage, monthly_hours, description, ot_hours } = req.body;
   const user_id = req.user.role === 'admin' && req.body.user_id ? req.body.user_id : req.user.id;
@@ -1797,8 +1826,22 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
   }
 
   // Check max_hours limit for hourly projects
-  const epRecord = db.prepare('SELECT max_hours FROM engineer_projects WHERE user_id = ? AND project_id = ?').get(ts.user_id, ts.project_id);
+  const epRecord = db.prepare('SELECT max_hours, bill_rate, ot_bill_rate FROM engineer_projects WHERE user_id = ? AND project_id = ?').get(ts.user_id, ts.project_id);
   let hoursWarning = null;
+
+  const thisTimesheetHours = entries.reduce((sum, e) => {
+    if (invoicedEntryIds.has(e.id)) return sum;
+    if (e.start_time && e.end_time) {
+      const [sh, sm] = e.start_time.split(':').map(Number);
+      const [eh, em] = e.end_time.split(':').map(Number);
+      let h = (eh * 60 + em - sh * 60 - sm) / 60;
+      if (h < 0) h += 24;
+      h = Math.max(0, h - (parseFloat(e.lunch_break) || 0));
+      return sum + h;
+    }
+    return sum;
+  }, 0);
+
   if (epRecord && epRecord.max_hours > 0) {
     const currentTotal = db.prepare(`
       SELECT COALESCE(SUM(te.hours), 0) as total
@@ -1806,21 +1849,19 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
       JOIN timesheets t ON t.id = te.timesheet_id
       WHERE t.user_id = ? AND t.project_id = ? AND t.id != ?
     `).get(ts.user_id, ts.project_id, ts.id);
-    const thisTimesheetHours = entries.reduce((sum, e) => {
-      if (invoicedEntryIds.has(e.id)) return sum;
-      if (e.start_time && e.end_time) {
-        const [sh, sm] = e.start_time.split(':').map(Number);
-        const [eh, em] = e.end_time.split(':').map(Number);
-        let h = (eh * 60 + em - sh * 60 - sm) / 60;
-        if (h < 0) h += 24;
-        h = Math.max(0, h - (parseFloat(e.lunch_break) || 0));
-        return sum + h;
-      }
-      return sum;
-    }, 0);
     const projectedTotal = (currentTotal.total || 0) + thisTimesheetHours;
     if (projectedTotal > epRecord.max_hours) {
       hoursWarning = `Warning: This brings total hours to ${projectedTotal.toFixed(2)} which exceeds the ${epRecord.max_hours} hour limit for this engineer.`;
+    }
+  }
+
+  // Check PO budget
+  const budget = getProjectBudgetStatus(db, ts.project_id, ts.id);
+  if (budget && epRecord && epRecord.bill_rate > 0) {
+    const thisCost = thisTimesheetHours * epRecord.bill_rate;
+    if (thisCost > budget.remaining + 0.01) {
+      const maxHours = Math.floor((budget.remaining / epRecord.bill_rate) * 100) / 100;
+      hoursWarning = `Warning: These hours ($${thisCost.toFixed(2)}) exceed the remaining PO budget of $${budget.remaining.toFixed(2)}. Max hours available: ${maxHours}.`;
     }
   }
 
@@ -1862,6 +1903,24 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
   `).get(req.params.id);
   if (!ts) return res.status(404).json({ error: 'Not found' });
   if (req.user.role !== 'admin' && ts.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+
+  // Block submission if it would exceed PO budget
+  if (req.user.role !== 'admin') {
+    const budget = getProjectBudgetStatus(db, ts.project_id);
+    if (budget && ts.bill_rate > 0) {
+      const thisCost = ts.total_hours * ts.bill_rate;
+      if (budget.total_billed + thisCost > budget.po_amount + 0.01) {
+        const overageAmt = (budget.total_billed + thisCost - budget.po_amount).toFixed(2);
+        const maxHours = Math.floor((budget.remaining / ts.bill_rate) * 100) / 100;
+        return res.status(400).json({
+          error: `Cannot submit: this timesheet would exceed the project PO budget by $${overageAmt}. Maximum hours you can submit: ${maxHours}. Please reduce your hours or contact admin.`,
+          max_hours: maxHours,
+          remaining_budget: Math.round(budget.remaining * 100) / 100
+        });
+      }
+    }
+  }
+
   db.prepare("UPDATE timesheets SET status='submitted', submitted_at=CURRENT_TIMESTAMP WHERE id=?").run(req.params.id);
 
   // Auto-clear month confirmation if submitting time for a confirmed month
@@ -1908,8 +1967,31 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
 
 app.put('/api/timesheets/:id/approve', auth, adminOnly, (req, res) => {
   const db = getDb();
+  const ts = db.prepare(`
+    SELECT ts.*, ep.bill_rate, p.po_amount, p.name as project_name
+    FROM timesheets ts
+    JOIN projects p ON p.id = ts.project_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.id = ?
+  `).get(req.params.id);
+  if (!ts) return res.status(404).json({ error: 'Not found' });
+
+  let budgetWarning = null;
+  const budget = getProjectBudgetStatus(db, ts.project_id);
+  if (budget) {
+    const totalHours = db.prepare('SELECT COALESCE(SUM(hours), 0) as total FROM timesheet_entries WHERE timesheet_id = ?').get(req.params.id);
+    const thisCost = (totalHours.total || 0) * (ts.bill_rate || 0);
+    if (budget.total_billed + thisCost > budget.po_amount + 0.01) {
+      const overage = (budget.total_billed + thisCost - budget.po_amount).toFixed(2);
+      budgetWarning = `This approval will exceed the PO budget by $${overage} (PO: $${budget.po_amount.toLocaleString()}, total billed after: $${(budget.total_billed + thisCost).toLocaleString()}).`;
+      if (!req.body.force) {
+        return res.status(409).json({ error: budgetWarning, requires_force: true });
+      }
+    }
+  }
+
   db.prepare("UPDATE timesheets SET status='approved', approved_at=CURRENT_TIMESTAMP, approved_by=? WHERE id=?").run(req.user.id, req.params.id);
-  res.json({ success: true });
+  res.json({ success: true, warning: budgetWarning });
 });
 
 app.put('/api/timesheets/:id/reject', auth, adminOnly, (req, res) => {
