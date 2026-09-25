@@ -8469,6 +8469,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+// One-time: mark pre-TT reconciliation payments as Historical import — DELETE after running
+app.post('/api/admin/fix-historical-notes', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const r1 = db.prepare(`UPDATE engineer_payments SET notes = 'Historical import - Chase ACH Jan 2 payment (pre-TimeTracker)' WHERE payment_date = '2026-01-02' AND notes LIKE '%reconciliation%'`).run();
+  const r2 = db.prepare(`UPDATE engineer_payments SET notes = 'Historical import - Chase Wire Dec 2025 payment (pre-TimeTracker)' WHERE amount = 22040 AND payment_date = '2026-02-02' AND notes LIKE '%reconciliation%'`).run();
+  res.json({ success: true, janPaymentsUpdated: r1.changes, samFoxUpdated: r2.changes });
+});
+
 // Catch-all: serve React app for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
