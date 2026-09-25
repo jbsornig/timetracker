@@ -8469,6 +8469,16 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+// One-time: add missing Sam Fox Dec 2025 payment — DELETE after running
+app.post('/api/admin/reconcile-sam-fox', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const result = db.prepare(`
+    INSERT INTO engineer_payments (user_id, amount, payment_date, notes)
+    VALUES ((SELECT id FROM users WHERE name = 'Sam Fox'), 22040, '2026-02-02', 'Chase Wire - Dec 2025 portion of Feb 2 combined payment (reconciliation)')
+  `).run();
+  res.json({ success: true, newId: result.lastInsertRowid });
+});
+
 // Catch-all: serve React app for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
