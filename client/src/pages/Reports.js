@@ -194,6 +194,7 @@ export default function Reports() {
       setPayrollData(response.data || []);
       setPayrollHolidays(response.holidays || []);
       setUnclearedAdvances(response.unclearedAdvances || []);
+      setPendingAdjustments(response.pendingAdjustments || []);
       setPaidForPeriod(response.paidForPeriod || []);
       setPaidDetailData(response.paidData || []);
       setBankSplits(response.bankSplits || {});
@@ -639,6 +640,11 @@ export default function Reports() {
             body: { cleared: true, cleared_payroll_period: `${dateRange.period_start} to ${dateRange.period_end}` }
           });
         }
+        // Apply any pending adjustments for this engineer
+        const engineerAdjustments = pendingAdjustments.filter(a => a.user_id === row.user_id);
+        for (const adj of engineerAdjustments) {
+          await apiFetch(`/payment-adjustments/${adj.id}/apply`, { method: 'PUT', body: {} });
+        }
       }
       alert(`${selected.length} payment(s) recorded successfully.`);
       setPaidSelections({});
@@ -686,6 +692,14 @@ export default function Reports() {
     return acc;
   }, {});
 
+  // Group pending adjustments by engineer
+  const adjustmentsByEngineer = pendingAdjustments.reduce((acc, adj) => {
+    if (!acc[adj.engineer_name]) acc[adj.engineer_name] = { total: 0, items: [] };
+    acc[adj.engineer_name].total += Math.abs(adj.amount);
+    acc[adj.engineer_name].items.push(adj);
+    return acc;
+  }, {});
+
   // Group payroll by engineer for summary
   const payrollByEngineer = payrollData.reduce((acc, row) => {
     const key = row.engineer_name;
@@ -702,11 +716,13 @@ export default function Reports() {
     return acc;
   }, {});
 
-  // Apply advance deductions to summary
+  // Apply advance deductions and pending adjustments to summary
   for (const row of Object.values(payrollByEngineer)) {
     const advances = advancesByEngineer[row.engineer_name];
+    const adjustments = adjustmentsByEngineer[row.engineer_name];
     row.advance_deduction = advances ? advances.total : 0;
-    row.total_pay = Math.max(0, row.gross_pay - row.advance_deduction);
+    row.adjustment_deduction = adjustments ? adjustments.total : 0;
+    row.total_pay = Math.max(0, row.gross_pay - row.advance_deduction - row.adjustment_deduction);
   }
 
   // Handle paid engineers: zero out amounts for those already paid, add missing ones
@@ -720,6 +736,7 @@ export default function Reports() {
       existing.holiday_hours = 0;
       existing.holiday_pay = 0;
       existing.advance_deduction = 0;
+      existing.adjustment_deduction = 0;
       existing.paid_amount = paid.amount;
       existing.payment_id = paid.payment_id;
     } else {
@@ -733,6 +750,7 @@ export default function Reports() {
         holiday_hours: 0,
         holiday_pay: 0,
         advance_deduction: 0,
+        adjustment_deduction: 0,
         paid_amount: paid.amount,
         payment_id: paid.payment_id,
         pay_delay_months: 0,
@@ -749,6 +767,7 @@ export default function Reports() {
   const alreadyPaidUserIds = new Set(paidForPeriod.map(p => p.user_id));
 
   const hasAnyAdvances = unclearedAdvances.length > 0;
+  const hasAnyAdjustments = pendingAdjustments.length > 0;
   const totalAdvanceDeductions = payrollSummary.reduce((s, r) => s + r.advance_deduction, 0);
   const unpaidBilled = payrollData.filter(r => !paidUserIds.has(r.user_id)).reduce((s, r) => s + (r.total_billed || 0), 0);
   const paidBilled = paidDetailData.reduce((s, r) => s + (r.total_billed || 0), 0);
@@ -764,11 +783,13 @@ export default function Reports() {
         pay: acc.pay + (row.total_pay || 0),
         billed: billedTotal,
         advanceDeductions: acc.advanceDeductions + (row.advance_deduction || 0),
+        adjustmentDeductions: acc.adjustmentDeductions + (row.adjustment_deduction || 0),
       };
     },
-    { hours: 0, holidayHours: 0, grossPay: 0, pay: 0, billed: billedTotal, advanceDeductions: 0 }
+    { hours: 0, holidayHours: 0, grossPay: 0, pay: 0, billed: billedTotal, advanceDeductions: 0, adjustmentDeductions: 0 }
   );
-  payrollTotals.pay = Math.max(0, payrollTotals.grossPay - totalAdvanceDeductions);
+  const totalAdjustmentDeductions = payrollSummary.reduce((s, r) => s + (r.adjustment_deduction || 0), 0);
+  payrollTotals.pay = Math.max(0, payrollTotals.grossPay - totalAdvanceDeductions - totalAdjustmentDeductions);
 
   const filteredBudgetData = budgetData.filter(row => {
     if (budgetCustomerFilter && row.customer_name !== budgetCustomerFilter) return false;
@@ -1188,6 +1209,7 @@ export default function Reports() {
                         {payrollHolidays.length > 0 && <th>Holiday Hours</th>}
                         <th style={{ textAlign: 'right' }}>Gross Pay</th>
                         {hasAnyAdvances && <th style={{ textAlign: 'right' }}>Advances</th>}
+                        {hasAnyAdjustments && <th style={{ textAlign: 'right' }}>Adjustments</th>}
                         <th style={{ textAlign: 'right' }}>Net Pay</th>
                       </tr>
                     </thead>
@@ -1236,6 +1258,11 @@ export default function Reports() {
                               {row.advance_deduction > 0 ? `(${formatCurrency(row.advance_deduction)})` : '—'}
                             </td>
                           )}
+                          {hasAnyAdjustments && (
+                            <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: row.adjustment_deduction > 0 ? '#f59e0b' : '#94a3b8' }}>
+                              {row.adjustment_deduction > 0 ? `(${formatCurrency(row.adjustment_deduction)})` : '—'}
+                            </td>
+                          )}
                           <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, textAlign: 'right', color: isPaid ? '#64748b' : '#16a34a' }}>
                             {isPaid && row.paid_amount ? formatCurrency(row.paid_amount) : formatCurrency(row.total_pay)}
                           </td>
@@ -1251,6 +1278,7 @@ export default function Reports() {
                         {payrollHolidays.length > 0 && <td style={{ fontFamily: 'DM Mono, monospace' }}>{payrollTotals.holidayHours.toFixed(2)}</td>}
                         <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right' }}>{formatCurrency(payrollTotals.grossPay)}</td>
                         {hasAnyAdvances && <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#dc2626' }}>({formatCurrency(payrollTotals.advanceDeductions)})</td>}
+                        {hasAnyAdjustments && <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#f59e0b' }}>({formatCurrency(payrollTotals.adjustmentDeductions)})</td>}
                         <td style={{ fontFamily: 'DM Mono, monospace', textAlign: 'right', color: '#16a34a' }}>{formatCurrency(payrollTotals.pay)}</td>
                       </tr>
                     </tfoot>
@@ -1357,7 +1385,13 @@ export default function Reports() {
                                 <td style={{ textAlign: 'right', padding: '6px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#dc2626' }}>({formatCurrency(summary.advance_deduction)})</td>
                               </tr>
                             )}
-                            {summary && summary.advance_deduction > 0 && (
+                            {summary && summary.adjustment_deduction > 0 && (
+                              <tr>
+                                <td colSpan={8} style={{ textAlign: 'right', padding: '6px 6px', fontSize: 13, color: '#f59e0b' }}>Payment Adjustment:</td>
+                                <td style={{ textAlign: 'right', padding: '6px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#f59e0b' }}>({formatCurrency(summary.adjustment_deduction)})</td>
+                              </tr>
+                            )}
+                            {summary && (summary.advance_deduction > 0 || summary.adjustment_deduction > 0) && (
                               <tr style={{ borderTop: '1px solid var(--border)' }}>
                                 <td colSpan={8} style={{ textAlign: 'right', padding: '8px 6px', fontSize: 14, fontWeight: 700 }}>Net Pay:</td>
                                 <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 700, color: '#16a34a' }}>{formatCurrency(summary.total_pay)}</td>

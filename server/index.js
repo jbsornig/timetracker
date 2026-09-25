@@ -4933,7 +4933,15 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     }
   }
 
-  res.json({ data, paidData, holidays, unclearedAdvances, paidForPeriod, bankSplits });
+  const pendingAdjustments = db.prepare(`
+    SELECT pa.*, u.name as engineer_name
+    FROM payment_adjustments pa
+    JOIN users u ON u.id = pa.user_id
+    WHERE pa.status = 'pending'
+    ORDER BY pa.created_at
+  `).all();
+
+  res.json({ data, paidData, holidays, unclearedAdvances, pendingAdjustments, paidForPeriod, bankSplits });
 });
 
 // ACH Export - Generate Chase CSV file for payroll (supports GET for backward compat and POST with overrides)
