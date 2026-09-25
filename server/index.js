@@ -8469,14 +8469,27 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// One-time: add missing Sam Fox Dec 2025 payment — DELETE after running
+// One-time: check and fix Sam Fox duplicates — DELETE after running
 app.post('/api/admin/reconcile-sam-fox', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const result = db.prepare(`
-    INSERT INTO engineer_payments (user_id, amount, payment_date, notes)
-    VALUES ((SELECT id FROM users WHERE name = 'Sam Fox'), 22040, '2026-02-02', 'Chase Wire - Dec 2025 portion of Feb 2 combined payment (reconciliation)')
-  `).run();
-  res.json({ success: true, newId: result.lastInsertRowid });
+  const dupes = db.prepare(`
+    SELECT ep.id, ep.payment_date, ep.amount, ep.notes
+    FROM engineer_payments ep JOIN users u ON u.id = ep.user_id
+    WHERE u.name = 'Sam Fox' AND ep.amount = 22040 AND ep.payment_date = '2026-02-02'
+    ORDER BY ep.id
+  `).all();
+
+  if (dupes.length <= 1) {
+    return res.json({ success: true, message: 'No duplicates found', records: dupes });
+  }
+
+  const keep = dupes[0];
+  const removeIds = dupes.slice(1).map(d => d.id);
+  for (const id of removeIds) {
+    db.prepare('DELETE FROM engineer_payments WHERE id = ?').run(id);
+  }
+
+  res.json({ success: true, kept: keep.id, removed: removeIds, totalBefore: dupes.length });
 });
 
 // Catch-all: serve React app for any non-API routes in production
