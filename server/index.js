@@ -8469,59 +8469,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// One-time payment reconciliation migration (2026-09-25)
-// Removes 3 phantom May 2 entries, adds 9 missing Chase payments
-// DELETE THIS ENDPOINT after running it once on production
-app.post('/api/admin/reconcile-2026', auth, adminOnly, (req, res) => {
-  const db = getDb();
-
-  const REMOVALS = [
-    { engineer: 'Erik Moller', amount: 12900, date: '2026-05-02' },
-    { engineer: 'Jeff Goncy', amount: 14400, date: '2026-05-02' },
-    { engineer: 'Matt Holland', amount: 16419.38, date: '2026-05-02' },
-  ];
-
-  const ADDITIONS = [
-    { engineer: 'Andrew Sornig', date: '2026-01-02', amount: 65312.50, notes: 'Chase ACH - Jan 2 payment (reconciliation)' },
-    { engineer: 'Dave Claire', date: '2026-01-02', amount: 10800, notes: 'Chase ACH - Jan 2 payment (reconciliation)' },
-    { engineer: 'Derek Avery', date: '2026-01-02', amount: 12330, notes: 'Chase ACH - Jan 2 payment (reconciliation)' },
-    { engineer: 'Cedric Simmons', date: '2026-05-04', amount: 288, notes: 'Chase ACH - May 4 payment (reconciliation)' },
-    { engineer: 'Daniel Pearson', date: '2026-05-04', amount: 288, notes: 'Chase ACH - May 4 payment (reconciliation)' },
-    { engineer: 'Luke Seale', date: '2026-05-04', amount: 288, notes: 'Chase ACH - May 4 payment (reconciliation)' },
-    { engineer: 'Tabatha Bradford', date: '2026-05-04', amount: 288, notes: 'Chase ACH - May 4 payment (reconciliation)' },
-    { engineer: 'Travis Stephens', date: '2026-05-04', amount: 304, notes: 'Chase ACH - May 4 payment (reconciliation)' },
-    { engineer: 'Tyler Martin', date: '2026-05-04', amount: 304, notes: 'Chase ACH - May 4 payment (reconciliation)' },
-  ];
-
-  const log = [];
-
-  const removeByMatch = db.prepare(`
-    DELETE FROM engineer_payments WHERE id IN (
-      SELECT ep.id FROM engineer_payments ep
-      JOIN users u ON u.id = ep.user_id
-      WHERE u.name = ? AND ABS(ep.amount - ?) < 0.02 AND ep.payment_date = ?
-      LIMIT 1
-    )
-  `);
-
-  for (const r of REMOVALS) {
-    const result = removeByMatch.run(r.engineer, r.amount, r.date);
-    log.push({ action: 'remove', engineer: r.engineer, amount: r.amount, date: r.date, rowsAffected: result.changes });
-  }
-
-  const insertStmt = db.prepare(`
-    INSERT INTO engineer_payments (user_id, amount, payment_date, notes)
-    VALUES ((SELECT id FROM users WHERE name = ?), ?, ?, ?)
-  `);
-
-  for (const a of ADDITIONS) {
-    const result = insertStmt.run(a.engineer, a.amount, a.date, a.notes);
-    log.push({ action: 'add', engineer: a.engineer, amount: a.amount, date: a.date, newId: result.lastInsertRowid });
-  }
-
-  res.json({ success: true, operations: log });
-});
-
 // Catch-all: serve React app for any non-API routes in production
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
