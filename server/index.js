@@ -1933,7 +1933,7 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
 
   // Block submission if it would exceed PO budget
   if (req.user.role !== 'admin') {
-    const budget = getProjectBudgetStatus(db, ts.project_id);
+    const budget = getProjectBudgetStatus(db, ts.project_id, parseInt(req.params.id));
     if (budget && ts.bill_rate > 0) {
       const thisCost = ts.total_hours * ts.bill_rate;
       if (budget.total_billed + thisCost > budget.po_amount + 0.01) {
@@ -2004,7 +2004,7 @@ app.put('/api/timesheets/:id/approve', auth, adminOnly, (req, res) => {
   if (!ts) return res.status(404).json({ error: 'Not found' });
 
   let budgetWarning = null;
-  const budget = getProjectBudgetStatus(db, ts.project_id);
+  const budget = getProjectBudgetStatus(db, ts.project_id, parseInt(req.params.id));
   if (budget) {
     const totalHours = db.prepare('SELECT COALESCE(SUM(hours), 0) as total FROM timesheet_entries WHERE timesheet_id = ?').get(req.params.id);
     const thisCost = (totalHours.total || 0) * (ts.bill_rate || 0);
