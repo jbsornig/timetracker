@@ -1038,7 +1038,7 @@ function parseFcaPoPdf(text) {
 
   // Extract all line items: pattern is "<line_number><description>\nDelivery date: ...\n<qty><UOM><price>/1/"
   const lineItems = [];
-  const linePattern = /\n(\d+)([\w\s.,'/-]+?)(?:\n\s*Delivery date:.*?\n)\s*([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//g;
+  const linePattern = /\n(\d+)([\w\s.,'/-]+?)(?:\n\s*Delivery date:.*?\n)\s*([\d,.]+)(HR|LO|EA|MON|PCE|UN)([\d,.]+)\/1\//g;
   let lineMatch;
   while ((lineMatch = linePattern.exec(text)) !== null) {
     const lineNum = parseInt(lineMatch[1]);
@@ -1067,7 +1067,7 @@ function parseFcaPoPdf(text) {
     quantity = String(lineItems[0].quantity);
     unitPrice = String(lineItems[0].unit_price);
   } else {
-    const uomMatch = text.match(/([\d,.]+)(HR|LO|EA|MON|PCE)([\d,.]+)\/1\//);
+    const uomMatch = text.match(/([\d,.]+)(HR|LO|EA|MON|PCE|UN)([\d,.]+)\/1\//);
     if (uomMatch) {
       quantity = parseFloat(uomMatch[1].replace(/,/g, '')).toString();
       uom = uomMatch[2];
