@@ -1454,6 +1454,14 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     } else {
       estTotal = monthlyPay;
     }
+  } else if (project.project_type === 'piece_rate') {
+    const payRate = parseFloat(assignment.pay_rate || 0);
+    compensationHtml = `<li><strong>Pay Rate:</strong> $${payRate.toFixed(2)}/unit</li>`;
+    if (project.po_amount && project.unit_price > 0) {
+      const totalUnits = Math.floor(project.po_amount / project.unit_price);
+      estTotal = totalUnits * payRate;
+      compensationHtml += `<li><strong>Total Units:</strong> ${totalUnits} units (PO $${parseFloat(project.po_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} / $${parseFloat(project.unit_price).toFixed(2)} per unit)</li>`;
+    }
   } else {
     compensationHtml = `<li><strong>Pay Rate:</strong> $${parseFloat(assignment.pay_rate || 0).toFixed(2)}/hr</li>`;
     if (project.overtime_type && project.overtime_type !== 'none' && assignment.ot_pay_rate > 0) {
@@ -1500,7 +1508,7 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
         ${project.location ? `<tr><td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">Location</td><td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.location}</td></tr>` : ''}
         <tr style="background: #f8fafc;">
           <td style="padding: 10px 14px; border: 1px solid #e2e8f0; font-weight: 600;">Type</td>
-          <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.project_type === 'fixed_price' ? 'Fixed Price' : project.project_type === 'fixed_monthly' ? 'Fixed Monthly' : 'Hourly'}</td>
+          <td style="padding: 10px 14px; border: 1px solid #e2e8f0;">${project.project_type === 'piece_rate' ? 'Piece Rate' : project.project_type === 'fixed_price' ? 'Fixed Price' : project.project_type === 'fixed_monthly' ? 'Fixed Monthly' : 'Hourly'}</td>
         </tr>
       </table>
       <h3 style="color: #1e293b; margin-top: 24px;">Compensation Details</h3>
