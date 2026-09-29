@@ -1261,7 +1261,7 @@ function parseMercedesPoPdf(text) {
 }
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, unit_price } = req.body;
   const db = getDb();
   if (po_number && po_number.trim()) {
     const existing = db.prepare('SELECT id, name FROM projects WHERE po_number = ?').get(po_number.trim());
@@ -1269,12 +1269,12 @@ app.post('/api/projects', auth, adminOnly, (req, res) => {
       return res.status(409).json({ error: `A project with PO number "${po_number}" already exists: "${existing.name}"` });
     }
   }
-  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0);
+  const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0, unit_price || 0);
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
-  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, confirm_inactive } = req.body;
+  const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, confirm_inactive, unit_price } = req.body;
   const db = getDb();
 
   if (po_number && po_number.trim()) {
@@ -1301,7 +1301,7 @@ app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
     }
   }
 
-  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=?, edi_po_quantity=?, edi_unit_price=?, overtime_type=?, invoice_consolidate=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0, req.params.id);
+  db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=?, edi_po_quantity=?, edi_unit_price=?, overtime_type=?, invoice_consolidate=?, unit_price=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0, unit_price || 0, req.params.id);
   res.json({ success: true });
 });
 
@@ -1562,6 +1562,7 @@ app.get('/api/timesheets', auth, (req, res) => {
   let query = `
     SELECT ts.*, u.name as engineer_name, p.name as project_name,
            c.name as customer_name, p.po_number, p.project_type, p.requires_daily_logs, p.overtime_type,
+           p.unit_price,
            COALESCE(SUM(te.hours), 0) as total_hours,
            ep.pay_rate, ep.total_payment
     FROM timesheets ts
@@ -1622,11 +1623,24 @@ app.get('/api/timesheets/:id', auth, (req, res) => {
 });
 
 function getProjectBudgetStatus(db, projectId, excludeTimesheetId) {
-  const project = db.prepare('SELECT po_amount, project_type FROM projects WHERE id = ?').get(projectId);
+  const project = db.prepare('SELECT po_amount, project_type, unit_price FROM projects WHERE id = ?').get(projectId);
   if (!project || !project.po_amount || project.po_amount <= 0) return null;
 
   const excludeClause = excludeTimesheetId ? 'AND ts.id != ?' : '';
   const params = excludeTimesheetId ? [projectId, excludeTimesheetId] : [projectId];
+
+  if (project.project_type === 'piece_rate') {
+    const billed = db.prepare(`
+      SELECT COALESCE(SUM(COALESCE(ts.units, 0) * ?), 0) as total
+      FROM timesheets ts
+      WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved') ${excludeClause}
+    `).get(project.unit_price || 0, ...params);
+    return {
+      po_amount: project.po_amount,
+      total_billed: billed.total || 0,
+      remaining: project.po_amount - (billed.total || 0),
+    };
+  }
 
   const billed = db.prepare(`
     SELECT COALESCE(SUM(
@@ -1683,13 +1697,24 @@ app.post('/api/timesheets', auth, (req, res) => {
   const db = getDb();
 
   // Check project type and settings
-  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs, po_amount, status, billing_method, monthly_engineer_pay, monthly_invoice_amount, overtime_type FROM projects WHERE id = ?').get(project_id);
+  const project = db.prepare('SELECT project_type, total_cost, requires_daily_logs, po_amount, status, billing_method, monthly_engineer_pay, monthly_invoice_amount, overtime_type, unit_price FROM projects WHERE id = ?').get(project_id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
 
   // Block timesheets against fully-used projects
-  if (project.project_type === 'fixed_price') {
+  if (project.project_type === 'piece_rate') {
+    if (project.po_amount > 0) {
+      const claimed = db.prepare(`
+        SELECT COALESCE(SUM(COALESCE(ts.units, 0) * ?), 0) as total
+        FROM timesheets ts
+        WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved')
+      `).get(project.unit_price || 0, project_id);
+      if (claimed.total >= project.po_amount) {
+        return res.status(400).json({ error: 'This project has been fully claimed. No remaining budget.' });
+      }
+    }
+  } else if (project.project_type === 'fixed_price') {
     // Fixed price: check if total_cost has been fully claimed via timesheets
     if (project.total_cost > 0) {
       const claimed = db.prepare(`
@@ -1724,7 +1749,7 @@ app.post('/api/timesheets', auth, (req, res) => {
     return res.status(400).json({ error: 'This project is closed and cannot accept new timesheets.' });
   }
 
-  const isMonthly = project.project_type !== 'fixed_price' && project.requires_daily_logs === 0;
+  const isMonthly = project.project_type !== 'fixed_price' && project.project_type !== 'piece_rate' && project.requires_daily_logs === 0;
 
   if (isMonthly && project.po_amount > 0 && monthly_hours) {
     const ep = db.prepare('SELECT bill_rate, ot_bill_rate FROM engineer_projects WHERE user_id = ? AND project_id = ?').get(user_id, project_id);
@@ -1756,7 +1781,29 @@ app.post('/api/timesheets', auth, (req, res) => {
   }
 
   try {
-    if (project.project_type === 'fixed_price') {
+    if (project.project_type === 'piece_rate') {
+      if (!period_start || !period_end) {
+        return res.status(400).json({ error: 'Period start and end are required' });
+      }
+      const units = parseFloat(req.body.units);
+      if (!units || units <= 0) {
+        return res.status(400).json({ error: 'Number of units is required and must be positive' });
+      }
+      const existing = db.prepare(
+        "SELECT id FROM timesheets WHERE user_id = ? AND project_id = ? AND period_start = ? AND status != 'rejected'"
+      ).get(user_id, project_id, period_start);
+      if (existing) {
+        return res.status(400).json({ error: 'A submission already exists for this month' });
+      }
+      const ep = db.prepare('SELECT pay_rate FROM engineer_projects WHERE user_id = ? AND project_id = ?')
+        .get(user_id, project_id);
+      const payRate = ep?.pay_rate || 0;
+      const amount = units * payRate;
+      const result = db.prepare(
+        'INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, units, amount) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(user_id, project_id, period_end, period_start, period_end, units, amount);
+      return res.json({ id: result.lastInsertRowid });
+    } else if (project.project_type === 'fixed_price') {
       if (project.billing_method === 'monthly_installment') {
         // Monthly installment: engineer picks a month, amount is pre-defined
         if (!period_start || !period_end) {
@@ -1834,6 +1881,24 @@ app.put('/api/timesheets/:id/fixed-price', auth, (req, res) => {
 
   db.prepare('UPDATE timesheets SET period_start=?, period_end=?, week_ending=?, percentage=?, amount=? WHERE id=?')
     .run(period_start, period_end, period_end, percentage, amount, req.params.id);
+  res.json({ success: true });
+});
+
+app.put('/api/timesheets/:id/piece-rate', auth, (req, res) => {
+  const { period_start, period_end, units } = req.body;
+  const db = getDb();
+  const ts = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
+  if (!ts) return res.status(404).json({ error: 'Not found' });
+  if (req.user.role !== 'admin' && ts.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+  if (ts.status === 'approved') return res.status(400).json({ error: 'Cannot edit approved timesheet' });
+
+  const ep = db.prepare('SELECT pay_rate FROM engineer_projects WHERE user_id = ? AND project_id = ?')
+    .get(ts.user_id, ts.project_id);
+  const payRate = ep?.pay_rate || 0;
+  const amount = parseFloat(units) * payRate;
+
+  db.prepare('UPDATE timesheets SET period_start=?, period_end=?, week_ending=?, units=?, amount=? WHERE id=?')
+    .run(period_start, period_end, period_end, parseFloat(units), amount, req.params.id);
   res.json({ success: true });
 });
 
@@ -1963,7 +2028,8 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
 
   // Calculate amount based on project type
   const isFixedPrice = ts.project_type === 'fixed_price';
-  const amount = isFixedPrice ? (ts.amount || 0) : (ts.total_hours * (ts.bill_rate || 0));
+  const isPieceRate = ts.project_type === 'piece_rate';
+  const amount = (isFixedPrice || isPieceRate) ? (ts.amount || 0) : (ts.total_hours * (ts.bill_rate || 0));
 
   // Send notification to admin
   const weekEnding = new Date(ts.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1978,7 +2044,9 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
       <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Project:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.project_name}</td></tr>
       <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Customer:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.customer_name}</td></tr>
       <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Week Ending:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${weekEnding}</td></tr>
-      ${isFixedPrice
+      ${isPieceRate
+        ? `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Units:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.units || 0}</td></tr>`
+        : isFixedPrice
         ? `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Percentage:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.percentage || 0}%</td></tr>`
         : `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Total Hours:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${ts.total_hours.toFixed(2)}</td></tr>`
       }
@@ -1986,7 +2054,7 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
     </table>
     <p>Log in to <a href="https://timetracker.utechconsulting.net">UTech TimeTracker</a> to review and approve.</p>
     `,
-    `Timesheet: ${ts.engineer_name} - ${ts.project_name} WE ${weekEnding} ${isFixedPrice ? ts.percentage + '%' : ts.total_hours.toFixed(2) + 'hrs'} ${amountStr}`
+    `Timesheet: ${ts.engineer_name} - ${ts.project_name} WE ${weekEnding} ${isPieceRate ? (ts.units || 0) + ' units' : isFixedPrice ? ts.percentage + '%' : ts.total_hours.toFixed(2) + 'hrs'} ${amountStr}`
   );
 
   res.json({ success: true });
@@ -1995,7 +2063,7 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
 app.put('/api/timesheets/:id/approve', auth, adminOnly, (req, res) => {
   const db = getDb();
   const ts = db.prepare(`
-    SELECT ts.*, ep.bill_rate, p.po_amount, p.name as project_name
+    SELECT ts.*, ep.bill_rate, p.po_amount, p.name as project_name, p.project_type, p.unit_price
     FROM timesheets ts
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
@@ -2006,8 +2074,13 @@ app.put('/api/timesheets/:id/approve', auth, adminOnly, (req, res) => {
   let budgetWarning = null;
   const budget = getProjectBudgetStatus(db, ts.project_id, parseInt(req.params.id));
   if (budget) {
-    const totalHours = db.prepare('SELECT COALESCE(SUM(hours), 0) as total FROM timesheet_entries WHERE timesheet_id = ?').get(req.params.id);
-    const thisCost = (totalHours.total || 0) * (ts.bill_rate || 0);
+    let thisCost;
+    if (ts.project_type === 'piece_rate') {
+      thisCost = (ts.units || 0) * (ts.unit_price || 0);
+    } else {
+      const totalHours = db.prepare('SELECT COALESCE(SUM(hours), 0) as total FROM timesheet_entries WHERE timesheet_id = ?').get(req.params.id);
+      thisCost = (totalHours.total || 0) * (ts.bill_rate || 0);
+    }
     if (budget.total_billed + thisCost > budget.po_amount + 0.01) {
       const overage = (budget.total_billed + thisCost - budget.po_amount).toFixed(2);
       budgetWarning = `This approval will exceed the PO budget by $${overage} (PO: $${budget.po_amount.toLocaleString()}, total billed after: $${(budget.total_billed + thisCost).toLocaleString()}).`;
@@ -2127,12 +2200,13 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
   // Find all projects with approved timesheets in the date range
   const projects = db.prepare(`
     SELECT
-      p.id, p.name as project_name, p.po_number, p.po_amount, p.project_type, p.total_cost,
+      p.id, p.name as project_name, p.po_number, p.po_amount, p.project_type, p.total_cost, p.unit_price,
       c.name as customer_name,
       COUNT(DISTINCT ts.id) as timesheet_count,
-      COALESCE(SUM(CASE WHEN p.project_type = 'fixed_price' THEN ts.amount ELSE 0 END), 0) as fixed_amount,
-      COALESCE(SUM(CASE WHEN p.project_type != 'fixed_price' THEN te.hours ELSE 0 END), 0) as total_hours,
-      COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'fixed_monthly') THEN
+      COALESCE(SUM(CASE WHEN p.project_type IN ('fixed_price', 'piece_rate') THEN ts.amount ELSE 0 END), 0) as fixed_amount,
+      COALESCE(SUM(CASE WHEN p.project_type = 'piece_rate' THEN ts.units ELSE 0 END), 0) as total_units,
+      COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'piece_rate') THEN te.hours ELSE 0 END), 0) as total_hours,
+      COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'fixed_monthly', 'piece_rate') THEN
         (te.hours - COALESCE(ts.ot_hours, 0)) * ep.bill_rate
         + COALESCE(ts.ot_hours, 0) * COALESCE(ep.ot_bill_rate, ep.bill_rate)
       ELSE 0 END), 0) as hourly_amount
@@ -2144,8 +2218,8 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
     WHERE ts.status = 'approved'
     AND COALESCE(p.internal, 0) = 0
     AND (
-      (p.project_type != 'fixed_price' AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL)
-      OR (p.project_type = 'fixed_price' AND ts.invoice_id IS NULL AND (
+      (p.project_type NOT IN ('fixed_price', 'piece_rate') AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL)
+      OR (p.project_type IN ('fixed_price', 'piece_rate') AND ts.invoice_id IS NULL AND (
         ts.week_ending BETWEEN ? AND ?
         OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
       ))
@@ -2157,7 +2231,9 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
   // Calculate estimated invoice amount for each project
   const results = projects.map(p => {
     let estimated_amount;
-    if (p.project_type === 'fixed_price') {
+    if (p.project_type === 'piece_rate') {
+      estimated_amount = (p.total_units || 0) * (p.unit_price || 0);
+    } else if (p.project_type === 'fixed_price') {
       const engineerTotals = db.prepare('SELECT SUM(total_payment) as total FROM engineer_projects WHERE project_id = ?').get(p.id);
       const totalEngineerPayments = engineerTotals?.total || 0;
       if (totalEngineerPayments > 0) {
@@ -2255,6 +2331,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
   const filtered = results.filter(r => {
     if (r.project_type === 'fixed_monthly') return r.total_hours > 0;
     if (r.project_type === 'fixed_price') return r.fixed_amount > 0;
+    if (r.project_type === 'piece_rate') return r.fixed_amount > 0;
     return r.estimated_amount > 0 || r.total_hours > 0;
   });
   res.json(filtered);
@@ -2265,7 +2342,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-           p.project_type, p.total_cost, p.include_timesheets, p.billing_method, p.invoice_consolidate, p.overtime_type, p.requires_daily_logs,
+           p.project_type, p.total_cost, p.include_timesheets, p.billing_method, p.invoice_consolidate, p.overtime_type, p.requires_daily_logs, p.unit_price,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.currency_symbol, cc.name as contact_name
     FROM invoices i
@@ -2278,6 +2355,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
 
   const isFixedPrice = invoice.project_type === 'fixed_price';
   const isFixedMonthly = invoice.project_type === 'fixed_monthly';
+  const isPieceRate = invoice.project_type === 'piece_rate';
 
   // Get company settings
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
@@ -2288,7 +2366,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
 
   // Get line items from approved timesheets in the period
   // For hourly: find timesheets that have any entry_date in the period
-  // For fixed price: use week_ending or period_end
+  // For fixed price / piece rate: use week_ending or period_end
   // When viewing an invoice, prefer entries stamped with this invoice_id;
   // fall back to date-range query for invoices created before stamping was added
   const timesheets = db.prepare(`
@@ -2300,8 +2378,8 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
     AND (
-      (p.project_type NOT IN ('fixed_price') AND te.invoice_id = ?)
-      OR (p.project_type = 'fixed_price' AND ts.invoice_id = ?)
+      (p.project_type NOT IN ('fixed_price', 'piece_rate') AND te.invoice_id = ?)
+      OR (p.project_type IN ('fixed_price', 'piece_rate') AND ts.invoice_id = ?)
     )
     ORDER BY u.name, ts.week_ending
   `).all(invoice.project_id, req.params.id, req.params.id);
@@ -2317,8 +2395,8 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
     WHERE ts.project_id = ? AND ts.status = 'approved'
     AND (
-      (p.project_type NOT IN ('fixed_price') AND te.entry_date BETWEEN ? AND ?)
-      OR (p.project_type = 'fixed_price' AND (
+      (p.project_type NOT IN ('fixed_price', 'piece_rate') AND te.entry_date BETWEEN ? AND ?)
+      OR (p.project_type IN ('fixed_price', 'piece_rate') AND (
         ts.week_ending BETWEEN ? AND ?
         OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
       ))
@@ -2340,7 +2418,30 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   }
 
   for (const ts of timesheetsToUse) {
-    if (isFixedPrice) {
+    if (isPieceRate) {
+      const engineerAmt = ts.amount || 0;
+      const invoiceAmt = (ts.units || 0) * (invoice.unit_price || 0);
+      lineItems.push({
+        engineer: ts.engineer_name,
+        units: ts.units || 0,
+        unit_price: invoice.unit_price || 0,
+        engineer_amount: engineerAmt,
+        amount: invoiceAmt,
+        period_start: ts.period_start,
+        period_end: ts.period_end,
+        is_piece_rate: true
+      });
+      timesheetDetails.push({
+        id: ts.id,
+        engineer_name: ts.engineer_name,
+        engineer_id: ts.engineer_id,
+        units: ts.units || 0,
+        amount: engineerAmt,
+        period_start: ts.period_start,
+        period_end: ts.period_end,
+        is_piece_rate: true
+      });
+    } else if (isFixedPrice) {
       // Fixed price: calculate engineer's claimed amount
       let engineerAmt = ts.amount || 0;
       if ((engineerAmt === 0 || engineerAmt === null) && ts.percentage && ts.total_payment) {
@@ -2488,7 +2589,9 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
       engineer: 'Engineering Services',
       is_consolidated: true,
     };
-    if (isFixedPrice) {
+    if (isPieceRate) {
+      consolidated.is_piece_rate = true;
+    } else if (isFixedPrice) {
       consolidated.is_fixed_price = true;
     } else if (isFixedMonthly) {
       consolidated.is_fixed_monthly = true;
@@ -2509,7 +2612,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     });
   });
 
-  res.json({ ...invoice, settings, lineItems, timesheetDetails, adjustments, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly });
+  res.json({ ...invoice, settings, lineItems, timesheetDetails, adjustments, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate });
   } catch (err) {
     console.error('Error viewing invoice:', err);
     res.status(500).json({ error: err.message });
@@ -2919,6 +3022,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
 
     const isFixedPrice = project.project_type === 'fixed_price';
     const isFixedMonthly = project.project_type === 'fixed_monthly';
+    const isPieceRate = project.project_type === 'piece_rate';
 
     const timesheets = db.prepare(`
       SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill, ep.ot_pay_rate, ep.ot_bill_rate
@@ -2929,8 +3033,8 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
       WHERE ts.project_id = ? AND ts.status = 'approved'
       AND (
-        (p.project_type NOT IN ('fixed_price') AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL)
-        OR (p.project_type = 'fixed_price' AND ts.invoice_id IS NULL AND (
+        (p.project_type NOT IN ('fixed_price', 'piece_rate') AND te.entry_date BETWEEN ? AND ? AND te.invoice_id IS NULL)
+        OR (p.project_type IN ('fixed_price', 'piece_rate') AND ts.invoice_id IS NULL AND (
           ts.week_ending BETWEEN ? AND ?
           OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
         ))
@@ -2953,7 +3057,32 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     }
 
     for (const ts of timesheets) {
-      if (isFixedPrice) {
+      if (isPieceRate) {
+        const engineerAmt = ts.amount || 0;
+        const invoiceAmt = (ts.units || 0) * (project.unit_price || 0);
+        total_amount += invoiceAmt;
+
+        lineItems.push({
+          engineer: ts.engineer_name,
+          units: ts.units || 0,
+          unit_price: project.unit_price || 0,
+          engineer_amount: engineerAmt,
+          amount: invoiceAmt,
+          period_start: ts.period_start,
+          period_end: ts.period_end,
+          is_piece_rate: true
+        });
+        timesheetDetails.push({
+          id: ts.id,
+          engineer_name: ts.engineer_name,
+          engineer_id: ts.engineer_id,
+          units: ts.units || 0,
+          amount: engineerAmt,
+          period_start: ts.period_start,
+          period_end: ts.period_end,
+          is_piece_rate: true
+        });
+      } else if (isFixedPrice) {
         // Fixed price: calculate engineer's claimed amount
         let engineerAmt = ts.amount || 0;
         if ((engineerAmt === 0 || engineerAmt === null) && ts.percentage && ts.total_payment) {
@@ -3113,7 +3242,9 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
         engineer: 'Engineering Services',
         is_consolidated: true,
       };
-      if (isFixedPrice) {
+      if (isPieceRate) {
+        consolidated.is_piece_rate = true;
+      } else if (isFixedPrice) {
         consolidated.is_fixed_price = true;
       } else if (isFixedMonthly) {
         consolidated.is_fixed_monthly = true;
@@ -3158,8 +3289,8 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     const invoiceId = result.lastInsertRowid;
 
     // Stamp timesheet entries and timesheets as invoiced to prevent double-billing
-    if (isFixedPrice) {
-      // Fixed price: stamp the timesheets themselves
+    if (isFixedPrice || isPieceRate) {
+      // Fixed price / piece rate: stamp the timesheets themselves
       const stampTimesheet = db.prepare('UPDATE timesheets SET invoice_id = ? WHERE id = ?');
       for (const td of timesheetDetails) {
         stampTimesheet.run(invoiceId, td.id);
@@ -3179,7 +3310,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       settings[row.key] = row.value;
     }
 
-    res.json({ id: invoiceId, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, include_timesheets: project.include_timesheets, project_name: project.name, customer_name: project.customer_name, customer_address: project.customer_address, supplier_number: project.supplier_number, payment_terms: project.payment_terms, contact_name: project.contact_name, po_number: project.po_number, location: project.location, project_type: project.project_type });
+    res.json({ id: invoiceId, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate, include_timesheets: project.include_timesheets, project_name: project.name, customer_name: project.customer_name, customer_address: project.customer_address, supplier_number: project.supplier_number, payment_terms: project.payment_terms, contact_name: project.contact_name, po_number: project.po_number, location: project.location, project_type: project.project_type });
   } catch (err) {
     console.error('Invoice generation error:', err);
     res.status(500).json({ error: err.message });
@@ -4917,11 +5048,38 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
     `).all(start, end);
   }
 
+  function pieceRateQuery(start, end, userIds, excludeIds, includePaid) {
+    const idFilter = userIds.length > 0
+      ? (excludeIds ? `AND u.id NOT IN (${userIds.join(',')})` : `AND u.id IN (${userIds.join(',')})`)
+      : '';
+    const paidFilter = includePaid ? 'AND ts.paid_date IS NOT NULL' : 'AND ts.paid_date IS NULL';
+    return db.prepare(`
+      SELECT u.id as user_id, u.name as engineer_name, u.engineer_id,
+             u.holiday_pay_eligible, u.holiday_pay_rate, u.pay_delay_months,
+             0 as total_hours,
+             ep.pay_rate as pay_rate,
+             ts.amount as total_pay,
+             0 as bill_rate,
+             ts.amount as total_billed,
+             p.name as project_name, p.po_number,
+             'piece_rate' as pay_type,
+             ts.units
+      FROM timesheets ts
+      JOIN users u ON u.id = ts.user_id
+      JOIN projects p ON p.id = ts.project_id
+      LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+      WHERE ts.status = 'approved' ${paidFilter} AND p.project_type = 'piece_rate'
+        AND ts.week_ending BETWEEN ? AND ? ${idFilter}
+      ORDER BY u.name, p.name
+    `).all(start, end);
+  }
+
   const hourlyData = getPayrollData(hourlyQuery, period_start, period_end);
   const fixedMonthlyData = getPayrollData(fixedMonthlyQuery, period_start, period_end);
   const fixedPriceData = getPayrollData(fixedPriceQuery, period_start, period_end);
+  const pieceRateData = getPayrollData(pieceRateQuery, period_start, period_end);
 
-  const timesheetData = [...hourlyData, ...fixedMonthlyData, ...fixedPriceData];
+  const timesheetData = [...hourlyData, ...fixedMonthlyData, ...fixedPriceData, ...pieceRateData];
 
   // Get holidays in the date range
   const holidays = db.prepare(`
@@ -5023,6 +5181,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
         ...hourlyQuery(period_start, period_end, normalPaidIds, false, true),
         ...fixedMonthlyQuery(period_start, period_end, normalPaidIds, false, true),
         ...fixedPriceQuery(period_start, period_end, normalPaidIds, false, true),
+        ...pieceRateQuery(period_start, period_end, normalPaidIds, false, true),
       ];
     }
     const paidDelayGroups = {};
@@ -5038,6 +5197,7 @@ app.get('/api/reports/payroll', auth, adminOnly, (req, res) => {
         hourlyQuery(start, end, userIds, false, true),
         fixedMonthlyQuery(start, end, userIds, false, true),
         fixedPriceQuery(start, end, userIds, false, true),
+        pieceRateQuery(start, end, userIds, false, true),
       );
     }
   }
@@ -5474,6 +5634,17 @@ app.get('/api/reports/invoiced', auth, adminOnly, (req, res) => {
       `).all(inv.project_id);
       engineers = rows.map(r => ({ name: r.engineer_name, cost: r.total_payment || 0 }));
       engineerCost = engineers.reduce((s, e) => s + e.cost, 0);
+    } else if (inv.project_type === 'piece_rate') {
+      const rows = db.prepare(`
+        SELECT u.name as engineer_name, SUM(ts.amount) as cost
+        FROM timesheets ts
+        JOIN users u ON u.id = ts.user_id
+        WHERE ts.project_id = ? AND ts.status = 'approved'
+          AND ts.week_ending BETWEEN ? AND ?
+        GROUP BY u.id
+      `).all(inv.project_id, inv.period_start, inv.period_end);
+      engineers = rows.map(r => ({ name: r.engineer_name, cost: r.cost || 0 }));
+      engineerCost = engineers.reduce((s, e) => s + e.cost, 0);
     }
 
     return { ...inv, engineer_cost: engineerCost, engineers };
@@ -5518,7 +5689,7 @@ app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
     JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.user_id = ? AND ts.status IN ('approved', 'submitted')
-      AND p.project_type = 'fixed_price'
+      AND p.project_type IN ('fixed_price', 'piece_rate')
       AND ts.week_ending BETWEEN ? AND ?
     ORDER BY p.name, ts.week_ending
   `).all(user_id, period_start, period_end);
@@ -5775,10 +5946,10 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
   }
 
   // Get all timesheets for this engineer in the date range
-  // Support both hourly (week_ending) and fixed price (period_end) timesheets
+  // Support both hourly (week_ending) and fixed price/piece rate (period_end) timesheets
   const rawTimesheets = db.prepare(`
     SELECT ts.id, ts.week_ending, ts.status, ts.period_start, ts.period_end, ts.percentage, ts.amount as fixed_amount,
-           ts.ot_hours as ts_ot_hours, p.requires_daily_logs,
+           ts.ot_hours as ts_ot_hours, ts.units, p.requires_daily_logs,
            p.id as project_id, p.name as project_name, p.project_type, p.overtime_type, c.name as customer_name,
            COALESCE(SUM(CASE WHEN te.entry_date BETWEEN ? AND ? THEN te.hours ELSE 0 END), 0) as total_hours,
            ep.pay_rate, ep.ot_pay_rate, ep.total_payment, ep.monthly_pay, ep.monthly_bill
@@ -5789,10 +5960,10 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
     WHERE ts.user_id = ?
     AND (
-      (p.project_type != 'fixed_price' AND EXISTS (
+      (p.project_type NOT IN ('fixed_price', 'piece_rate') AND EXISTS (
         SELECT 1 FROM timesheet_entries te2 WHERE te2.timesheet_id = ts.id AND te2.entry_date BETWEEN ? AND ?
       ))
-      OR (p.project_type = 'fixed_price' AND (
+      OR (p.project_type IN ('fixed_price', 'piece_rate') AND (
         ts.week_ending BETWEEN ? AND ?
         OR (ts.period_end IS NOT NULL AND ts.period_end BETWEEN ? AND ?)
       ))
@@ -5804,7 +5975,9 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
   const timesheets = rawTimesheets.map(ts => {
     let amount;
     let regularHrs = ts.total_hours || 0, otHrs = 0;
-    if (ts.project_type === 'fixed_price') {
+    if (ts.project_type === 'piece_rate') {
+      amount = ts.fixed_amount || 0;
+    } else if (ts.project_type === 'fixed_price') {
       amount = ts.fixed_amount || 0;
     } else if (ts.project_type === 'fixed_monthly') {
       amount = ts.monthly_pay || 0;
@@ -6375,6 +6548,43 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
       customer_id: row.customer_id, customer_name: row.customer_name,
       total_hours: 0, billed, cost: engineerCost,
       profit: billed - engineerCost, margin: billed > 0 ? ((billed - engineerCost) / billed) * 100 : 0,
+    });
+  }
+
+  // Piece rate: query through timesheets directly
+  const pieceRateRows = db.prepare(`
+    SELECT u.id as engineer_id, u.name as engineer_name, u.engineer_id as engineer_code,
+           p.id as project_id, p.name as project_name, p.project_type, p.unit_price,
+           c.id as customer_id, c.name as customer_name,
+           ep.pay_rate,
+           COALESCE(SUM(ts.units), 0) as total_units,
+           COALESCE(SUM(ts.amount), 0) as engineer_cost
+    FROM timesheets ts
+    JOIN users u ON u.id = ts.user_id
+    JOIN projects p ON p.id = ts.project_id
+    JOIN customers c ON c.id = p.customer_id
+    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
+    WHERE ts.status IN ('approved', 'submitted')
+      AND p.project_type = 'piece_rate'
+      AND p.internal = 0
+      AND (
+        (ts.period_start IS NOT NULL AND ts.period_start >= ? AND ts.period_end <= ?)
+        OR (ts.period_start IS NULL AND ts.week_ending BETWEEN ? AND ?)
+      )
+    GROUP BY u.id, p.id
+  `).all(period_start, period_end, period_start, period_end);
+
+  for (const row of pieceRateRows) {
+    const key = `${row.engineer_id}-${row.project_id}`;
+    if (seen.has(key)) continue;
+    const billed = (row.total_units || 0) * (row.unit_price || 0);
+    const cost = row.engineer_cost || 0;
+    results.push({
+      engineer_id: row.engineer_id, engineer_name: row.engineer_name, engineer_code: row.engineer_code,
+      project_id: row.project_id, project_name: row.project_name, project_type: row.project_type,
+      customer_id: row.customer_id, customer_name: row.customer_name,
+      total_hours: 0, billed, cost,
+      profit: billed - cost, margin: billed > 0 ? ((billed - cost) / billed) * 100 : 0,
     });
   }
 
@@ -7065,7 +7275,7 @@ app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
     UPDATE timesheets SET paid_date = ?
     WHERE user_id = ? AND status = 'approved' AND paid_date IS NULL
     AND week_ending BETWEEN ? AND ?
-    AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_price')
+    AND project_id IN (SELECT id FROM projects WHERE project_type IN ('fixed_price', 'piece_rate'))
   `).run(stamp, user_id, period_start, period_end);
 
   // Stamp fixed_monthly timesheets without entries (week_ending or period in range)
@@ -7102,12 +7312,12 @@ app.post('/api/timesheets/unmark-paid', auth, adminOnly, (req, res) => {
     )
   `).run(user_id, user_id, period_start, period_end);
 
-  // Clear paid_date on fixed_price timesheets (by week_ending in period)
+  // Clear paid_date on fixed_price/piece_rate timesheets (by week_ending in period)
   const r2 = db.prepare(`
     UPDATE timesheets SET paid_date = NULL
     WHERE user_id = ? AND paid_date IS NOT NULL
     AND week_ending BETWEEN ? AND ?
-    AND project_id IN (SELECT id FROM projects WHERE project_type = 'fixed_price')
+    AND project_id IN (SELECT id FROM projects WHERE project_type IN ('fixed_price', 'piece_rate'))
   `).run(user_id, period_start, period_end);
 
   // Clear paid_date on fixed_monthly timesheets without entries
@@ -7878,8 +8088,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore projects
       if (backup.data.projects) {
         for (const p of backup.data.projects) {
-          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.billing_method || null, p.monthly_engineer_pay || null, p.monthly_invoice_amount || null, p.internal || 0, p.edi_uom || null, p.edi_plant_code || null, p.edi_po_quantity || null, p.edi_unit_price || null, p.overtime_type || 'none', p.invoice_consolidate || 0, p.created_at
+          db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, unit_price, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.billing_method || null, p.monthly_engineer_pay || null, p.monthly_invoice_amount || null, p.internal || 0, p.edi_uom || null, p.edi_plant_code || null, p.edi_po_quantity || null, p.edi_unit_price || null, p.overtime_type || 'none', p.invoice_consolidate || 0, p.unit_price || 0, p.created_at
           );
         }
       }
@@ -7913,8 +8123,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore timesheets
       if (backup.data.timesheets) {
         for (const t of backup.data.timesheets) {
-          db.prepare('INSERT INTO timesheets (id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, period_start, period_end, percentage, amount, ot_hours, invoice_id, paid_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            t.id, t.user_id, t.project_id, t.week_ending, t.status, t.submitted_at, t.approved_at, t.approved_by, t.period_start, t.period_end, t.percentage || 0, t.amount || 0, t.ot_hours || 0, t.invoice_id || null, t.paid_date || null, t.created_at
+          db.prepare('INSERT INTO timesheets (id, user_id, project_id, week_ending, status, submitted_at, approved_at, approved_by, period_start, period_end, percentage, amount, ot_hours, units, invoice_id, paid_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            t.id, t.user_id, t.project_id, t.week_ending, t.status, t.submitted_at, t.approved_at, t.approved_by, t.period_start, t.period_end, t.percentage || 0, t.amount || 0, t.ot_hours || 0, t.units || 0, t.invoice_id || null, t.paid_date || null, t.created_at
           );
         }
       }

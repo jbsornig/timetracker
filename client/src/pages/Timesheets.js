@@ -299,7 +299,7 @@ export default function Timesheets() {
   const [entries, setEntries] = useState([]);
   const [originalEntries, setOriginalEntries] = useState([]);
   const [modal, setModal] = useState(null);
-  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '', monthly_hours: '', ot_hours: '', description: '' });
+  const [newForm, setNewForm] = useState({ project_id: '', week_ending: getNextSunday(), period_start: '', period_end: '', percentage: '', monthly_hours: '', ot_hours: '', description: '', units: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filterFromDashboard] = useState(() => {
@@ -602,7 +602,7 @@ export default function Timesheets() {
     if (!loading && localStorage.getItem('openNewTimesheet') === 'true') {
       localStorage.removeItem('openNewTimesheet');
       const today = new Date().toISOString().split('T')[0];
-      setNewForm({ project_id: '', week_ending: getNextSunday(), period_start: today, period_end: today, percentage: '' });
+      setNewForm({ project_id: '', week_ending: getNextSunday(), period_start: today, period_end: today, percentage: '', units: '' });
       setError('');
       setModal('new');
     }
@@ -610,7 +610,7 @@ export default function Timesheets() {
 
   const openNew = () => {
     const today = new Date().toISOString().split('T')[0];
-    setNewForm({ project_id: '', week_ending: getNextSunday(), period_start: today, period_end: today, percentage: '' });
+    setNewForm({ project_id: '', week_ending: getNextSunday(), period_start: today, period_end: today, percentage: '', units: '' });
     setError('');
     setModal('new');
   };
@@ -619,15 +619,26 @@ export default function Timesheets() {
     e.preventDefault();
     const selectedProject = proxyProjects.find(p => String(p.id) === String(newForm.project_id));
     const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+    const isPieceRate = selectedProject?.project_type === 'piece_rate';
     const isMonthlyInstallment = isFixedPrice && selectedProject?.billing_method === 'monthly_installment';
-    const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
+    const isMonthly = !isFixedPrice && !isPieceRate && selectedProject?.requires_daily_logs === 0;
 
     if (!newForm.project_id) {
       setError('Project is required');
       return;
     }
 
-    if (isFixedPrice && isMonthlyInstallment) {
+    if (isPieceRate) {
+      if (!newForm.period_start || !newForm.period_end || !newForm.units) {
+        setError('Month and number of units are required');
+        return;
+      }
+      const units = parseFloat(newForm.units);
+      if (isNaN(units) || units <= 0) {
+        setError('Units must be a positive number');
+        return;
+      }
+    } else if (isFixedPrice && isMonthlyInstallment) {
       if (!newForm.period_start || !newForm.period_end) {
         setError('Period start and end are required');
         return;
@@ -685,7 +696,9 @@ export default function Timesheets() {
     setError('');
     try {
       let body;
-      if (isFixedPrice && isMonthlyInstallment) {
+      if (isPieceRate) {
+        body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end, units: parseFloat(newForm.units) };
+      } else if (isFixedPrice && isMonthlyInstallment) {
         body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end };
       } else if (isFixedPrice) {
         body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end, percentage: parseInt(newForm.percentage) };
@@ -708,7 +721,7 @@ export default function Timesheets() {
       const result = await apiFetch('/timesheets', { method: 'POST', body });
       await loadTimesheets();
       setModal(null);
-      if (!isFixedPrice && !isMonthly) {
+      if (!isFixedPrice && !isPieceRate && !isMonthly) {
         openTimesheet(result.id);
       }
     } catch (e) {
@@ -1034,6 +1047,9 @@ export default function Timesheets() {
   const [editFixedPriceModal, setEditFixedPriceModal] = useState(null);
   const [editFixedPriceForm, setEditFixedPriceForm] = useState({ period_start: '', period_end: '', percentage: '' });
 
+  const [editPieceRateModal, setEditPieceRateModal] = useState(null);
+  const [editPieceRateForm, setEditPieceRateForm] = useState({ period_start: '', period_end: '', units: '' });
+
   const openEditFixedPrice = (ts) => {
     setEditFixedPriceForm({
       id: ts.id,
@@ -1062,6 +1078,40 @@ export default function Timesheets() {
       });
       await loadTimesheets();
       setEditFixedPriceModal(null);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const openEditPieceRate = (ts) => {
+    setEditPieceRateForm({
+      id: ts.id,
+      period_start: ts.period_start || '',
+      period_end: ts.period_end || '',
+      units: ts.units || '',
+      pay_rate: ts.pay_rate || 0,
+      unit_price: ts.unit_price || 0
+    });
+    setEditPieceRateModal(true);
+  };
+
+  const handleSavePieceRate = async () => {
+    const units = parseFloat(editPieceRateForm.units);
+    if (isNaN(units) || units <= 0) {
+      alert('Units must be a positive number');
+      return;
+    }
+    try {
+      await apiFetch(`/timesheets/${editPieceRateForm.id}/piece-rate`, {
+        method: 'PUT',
+        body: {
+          period_start: editPieceRateForm.period_start,
+          period_end: editPieceRateForm.period_end,
+          units
+        }
+      });
+      await loadTimesheets();
+      setEditPieceRateModal(null);
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -1735,15 +1785,17 @@ export default function Timesheets() {
               <tbody>
                 {sortedTimesheets.map((ts) => {
                   const isFixedPrice = ts.project_type === 'fixed_price';
-                  const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
+                  const isPieceRate = ts.project_type === 'piece_rate';
+                  const isMonthly = !isFixedPrice && !isPieceRate && ts.requires_daily_logs === 0;
                   const proj = projects.find(p => p.id === ts.project_id);
                   const isInstallment = isFixedPrice && proj?.billing_method === 'monthly_installment';
                   const getBadgeClass = () => {
-                    if (isFixedPrice) return 'badge-fixed';
+                    if (isFixedPrice || isPieceRate) return 'badge-fixed';
                     if (isMonthly) return 'badge-submitted';
                     return 'badge-hourly';
                   };
                   const getBadgeText = () => {
+                    if (isPieceRate) return 'Piece Rate';
                     if (isFixedPrice) return 'Fixed';
                     if (isMonthly) return 'Monthly';
                     return 'Hourly';
@@ -1751,9 +1803,9 @@ export default function Timesheets() {
                   return (
                     <tr key={ts.id}>
                       <td>
-                        {(isFixedPrice || isMonthly) && ts.period_start ? (
+                        {(isFixedPrice || isPieceRate || isMonthly) && ts.period_start ? (
                           <>
-                            {isMonthly ? (
+                            {(isMonthly || isPieceRate) ? (
                               new Date(ts.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
                             ) : (
                               <>
@@ -1790,7 +1842,15 @@ export default function Timesheets() {
                         </span>
                       </td>
                       <td style={{ fontFamily: 'DM Mono, monospace' }}>
-                        {isFixedPrice ? (
+                        {isPieceRate ? (
+                          <>
+                            {ts.units || 0} units
+                            <br />
+                            <span style={{ fontSize: 11, color: '#64748b' }}>
+                              ${(ts.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} pay
+                            </span>
+                          </>
+                        ) : isFixedPrice ? (
                           <>
                             ${(ts.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             <br />
@@ -1829,7 +1889,7 @@ export default function Timesheets() {
                         <span className={`badge badge-${ts.status}`}>{ts.status}</span>
                       </td>
                       <td>
-                        {!isFixedPrice && (
+                        {!isFixedPrice && !isPieceRate && (
                           <>
                             <button className="btn btn-secondary btn-sm" onClick={() => openTimesheet(ts.id)} style={{ marginRight: 4 }}>
                               {ts.status === 'draft' ? 'Edit' : 'View'}
@@ -1861,7 +1921,27 @@ export default function Timesheets() {
                             </button>
                           </>
                         )}
+                        {isPieceRate && ts.status === 'draft' && !isAdmin && (
+                          <>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openEditPieceRate(ts)} style={{ marginRight: 4 }}>
+                              Edit
+                            </button>
+                            <button className="btn btn-success btn-sm" onClick={() => handleSubmitFixedPrice(ts.id)} style={{ marginRight: 4 }}>
+                              Submit
+                            </button>
+                          </>
+                        )}
                         {isFixedPrice && ts.status === 'submitted' && isAdmin && (
+                          <>
+                            <button className="btn btn-danger btn-sm" onClick={() => handleRejectFixedPrice(ts.id)} style={{ marginRight: 4 }}>
+                              Reject
+                            </button>
+                            <button className="btn btn-success btn-sm" onClick={() => handleApproveFixedPrice(ts.id)} style={{ marginRight: 4 }}>
+                              Approve
+                            </button>
+                          </>
+                        )}
+                        {isPieceRate && ts.status === 'submitted' && isAdmin && (
                           <>
                             <button className="btn btn-danger btn-sm" onClick={() => handleRejectFixedPrice(ts.id)} style={{ marginRight: 4 }}>
                               Reject
@@ -1901,16 +1981,18 @@ export default function Timesheets() {
         ) : (
           sortedTimesheets.map((ts) => {
             const isFixedPrice = ts.project_type === 'fixed_price';
-            const isMonthly = !isFixedPrice && ts.requires_daily_logs === 0;
+            const isPieceRate = ts.project_type === 'piece_rate';
+            const isMonthly = !isFixedPrice && !isPieceRate && ts.requires_daily_logs === 0;
             const mProj = projects.find(p => p.id === ts.project_id);
             const mIsInstallment = isFixedPrice && mProj?.billing_method === 'monthly_installment';
-            const canOpen = !isFixedPrice && !isMonthly;
+            const canOpen = !isFixedPrice && !isPieceRate && !isMonthly;
             const getBadgeClass = () => {
-              if (isFixedPrice) return 'badge-fixed';
+              if (isFixedPrice || isPieceRate) return 'badge-fixed';
               if (isMonthly) return 'badge-submitted';
               return 'badge-hourly';
             };
             const getBadgeText = () => {
+              if (isPieceRate) return 'Piece Rate';
               if (isFixedPrice) return 'Fixed';
               if (isMonthly) return 'Monthly';
               return 'Hourly';
@@ -1925,8 +2007,8 @@ export default function Timesheets() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                      {(isFixedPrice || isMonthly) && ts.period_start ? (
-                        isMonthly ? (
+                      {(isFixedPrice || isPieceRate || isMonthly) && ts.period_start ? (
+                        (isMonthly || isPieceRate) ? (
                           new Date(ts.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
                         ) : (
                           <>{formatDate(ts.period_start)} - {formatDate(ts.period_end)}</>
@@ -1956,7 +2038,9 @@ export default function Timesheets() {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 20, fontWeight: 700, color: 'var(--primary)' }}>
-                      {isFixedPrice ? (
+                      {isPieceRate ? (
+                        <>{ts.units || 0}<span style={{ fontSize: 12, fontWeight: 400 }}> units</span></>
+                      ) : isFixedPrice ? (
                         <>${(ts.amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</>
                       ) : ts.ot_hours > 0 ? (
                         <>{((ts.total_hours || 0) - (ts.ot_hours || 0)).toFixed(1)}<span style={{ fontSize: 12, fontWeight: 400 }}> ST</span> + {(ts.ot_hours || 0).toFixed(1)}<span style={{ fontSize: 12, fontWeight: 400 }}> OT</span></>
@@ -1965,7 +2049,9 @@ export default function Timesheets() {
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                      {isFixedPrice
+                      {isPieceRate
+                        ? `$${(ts.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} pay`
+                        : isFixedPrice
                         ? (mIsInstallment
                           ? `of $${(mProj?.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}`
                           : `${ts.percentage}%`)
@@ -1974,7 +2060,7 @@ export default function Timesheets() {
                     </div>
                     <span className={`badge badge-${ts.status}`} style={{ marginTop: 8 }}>{ts.status}</span>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
-                      {!isAdmin && !isFixedPrice && ts.status === 'draft' && (
+                      {!isAdmin && !isFixedPrice && !isPieceRate && ts.status === 'draft' && (
                         <button
                           className="btn btn-success btn-sm"
                           onClick={(e) => { e.stopPropagation(); handleSubmitFromList(ts.id); }}
@@ -1998,7 +2084,23 @@ export default function Timesheets() {
                           </button>
                         </>
                       )}
-                      {isFixedPrice && ts.status === 'submitted' && isAdmin && (
+                      {!isAdmin && isPieceRate && ts.status === 'draft' && (
+                        <>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={(e) => { e.stopPropagation(); openEditPieceRate(ts); }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-success btn-sm"
+                            onClick={(e) => { e.stopPropagation(); handleSubmitFixedPrice(ts.id); }}
+                          >
+                            Submit
+                          </button>
+                        </>
+                      )}
+                      {(isFixedPrice || isPieceRate) && ts.status === 'submitted' && isAdmin && (
                         <>
                           <button
                             className="btn btn-success btn-sm"
@@ -2014,7 +2116,7 @@ export default function Timesheets() {
                           </button>
                         </>
                       )}
-                      {!isFixedPrice && ts.status === 'submitted' && isAdmin && (
+                      {!isFixedPrice && !isPieceRate && ts.status === 'submitted' && isAdmin && (
                         <>
                           <button
                             className="btn btn-success btn-sm"
@@ -2126,11 +2228,75 @@ export default function Timesheets() {
         </Modal>
       )}
 
+      {editPieceRateModal && (
+        <Modal
+          title="Edit Piece Rate Submission"
+          onClose={() => setEditPieceRateModal(null)}
+          footer={
+            <>
+              <button className="btn btn-secondary" onClick={() => setEditPieceRateModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSavePieceRate}>Save Changes</button>
+            </>
+          }
+        >
+          <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>Piece Rate Project</div>
+            <div style={{ fontSize: 13, color: '#64748b' }}>
+              Pay rate: <strong>${(editPieceRateForm.pay_rate || 0).toFixed(2)}/unit</strong>
+              {editPieceRateForm.unit_price > 0 && (
+                <> · Bill rate: <strong>${(editPieceRateForm.unit_price || 0).toFixed(2)}/unit</strong></>
+              )}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Month *</label>
+            <input
+              className="form-input"
+              type="month"
+              value={editPieceRateForm.period_start ? editPieceRateForm.period_start.substring(0, 7) : ''}
+              onChange={(e) => {
+                const month = e.target.value;
+                if (month) {
+                  const [year, mon] = month.split('-');
+                  const firstDay = `${year}-${mon}-01`;
+                  const lastDay = new Date(parseInt(year), parseInt(mon), 0).toISOString().split('T')[0];
+                  setEditPieceRateForm({ ...editPieceRateForm, period_start: firstDay, period_end: lastDay });
+                }
+              }}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Units Produced *</label>
+            <input
+              className="form-input"
+              type="number"
+              step="1"
+              min="1"
+              value={editPieceRateForm.units}
+              onChange={(e) => setEditPieceRateForm({ ...editPieceRateForm, units: e.target.value })}
+              placeholder="Number of units"
+              style={{ width: 150 }}
+            />
+          </div>
+          {editPieceRateForm.units > 0 && (
+            <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, marginTop: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>
+                Your Pay: ${(parseFloat(editPieceRateForm.units) * (editPieceRateForm.pay_rate || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                {editPieceRateForm.units} units x ${(editPieceRateForm.pay_rate || 0).toFixed(2)}/unit
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
       {modal === 'new' && (() => {
         const selectedProject = proxyProjects.find(p => String(p.id) === String(newForm.project_id));
         const isFixedPrice = selectedProject?.project_type === 'fixed_price';
+        const isPieceRate = selectedProject?.project_type === 'piece_rate';
         const isMonthlyInstallment = isFixedPrice && selectedProject?.billing_method === 'monthly_installment';
-        const isMonthly = !isFixedPrice && selectedProject?.requires_daily_logs === 0;
+        const isMonthly = !isFixedPrice && !isPieceRate && selectedProject?.requires_daily_logs === 0;
         const totalPayment = selectedProject?.total_payment || 0;
         const monthlyPay = selectedProject?.monthly_engineer_pay || 0;
         const calculatedAmount = isFixedPrice && !isMonthlyInstallment && newForm.percentage ? (parseInt(newForm.percentage) / 100) * totalPayment : 0;
@@ -2142,8 +2308,12 @@ export default function Timesheets() {
           ? Math.floor((remainingBudget / billRate) * 100) / 100
           : null;
 
+        const payRate = selectedProject?.pay_rate || 0;
+        const unitPrice = selectedProject?.unit_price || 0;
+
         const getModalTitle = () => {
           const suffix = actingAs ? ` for ${actingAs.name}` : '';
+          if (isPieceRate) return 'New Piece Rate Submission' + suffix;
           if (isFixedPrice) return 'New Fixed Price Invoice' + suffix;
           if (isMonthly) return 'New Monthly Hours Entry' + suffix;
           return 'New Timesheet' + suffix;
@@ -2157,7 +2327,7 @@ export default function Timesheets() {
               <>
                 <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
                 <button className="btn btn-primary" onClick={handleCreateTimesheet} disabled={saving}>
-                  {saving ? 'Creating...' : isFixedPrice ? 'Create Invoice' : isMonthly ? 'Submit Hours' : 'Create Timesheet'}
+                  {saving ? 'Creating...' : isPieceRate ? 'Submit Units' : isFixedPrice ? 'Create Invoice' : isMonthly ? 'Submit Hours' : 'Create Timesheet'}
                 </button>
               </>
             }
@@ -2174,10 +2344,11 @@ export default function Timesheets() {
                   <option value="">Select a project...</option>
                   {proxyProjects.map((p) => {
                     const isFixed = p.project_type === 'fixed_price';
+                    const isPR = p.project_type === 'piece_rate';
                     const budget = isFixed ? (p.total_cost || 0) : (p.po_amount || 0);
                     const used = isFixed ? (p.amount_claimed || 0) : (p.amount_allocated || p.amount_invoiced || 0);
                     const fullyUsed = budget > 0 && used >= budget;
-                    const typeLabel = isFixed ? '[Fixed]' : p.requires_daily_logs === 0 ? '[Monthly]' : '';
+                    const typeLabel = isPR ? '[Piece Rate]' : isFixed ? '[Fixed]' : p.requires_daily_logs === 0 ? '[Monthly]' : '';
                     return (
                       <option key={p.id} value={p.id} disabled={fullyUsed}>
                         {p.name} ({p.customer_name}) {typeLabel}{fullyUsed ? ' — FULLY USED' : ''}
@@ -2289,6 +2460,60 @@ export default function Timesheets() {
                         </div>
                       )}
                     </>
+                  )}
+                </>
+              ) : isPieceRate ? (
+                <>
+                  <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>
+                      Piece Rate Project
+                    </div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>
+                      Pay rate: <strong>${payRate.toFixed(2)}/unit</strong>
+                      {unitPrice > 0 && (
+                        <> · Bill rate: <strong>${unitPrice.toFixed(2)}/unit</strong></>
+                      )}
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Month *</label>
+                    <input
+                      className="form-input"
+                      type="month"
+                      value={newForm.period_start ? newForm.period_start.substring(0, 7) : ''}
+                      onChange={(e) => {
+                        const month = e.target.value;
+                        if (month) {
+                          const [year, mon] = month.split('-');
+                          const firstDay = `${year}-${mon}-01`;
+                          const lastDay = new Date(parseInt(year), parseInt(mon), 0).toISOString().split('T')[0];
+                          setNewForm({ ...newForm, period_start: firstDay, period_end: lastDay });
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Units Produced *</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={newForm.units}
+                      onChange={(e) => setNewForm({ ...newForm, units: e.target.value })}
+                      placeholder="Number of units"
+                      style={{ width: 150 }}
+                    />
+                  </div>
+                  {newForm.units > 0 && (
+                    <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, marginTop: 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>
+                        Your Pay: ${(parseFloat(newForm.units) * payRate).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>
+                        {newForm.units} units x ${payRate.toFixed(2)}/unit
+                      </div>
+                    </div>
                   )}
                 </>
               ) : isMonthly ? (() => {

@@ -394,7 +394,7 @@ export default function Dashboard({ setPage }) {
                       <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '8px 6px', fontSize: 13 }}>{d.project_name}</td>
                         <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--text-secondary)' }}>
-                          {d.pay_type === 'fixed_monthly' ? 'Fixed Mo.' : d.pay_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                          {d.pay_type === 'piece_rate' ? 'Piece Rate' : d.pay_type === 'fixed_monthly' ? 'Fixed Mo.' : d.pay_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
                         </td>
                         <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
                           {isFixed ? (d.total_hours || 0).toFixed(2) : regHrs.toFixed(2)}
@@ -482,6 +482,8 @@ export default function Dashboard({ setPage }) {
                       <td>
                         {p.project_type === 'fixed_price' ? (
                           <span style={{ fontSize: 13 }}>${(p.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                        ) : p.project_type === 'piece_rate' ? (
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>${(payRate || 0).toFixed(2)}/unit</span>
                         ) : payRate > 0 ? (
                           <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>${payRate.toFixed(2)}/hr</span>
                         ) : (
@@ -558,7 +560,7 @@ export default function Dashboard({ setPage }) {
               <thead><tr><th>Week Ending</th><th>Project</th><th>Hours</th><th>Amount</th><th>Status</th></tr></thead>
               <tbody>
                 {timesheets.slice(0, 5).map(t => {
-                  const amount = t.project_type === 'fixed_price' ? (t.amount || 0) : (t.total_hours || 0) * (t.pay_rate || 0);
+                  const amount = (t.project_type === 'fixed_price' || t.project_type === 'piece_rate') ? (t.amount || 0) : (t.total_hours || 0) * (t.pay_rate || 0);
                   return (
                     <tr key={t.id}>
                       <td>{new Date(t.week_ending + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>

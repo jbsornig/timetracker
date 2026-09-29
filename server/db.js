@@ -742,6 +742,20 @@ function initSchema() {
     console.log('✅ Migration: Added ot_hours column to timesheets');
   }
 
+  // Add unit_price to projects for piece_rate project type
+  const projectCols6 = db.prepare("PRAGMA table_info(projects)").all();
+  if (!projectCols6.find(c => c.name === 'unit_price')) {
+    db.exec("ALTER TABLE projects ADD COLUMN unit_price REAL DEFAULT 0");
+    console.log('✅ Migration: Added unit_price column to projects');
+  }
+
+  // Add units to timesheets for piece_rate submissions
+  const tsCols5 = db.prepare("PRAGMA table_info(timesheets)").all();
+  if (!tsCols5.find(c => c.name === 'units')) {
+    db.exec("ALTER TABLE timesheets ADD COLUMN units REAL DEFAULT 0");
+    console.log('✅ Migration: Added units column to timesheets');
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS dashboard_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

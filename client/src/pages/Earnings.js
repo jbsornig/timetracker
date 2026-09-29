@@ -89,7 +89,7 @@ export default function Earnings() {
                     <div style={{ fontWeight: 600, color: '#10b981' }}>
                       ${proj.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
-                    {proj.project_type !== 'fixed_price' && (
+                    {proj.project_type !== 'fixed_price' && proj.project_type !== 'piece_rate' && (
                       <div style={{ fontSize: 12, color: '#64748b' }}>{proj.total_hours.toFixed(2)} hours</div>
                     )}
                   </div>
@@ -99,7 +99,9 @@ export default function Earnings() {
                     <thead>
                       <tr>
                         <th>Date</th>
-                        {proj.project_type === 'fixed_price' ? (
+                        {proj.project_type === 'piece_rate' ? (
+                          <th>Units</th>
+                        ) : proj.project_type === 'fixed_price' ? (
                           <th>Percentage</th>
                         ) : (
                           <>
@@ -117,7 +119,7 @@ export default function Earnings() {
                     </thead>
                     <tbody>
                       {proj.timesheets.map(ts => {
-                        const isFixed = proj.project_type === 'fixed_price' || proj.project_type === 'fixed_monthly';
+                        const isFixed = proj.project_type === 'fixed_price' || proj.project_type === 'fixed_monthly' || proj.project_type === 'piece_rate';
                         const regHrs = ts.regular_hours || ts.total_hours || 0;
                         const otHrs = ts.ot_hours || 0;
                         const payRate = ts.pay_rate || 0;
@@ -129,10 +131,14 @@ export default function Earnings() {
                           <td>
                             {proj.project_type === 'fixed_price'
                               ? `${new Date(ts.period_start + 'T00:00:00').toLocaleDateString()} - ${new Date(ts.period_end + 'T00:00:00').toLocaleDateString()}`
+                              : proj.project_type === 'piece_rate'
+                              ? new Date(ts.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
                               : new Date((ts.week_ending || ts.period_end) + 'T00:00:00').toLocaleDateString()
                             }
                           </td>
-                          {proj.project_type === 'fixed_price' ? (
+                          {proj.project_type === 'piece_rate' ? (
+                            <td style={{ fontFamily: 'DM Mono, monospace' }}>{ts.units || 0}</td>
+                          ) : proj.project_type === 'fixed_price' ? (
                             <td>{ts.percentage}%</td>
                           ) : (
                             <>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false, unit_price: '' };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -329,7 +329,13 @@ export default function Projects() {
     e.preventDefault();
     const isFixedPrice = selectedProject?.project_type === 'fixed_price';
     const isFixedMonthly = selectedProject?.project_type === 'fixed_monthly';
-    if (isFixedPrice) {
+    const isPieceRate = selectedProject?.project_type === 'piece_rate';
+    if (isPieceRate) {
+      if (!assignForm.user_id || !assignForm.pay_rate) {
+        setError('Engineer and pay rate per unit are required');
+        return;
+      }
+    } else if (isFixedPrice) {
       if (!assignForm.user_id || !assignForm.total_payment) {
         setError('Engineer and total payment are required');
         return;
@@ -352,14 +358,14 @@ export default function Projects() {
         method: 'POST',
         body: {
           user_id: parseInt(assignForm.user_id),
-          pay_rate: isFixedPrice || isFixedMonthly ? 0 : parseFloat(assignForm.pay_rate),
-          bill_rate: isFixedPrice || isFixedMonthly ? 0 : parseFloat(assignForm.bill_rate),
+          pay_rate: isPieceRate ? parseFloat(assignForm.pay_rate) : (isFixedPrice || isFixedMonthly ? 0 : parseFloat(assignForm.pay_rate)),
+          bill_rate: isFixedPrice || isFixedMonthly || isPieceRate ? 0 : parseFloat(assignForm.bill_rate),
           total_payment: isFixedPrice ? parseFloat(assignForm.total_payment) : 0,
           monthly_pay: isFixedMonthly ? parseFloat(assignForm.monthly_pay) : 0,
           monthly_bill: isFixedMonthly ? parseFloat(assignForm.monthly_bill) : 0,
-          max_hours: (!isFixedPrice && !isFixedMonthly && assignForm.max_hours) ? parseFloat(assignForm.max_hours) : 0,
-          ot_pay_rate: (!isFixedPrice && !isFixedMonthly && assignForm.ot_pay_rate) ? parseFloat(assignForm.ot_pay_rate) : 0,
-          ot_bill_rate: (!isFixedPrice && !isFixedMonthly && assignForm.ot_bill_rate) ? parseFloat(assignForm.ot_bill_rate) : 0,
+          max_hours: (!isFixedPrice && !isFixedMonthly && !isPieceRate && assignForm.max_hours) ? parseFloat(assignForm.max_hours) : 0,
+          ot_pay_rate: (!isFixedPrice && !isFixedMonthly && !isPieceRate && assignForm.ot_pay_rate) ? parseFloat(assignForm.ot_pay_rate) : 0,
+          ot_bill_rate: (!isFixedPrice && !isFixedMonthly && !isPieceRate && assignForm.ot_bill_rate) ? parseFloat(assignForm.ot_bill_rate) : 0,
         },
       });
       const engs = await apiFetch(`/projects/${selectedProject.id}/engineers`);
@@ -580,6 +586,7 @@ export default function Projects() {
                 }).map((p) => {
                   const isFixedPrice = p.project_type === 'fixed_price';
                   const isFixedMonthly = p.project_type === 'fixed_monthly';
+                  const isPieceRate = p.project_type === 'piece_rate';
                   const budget = isFixedPrice ? (p.total_cost || 0) : (p.po_amount || 0);
                   const billed = p.amount_billed || 0;
                   const paid = p.amount_paid || 0;
@@ -592,8 +599,8 @@ export default function Projects() {
                     <tr key={p.id}>
                       <td><strong>{p.name}</strong><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{p.location || ''}</span></td>
                       <td>
-                        <span className={`badge ${isFixedPrice ? 'badge-fixed' : isFixedMonthly ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
-                          {isFixedPrice ? 'Fixed Price' : isFixedMonthly ? 'Fixed Monthly' : 'Hourly'}
+                        <span className={`badge ${isFixedPrice || isPieceRate ? 'badge-fixed' : isFixedMonthly ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
+                          {isPieceRate ? 'Piece Rate' : isFixedPrice ? 'Fixed Price' : isFixedMonthly ? 'Fixed Monthly' : 'Hourly'}
                         </span>
                         {p.internal === 1 && (
                           <span className="badge" style={{ fontSize: 10, marginLeft: 4, background: '#dbeafe', color: '#1d4ed8' }}>Internal</span>
@@ -741,12 +748,24 @@ export default function Projects() {
                   />
                   <span>Fixed Price</span>
                 </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="project_type"
+                    value="piece_rate"
+                    checked={form.project_type === 'piece_rate'}
+                    onChange={(e) => setForm({ ...form, project_type: e.target.value })}
+                  />
+                  <span>Piece Rate</span>
+                </label>
               </div>
               <div className="form-hint">
                 {form.project_type === 'hourly'
                   ? 'Engineers bill by the hour with time entries'
                   : form.project_type === 'fixed_monthly'
                   ? 'Fixed monthly pay and billing — timesheets required for detail only'
+                  : form.project_type === 'piece_rate'
+                  ? 'Engineers bill per unit produced at a configured unit price'
                   : 'Engineers bill a percentage of their total payment'}
               </div>
             </div>
@@ -843,6 +862,8 @@ export default function Projects() {
                 <div className="form-hint">
                   {form.project_type === 'fixed_price'
                     ? 'Total amount to bill the customer for this project'
+                    : form.project_type === 'piece_rate'
+                    ? 'Total project budget (unit price × quantity)'
                     : 'Budget limit for hourly billing'}
                 </div>
               </div>
@@ -888,6 +909,27 @@ export default function Projects() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+            {form.project_type === 'piece_rate' && (
+              <div style={{ background: '#f0f9ff', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, marginBottom: 12 }}>Piece Rate Configuration</div>
+                <div className="form-group">
+                  <label className="form-label">Unit Price ($)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    step="0.01"
+                    value={form.unit_price}
+                    onChange={(e) => setForm({ ...form, unit_price: e.target.value })}
+                    placeholder="0.00"
+                  />
+                  <div className="form-hint">
+                    Customer price per unit produced
+                    {form.po_amount > 0 && form.unit_price > 0 &&
+                      ` — Total quantity: ${Math.floor(parseFloat(form.po_amount) / parseFloat(form.unit_price))} units`}
+                  </div>
+                </div>
               </div>
             )}
             <div className="form-row">
@@ -1180,6 +1222,9 @@ export default function Projects() {
               {selectedProject.project_type === 'fixed_monthly' && (
                 <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8 }}>(Fixed Monthly Project)</span>
               )}
+              {selectedProject.project_type === 'piece_rate' && (
+                <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8 }}>(Piece Rate Project)</span>
+              )}
             </div>
             {projectEngineers.length === 0 ? (
               <p style={{ color: '#94a3b8', fontSize: 14 }}>No engineers assigned yet.</p>
@@ -1197,7 +1242,9 @@ export default function Projects() {
                           ? `$${(eng.total_payment || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                           : selectedProject.project_type === 'fixed_monthly'
                             ? `$${(eng.monthly_pay || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo`
-                            : `$${eng.pay_rate?.toFixed(2) || '0.00'}/hr`
+                            : selectedProject.project_type === 'piece_rate'
+                              ? `$${eng.pay_rate?.toFixed(2) || '0.00'}/unit`
+                              : `$${eng.pay_rate?.toFixed(2) || '0.00'}/hr`
                         }
                         {selectedProject.project_type === 'fixed_monthly' && (
                           <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>Bill: ${(eng.monthly_bill || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</div>
@@ -1314,7 +1361,20 @@ export default function Projects() {
                     ))}
                 </select>
               </div>
-              {selectedProject.project_type === 'fixed_price' ? (
+              {selectedProject.project_type === 'piece_rate' ? (
+                <div className="form-group">
+                  <label className="form-label">Pay Rate ($/unit)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    step="0.01"
+                    value={assignForm.pay_rate}
+                    onChange={(e) => setAssignForm({ ...assignForm, pay_rate: e.target.value })}
+                    placeholder="0.00"
+                  />
+                  <div className="form-hint">Amount paid to engineer per unit produced</div>
+                </div>
+              ) : selectedProject.project_type === 'fixed_price' ? (
                 <div className="form-group">
                   <label className="form-label">Total Payment ($)</label>
                   <input

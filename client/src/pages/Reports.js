@@ -1066,8 +1066,8 @@ export default function Reports() {
                               <td><strong>{row.project_name}</strong></td>
                               <td>{row.customer_name}</td>
                               <td>
-                                <span className={`badge ${row.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
-                                  {row.project_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                                <span className={`badge ${row.project_type === 'fixed_price' || row.project_type === 'piece_rate' ? 'badge-fixed' : 'badge-hourly'}`} style={{ fontSize: 11 }}>
+                                  {row.project_type === 'piece_rate' ? 'Piece Rate' : row.project_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
                                 </span>
                               </td>
                               <td style={{ textAlign: 'center' }}>{row.submitted_count}</td>
@@ -1331,7 +1331,7 @@ export default function Reports() {
                                 <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                                   <td style={{ padding: '8px 6px', fontSize: 13 }}>{d.project_name}</td>
                                   <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--text-secondary)' }}>
-                                    {d.is_holiday_pay ? 'Holiday' : d.pay_type === 'fixed_monthly' ? 'Fixed Mo.' : d.pay_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
+                                    {d.is_holiday_pay ? 'Holiday' : d.pay_type === 'piece_rate' ? 'Piece Rate' : d.pay_type === 'fixed_monthly' ? 'Fixed Mo.' : d.pay_type === 'fixed_price' ? 'Fixed' : 'Hourly'}
                                   </td>
                                   <td style={{ textAlign: 'right', padding: '8px 6px', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
                                     {isFixed ? (d.total_hours || 0).toFixed(2) : regHrs.toFixed(2)}
@@ -1475,10 +1475,11 @@ export default function Reports() {
                   <tbody>
                     {[...payrollData, ...paidDetailData].map((row, idx) => {
                       const isFixed = row.pay_type === 'fixed_price';
+                      const isPieceRate = row.pay_type === 'piece_rate';
                       const isFixedMonthly = row.pay_type === 'fixed_monthly';
                       const isHoliday = row.is_holiday_pay;
                       const isPaidRow = alreadyPaidUserIds.has(row.user_id);
-                      const rowBg = isHoliday ? { background: '#eff6ff' } : (isFixed || isFixedMonthly) ? { background: '#fefce8' } : undefined;
+                      const rowBg = isHoliday ? { background: '#eff6ff' } : (isFixed || isFixedMonthly || isPieceRate) ? { background: '#fefce8' } : undefined;
                       return (
                         <tr key={idx} style={{ ...rowBg, ...(isPaidRow ? { opacity: 0.5 } : {}) }}>
                           <td><strong>{row.engineer_name}</strong></td>
@@ -1490,6 +1491,7 @@ export default function Reports() {
                               <>
                                 {row.project_name}
                                 {isFixed && <span style={{ marginLeft: 6, fontSize: 11, color: '#92400e', fontWeight: 500 }}>(Fixed Price)</span>}
+                                {isPieceRate && <span style={{ marginLeft: 6, fontSize: 11, color: '#92400e', fontWeight: 500 }}>(Piece Rate)</span>}
                                 {isFixedMonthly && <span style={{ marginLeft: 6, fontSize: 11, color: '#92400e', fontWeight: 500 }}>(Monthly)</span>}
                               </>
                             )}
@@ -2533,7 +2535,7 @@ export default function Reports() {
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.submitted_hours > 0 ? w.submitted_hours.toFixed(2) : '—'}</td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{w.approved_hours > 0 ? w.approved_hours.toFixed(2) : '—'}</td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#64748b' }}>
-                                {w.project_type === 'hourly' ? `${formatCurrency(w.pay_rate)}/hr` : w.project_type === 'fixed_monthly' ? `${formatCurrency(w.monthly_pay)}/mo` : 'Fixed'}
+                                {w.project_type === 'hourly' ? `${formatCurrency(w.pay_rate)}/hr` : w.project_type === 'piece_rate' ? `${formatCurrency(w.pay_rate)}/unit` : w.project_type === 'fixed_monthly' ? `${formatCurrency(w.monthly_pay)}/mo` : 'Fixed'}
                               </td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}>
                                 {w.fixed_amount > 0 ? formatCurrency(w.fixed_amount) : '—'}
@@ -3331,7 +3333,7 @@ export default function Reports() {
                               <td><strong>{p.project_name}</strong></td>
                               <td>{p.customer_name}</td>
                               <td style={{ fontSize: 11 }}>
-                                <span className={`badge ${p.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`}>{p.project_type === 'fixed_price' ? 'Fixed' : p.project_type === 'fixed_monthly' ? 'Monthly' : 'Hourly'}</span>
+                                <span className={`badge ${p.project_type === 'fixed_price' || p.project_type === 'piece_rate' ? 'badge-fixed' : 'badge-hourly'}`}>{p.project_type === 'piece_rate' ? 'Piece Rate' : p.project_type === 'fixed_price' ? 'Fixed' : p.project_type === 'fixed_monthly' ? 'Monthly' : 'Hourly'}</span>
                               </td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(p.total_invoiced)}</td>
                               <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace', color: '#7c3aed' }}>{formatCurrency(p.labor_cost)}</td>
@@ -3635,7 +3637,7 @@ export default function Reports() {
                                 <td><strong>{p.project_name}</strong></td>
                                 <td>{p.customer_name}</td>
                                 <td style={{ fontSize: 11 }}>
-                                  <span className={`badge ${p.project_type === 'fixed_price' ? 'badge-fixed' : 'badge-hourly'}`}>{p.project_type === 'fixed_price' ? 'Fixed' : p.project_type === 'fixed_monthly' ? 'Monthly' : 'Hourly'}</span>
+                                  <span className={`badge ${p.project_type === 'fixed_price' || p.project_type === 'piece_rate' ? 'badge-fixed' : 'badge-hourly'}`}>{p.project_type === 'piece_rate' ? 'Piece Rate' : p.project_type === 'fixed_price' ? 'Fixed' : p.project_type === 'fixed_monthly' ? 'Monthly' : 'Hourly'}</span>
                                 </td>
                                 <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 12 }}>{p.po_number || '—'}</td>
                                 <td style={{ textAlign: 'right', fontFamily: 'DM Mono, monospace' }}>{formatCurrency(p.po_amount)}</td>
@@ -3889,7 +3891,7 @@ export default function Reports() {
                   </div>
                   <div>
                     <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Type</div>
-                    <div><span className={`badge ${poHistoryData.project.project_type === 'fixed_price' ? 'badge-fixed' : poHistoryData.project.project_type === 'fixed_monthly' ? 'badge-submitted' : 'badge-hourly'}`}>{poHistoryData.project.project_type === 'fixed_price' ? 'Fixed Price' : poHistoryData.project.project_type === 'fixed_monthly' ? 'Fixed Monthly' : 'Hourly'}</span></div>
+                    <div><span className={`badge ${poHistoryData.project.project_type === 'fixed_price' || poHistoryData.project.project_type === 'piece_rate' ? 'badge-fixed' : poHistoryData.project.project_type === 'fixed_monthly' ? 'badge-submitted' : 'badge-hourly'}`}>{poHistoryData.project.project_type === 'piece_rate' ? 'Piece Rate' : poHistoryData.project.project_type === 'fixed_price' ? 'Fixed Price' : poHistoryData.project.project_type === 'fixed_monthly' ? 'Fixed Monthly' : 'Hourly'}</span></div>
                   </div>
                   <div>
                     <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 }}>Status</div>
