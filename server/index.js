@@ -675,9 +675,9 @@ app.get('/api/customers', auth, (req, res) => {
 });
 
 app.post('/api/customers', auth, adminOnly, (req, res) => {
-  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing } = req.body;
+  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0);
+  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, outlook_invoice_sent_folder || '', outlook_invoice_received_folder || '');
   const customerId = result.lastInsertRowid;
 
   // Auto-create a contact record if primary contact name is provided
@@ -689,9 +689,9 @@ app.post('/api/customers', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/customers/:id', auth, adminOnly, (req, res) => {
-  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing } = req.body;
+  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder } = req.body;
   const db = getDb();
-  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=?, send_invoice_to_self=?, edi_invoicing=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, req.params.id);
+  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=?, send_invoice_to_self=?, edi_invoicing=?, outlook_invoice_sent_folder=?, outlook_invoice_received_folder=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, outlook_invoice_sent_folder || '', outlook_invoice_received_folder || '', req.params.id);
   res.json({ success: true });
 });
 
@@ -3819,6 +3819,24 @@ app.put('/api/invoices/:id/unreceived', auth, adminOnly, (req, res) => {
 
   db.prepare('UPDATE invoices SET received_at = NULL WHERE id = ?').run(req.params.id);
   res.json({ success: true });
+});
+
+// Lookup invoice by number — used by email filing script
+app.get('/api/invoices/by-number/:invoiceNumber', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const invoice = db.prepare(`
+    SELECT i.id, i.invoice_number, i.received_at, i.project_id,
+           p.name as project_name, p.customer_id,
+           c.name as customer_name,
+           c.outlook_invoice_sent_folder,
+           c.outlook_invoice_received_folder
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.invoice_number = ?
+  `).get(req.params.invoiceNumber);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  res.json(invoice);
 });
 
 // Edit invoice details (amount, hours, notes)

@@ -238,6 +238,16 @@ function initSchema() {
     console.log('✅ Migration: Added edi_invoicing column to customers');
   }
 
+  // Add Outlook folder columns to customers
+  if (!customerCols.find(c => c.name === 'outlook_invoice_sent_folder')) {
+    db.exec("ALTER TABLE customers ADD COLUMN outlook_invoice_sent_folder TEXT DEFAULT ''");
+    console.log('✅ Migration: Added outlook_invoice_sent_folder column to customers');
+  }
+  if (!customerCols.find(c => c.name === 'outlook_invoice_received_folder')) {
+    db.exec("ALTER TABLE customers ADD COLUMN outlook_invoice_received_folder TEXT DEFAULT ''");
+    console.log('✅ Migration: Added outlook_invoice_received_folder column to customers');
+  }
+
   // Add include_timesheets column to projects if missing
   const projectCols2 = db.prepare("PRAGMA table_info(projects)").all();
   if (!projectCols2.find(c => c.name === 'include_timesheets')) {

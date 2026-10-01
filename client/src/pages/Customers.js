@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '', currency_symbol: '$', send_invoice_to_self: false, edi_invoicing: false };
+const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '', currency_symbol: '$', send_invoice_to_self: false, edi_invoicing: false, outlook_invoice_sent_folder: '', outlook_invoice_received_folder: '' };
 const PAYMENT_TERMS_OPTIONS = ['Immediate', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 75', 'Net 90'];
 const emptyContact = { name: '', title: '', email: '', phone: '' };
 
@@ -361,6 +361,29 @@ export default function Customers() {
                   EDI Invoicing (generate EDI 810 files for this customer)
                 </label>
                 <div className="form-hint">When enabled, an EDI 810 download button will appear on invoices for this customer</div>
+              </div>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '8px' }}>
+                <label className="form-label" style={{ fontWeight: 600, marginBottom: '8px', display: 'block' }}>Outlook Email Filing</label>
+                <div className="form-group">
+                  <label className="form-label">Invoice Sent Folder</label>
+                  <input
+                    className="form-input"
+                    value={form.outlook_invoice_sent_folder}
+                    onChange={(e) => setForm({ ...form, outlook_invoice_sent_folder: e.target.value })}
+                    placeholder="UTechConsulting\MBUSI\Invoicing Sent"
+                  />
+                  <div className="form-hint">Outlook folder path for sent invoice email copies</div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Invoice Received Folder</label>
+                  <input
+                    className="form-input"
+                    value={form.outlook_invoice_received_folder}
+                    onChange={(e) => setForm({ ...form, outlook_invoice_received_folder: e.target.value })}
+                    placeholder="UTechConsulting\MBUSI\Invoicing"
+                  />
+                  <div className="form-hint">Outlook folder path for invoice acceptance reply emails</div>
+                </div>
               </div>
             </div>
             <div className="form-group">
