@@ -1,14 +1,14 @@
 <#
 .SYNOPSIS
-    Processes invoice emails in Outlook — files sent copies and acceptance replies
+    Processes invoice emails in Outlook - files sent copies and acceptance replies
     to customer-specific folders, and marks invoices as received in TimeTracker.
 
 .DESCRIPTION
     Connects to Outlook via COM, scans the inbox for:
-    1. Sent invoice copies (subject: "Invoice #XXXX from ...") — moves to customer's
+    1. Sent invoice copies (subject: "Invoice #XXXX from ...") - moves to customer's
        outlook_invoice_sent_folder
     2. Acceptance replies (subject contains "Re: Invoice #XXXX" with success/accepted/
-       processed keywords) — marks invoice received in TimeTracker API, then moves to
+       processed keywords) - marks invoice received in TimeTracker API, then moves to
        customer's outlook_invoice_received_folder
 
 .PARAMETER ServerUrl
@@ -41,12 +41,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
+# -- Auth ----------------------------------------------------------------------
 
 function Get-AuthToken {
     param([string]$Server, [string]$UserEmail, [string]$UserPassword)
     $body = @{ email = $UserEmail; password = $UserPassword } | ConvertTo-Json
-    $response = Invoke-RestMethod -Uri "$Server/api/auth/login" -Method Post -Body $body -ContentType "application/json"
+    $response = Invoke-RestMethod -Uri "$Server/api/login" -Method Post -Body $body -ContentType "application/json"
     return $response.token
 }
 
@@ -62,7 +62,7 @@ function Invoke-Api {
     }
 }
 
-# ── Outlook COM ───────────────────────────────────────────────────────────────
+# -- Outlook COM ---------------------------------------------------------------
 
 function Get-OutlookNamespace {
     $outlook = New-Object -ComObject Outlook.Application
@@ -118,7 +118,7 @@ function Get-InboxFolder {
     return $Namespace.GetDefaultFolder(6)
 }
 
-# ── Email Parsing ─────────────────────────────────────────────────────────────
+# -- Email Parsing -------------------------------------------------------------
 
 function Get-InvoiceNumberFromSubject {
     param([string]$Subject)
@@ -154,12 +154,12 @@ function Test-SentInvoiceCopy {
     return ($subject -match '^Invoice\s*#\d+\s+from\s+')
 }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# -- Main ----------------------------------------------------------------------
 
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "===========================================================" -ForegroundColor Cyan
 Write-Host "  TimeTracker Invoice Email Processor" -ForegroundColor Cyan
-if ($DryRun) { Write-Host "  ** DRY RUN — no changes will be made **" -ForegroundColor Yellow }
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+if ($DryRun) { Write-Host "  ** DRY RUN - no changes will be made **" -ForegroundColor Yellow }
+Write-Host "===========================================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Authenticate
@@ -203,11 +203,11 @@ Write-Host ""
 
 # Process acceptance replies (mark received + move)
 if ($acceptanceReplies.Count -gt 0) {
-    Write-Host "── Processing Acceptance Replies ─────────────────────────" -ForegroundColor Cyan
+    Write-Host "-- Processing Acceptance Replies -------------------------" -ForegroundColor Cyan
     foreach ($entry in $acceptanceReplies) {
         $invNum = $entry.InvoiceNumber
         $mail = $entry.Item
-        Write-Host "  Invoice #$invNum — $($mail.Subject)" -ForegroundColor White
+        Write-Host "  Invoice #$invNum - $($mail.Subject)" -ForegroundColor White
 
         $invoice = Invoke-Api -Endpoint "/api/invoices/by-number/$invNum" -Token $token
         if (-not $invoice) {
@@ -257,11 +257,11 @@ if ($acceptanceReplies.Count -gt 0) {
 
 # Process sent invoice copies (move only)
 if ($invoiceCopies.Count -gt 0) {
-    Write-Host "── Processing Sent Invoice Copies ────────────────────────" -ForegroundColor Cyan
+    Write-Host "-- Processing Sent Invoice Copies ------------------------" -ForegroundColor Cyan
     foreach ($entry in $invoiceCopies) {
         $invNum = $entry.InvoiceNumber
         $mail = $entry.Item
-        Write-Host "  Invoice #$invNum — $($mail.Subject)" -ForegroundColor White
+        Write-Host "  Invoice #$invNum - $($mail.Subject)" -ForegroundColor White
 
         $invoice = Invoke-Api -Endpoint "/api/invoices/by-number/$invNum" -Token $token
         if (-not $invoice) {
@@ -296,11 +296,12 @@ if ($invoiceCopies.Count -gt 0) {
 }
 
 # Summary
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "===========================================================" -ForegroundColor Cyan
 Write-Host "  Summary" -ForegroundColor Cyan
 Write-Host "  Sent copies moved:    $($stats.invoicesMoved)" -ForegroundColor White
 Write-Host "  Replies moved:        $($stats.repliesMoved)" -ForegroundColor White
 Write-Host "  Invoices received:    $($stats.markedReceived)" -ForegroundColor White
 Write-Host "  Skipped:              $($stats.skipped)" -ForegroundColor Yellow
-Write-Host "  Errors:               $($stats.errors)" -ForegroundColor $(if ($stats.errors -gt 0) { "Red" } else { "White" })
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+if ($stats.errors -gt 0) { $errColor = "Red" } else { $errColor = "White" }
+Write-Host "  Errors:               $($stats.errors)" -ForegroundColor $errColor
+Write-Host "===========================================================" -ForegroundColor Cyan
