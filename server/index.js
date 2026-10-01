@@ -5830,7 +5830,7 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
       FROM timesheets ts
       JOIN projects p ON p.id = ts.project_id
       WHERE ts.user_id = ? AND ts.status IN ('approved', 'submitted')
-        AND p.project_type = 'fixed_price'
+        AND p.project_type IN ('fixed_price', 'piece_rate')
         AND ts.week_ending BETWEEN ? AND ?
     `).all(engineer.id, periodStart, periodEnd);
 
