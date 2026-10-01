@@ -247,6 +247,7 @@ if ($acceptanceReplies.Count -gt 0) {
         if ($DryRun) {
             Write-Host "    [DRY RUN] Would move to: $folderPath" -ForegroundColor Yellow
         } else {
+            $mail.UnRead = $false
             $mail.Move($targetFolder) | Out-Null
             Write-Host "    Moved to: $folderPath" -ForegroundColor Green
         }
@@ -287,6 +288,7 @@ if ($invoiceCopies.Count -gt 0) {
         if ($DryRun) {
             Write-Host "    [DRY RUN] Would move to: $folderPath" -ForegroundColor Yellow
         } else {
+            $mail.UnRead = $false
             $mail.Move($targetFolder) | Out-Null
             Write-Host "    Moved to: $folderPath" -ForegroundColor Green
         }
