@@ -12,13 +12,17 @@
        customer's outlook_invoice_received_folder
 
 .PARAMETER ServerUrl
-    TimeTracker server URL. Default: http://localhost:3000
+    TimeTracker server URL. Default: https://timetracker.utechconsulting.net
 
 .PARAMETER Email
-    Admin email for TimeTracker login.
+    Admin email for TimeTracker login. If omitted, uses the saved login
+    (prompting once and saving it encrypted for this Windows user).
 
 .PARAMETER Password
-    Admin password for TimeTracker login.
+    Admin password for TimeTracker login. Optional; see Email.
+
+.PARAMETER ResetLogin
+    Forget the saved login and prompt for a new one.
 
 .PARAMETER DryRun
     If set, shows what would happen without moving emails or marking invoices.
@@ -32,16 +36,39 @@
 #>
 
 param(
-    [string]$ServerUrl = "http://localhost:3000",
-    [Parameter(Mandatory=$true)][string]$Email,
-    [Parameter(Mandatory=$true)][string]$Password,
+    [string]$ServerUrl = "https://timetracker.utechconsulting.net",
+    [string]$Email,
+    [string]$Password,
     [switch]$DryRun,
+    [switch]$ResetLogin,
     [int]$MaxEmails = 50
 )
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$CREDENTIAL_PATH = Join-Path $env:APPDATA "TimeTracker\invoice-email-login.xml"
 
 # -- Auth ----------------------------------------------------------------------
+
+function Get-SavedLogin {
+    if ($ResetLogin -and (Test-Path $CREDENTIAL_PATH)) {
+        Remove-Item $CREDENTIAL_PATH -Force
+    }
+    if (Test-Path $CREDENTIAL_PATH) {
+        return Import-Clixml $CREDENTIAL_PATH
+    }
+    Write-Host ""
+    Write-Host "  First run: enter your TimeTracker login." -ForegroundColor Yellow
+    Write-Host "  It is saved encrypted for your Windows account." -ForegroundColor Yellow
+    $userName = Read-Host "  Email"
+    $securePassword = Read-Host "  Password" -AsSecureString
+    if (-not $userName) { throw "No login entered." }
+    $credential = New-Object System.Management.Automation.PSCredential($userName, $securePassword)
+    New-Item -ItemType Directory -Force -Path (Split-Path $CREDENTIAL_PATH) | Out-Null
+    $credential | Export-Clixml $CREDENTIAL_PATH
+    return $credential
+}
 
 function Get-AuthToken {
     param([string]$Server, [string]$UserEmail, [string]$UserPassword)
@@ -164,8 +191,22 @@ Write-Host ""
 
 # Authenticate
 Write-Host "Authenticating with TimeTracker..." -ForegroundColor Gray
-$token = Get-AuthToken -Server $ServerUrl -UserEmail $Email -UserPassword $Password
-Write-Host "  Authenticated." -ForegroundColor Green
+$usingSavedLogin = -not ($Email -and $Password)
+if ($usingSavedLogin) {
+    $credential = Get-SavedLogin
+    $Email = $credential.UserName
+    $Password = $credential.GetNetworkCredential().Password
+}
+try {
+    $token = Get-AuthToken -Server $ServerUrl -UserEmail $Email -UserPassword $Password
+} catch {
+    if ($usingSavedLogin -and (Test-Path $CREDENTIAL_PATH)) {
+        Remove-Item $CREDENTIAL_PATH -Force
+        Write-Host "  Login failed. The saved login was cleared - run again to re-enter it." -ForegroundColor Red
+    }
+    throw
+}
+Write-Host "  Authenticated as $Email." -ForegroundColor Green
 
 # Connect to Outlook
 Write-Host "Connecting to Outlook..." -ForegroundColor Gray
