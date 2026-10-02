@@ -30,6 +30,19 @@ function getPreviousMonthDates() {
   };
 }
 
+function formatLocalDate(date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function getShiftedMonthDates(fromStart, monthDelta) {
+  const base = fromStart ? new Date(`${fromStart}T00:00:00`) : new Date();
+  const firstDay = new Date(base.getFullYear(), base.getMonth() + monthDelta, 1);
+  const lastDay = new Date(firstDay.getFullYear(), firstDay.getMonth() + 1, 0);
+  return { start: formatLocalDate(firstDay), end: formatLocalDate(lastDay) };
+}
+
 function getCurrentMonthDates() {
   const now = new Date();
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1323,13 +1336,17 @@ export default function Invoices() {
               </div>
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  const prev = getPreviousMonthDates();
-                  setBatchPeriod({ start: prev.period_start, end: prev.period_end });
-                }}
+                onClick={() => setBatchPeriod(getShiftedMonthDates(batchPeriod.start, -1))}
                 style={{ alignSelf: 'flex-end' }}
               >
                 Previous Month
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setBatchPeriod(getShiftedMonthDates(batchPeriod.start, 1))}
+                style={{ alignSelf: 'flex-end' }}
+              >
+                Next Month
               </button>
               <button
                 className="btn btn-secondary"
