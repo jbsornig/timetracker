@@ -1631,8 +1631,12 @@ app.get('/api/timesheets/:id', auth, (req, res) => {
 });
 
 function getProjectBudgetStatus(db, projectId, excludeTimesheetId) {
-  const project = db.prepare('SELECT po_amount, project_type, unit_price FROM projects WHERE id = ?').get(projectId);
-  if (!project || !project.po_amount || project.po_amount <= 0) return null;
+  const row = db.prepare('SELECT po_amount, total_cost, project_type, unit_price FROM projects WHERE id = ?').get(projectId);
+  if (!row) return null;
+  // Fixed-price contract value lives in total_cost, not po_amount
+  const budgetAmount = row.project_type === 'fixed_price' ? row.total_cost : row.po_amount;
+  if (!budgetAmount || budgetAmount <= 0) return null;
+  const project = { ...row, po_amount: budgetAmount };
 
   const excludeClause = excludeTimesheetId ? 'AND ts.id != ?' : '';
   const params = excludeTimesheetId ? [projectId, excludeTimesheetId] : [projectId];
