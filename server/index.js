@@ -1637,38 +1637,51 @@ function getProjectBudgetStatus(db, projectId, excludeTimesheetId) {
   const excludeClause = excludeTimesheetId ? 'AND ts.id != ?' : '';
   const params = excludeTimesheetId ? [projectId, excludeTimesheetId] : [projectId];
 
-  if (project.project_type === 'piece_rate') {
-    const billed = db.prepare(`
-      SELECT COALESCE(SUM(COALESCE(ts.units, 0) * ?), 0) as total
+  // Invoiced amount is the locked-in baseline (source of truth for billed work)
+  const invoicedTotal = db.prepare(`
+    SELECT COALESCE(SUM(total_amount), 0) as total
+    FROM invoices
+    WHERE project_id = ? AND status != 'voided'
+  `).get(projectId).total;
+
+  if (project.project_type === 'piece_rate' || project.project_type === 'fixed_price') {
+    // No timesheet_entries for these types; billing lives on the timesheet row
+    const billExpr = project.project_type === 'piece_rate'
+      ? 'COALESCE(ts.units, 0) * ?'
+      : 'COALESCE(ts.amount, 0)';
+    const billParams = project.project_type === 'piece_rate' ? [project.unit_price || 0] : [];
+    const uninvoiced = db.prepare(`
+      SELECT COALESCE(SUM(${billExpr}), 0) as total
       FROM timesheets ts
-      WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved') ${excludeClause}
-    `).get(project.unit_price || 0, ...params);
+      WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved')
+        AND ts.invoice_id IS NULL ${excludeClause}
+    `).get(...billParams, ...params);
+    const totalBilled = invoicedTotal + (uninvoiced.total || 0);
     return {
       po_amount: project.po_amount,
-      total_billed: billed.total || 0,
-      remaining: project.po_amount - (billed.total || 0),
+      total_billed: totalBilled,
+      remaining: project.po_amount - totalBilled,
     };
   }
 
-  const billed = db.prepare(`
+  // Uninvoiced entries: draft/submitted/approved entries not yet on an invoice
+  const uninvoiced = db.prepare(`
     SELECT COALESCE(SUM(
-      CASE
-        WHEN p.project_type = 'fixed_price' THEN COALESCE(ts.amount, 0)
-        ELSE (te.hours - COALESCE(ts.ot_hours, 0)) * COALESCE(ep.bill_rate, 0)
-             + COALESCE(ts.ot_hours, 0) * COALESCE(NULLIF(ep.ot_bill_rate, 0), ep.bill_rate, 0)
-      END
+      (te.hours - COALESCE(ts.ot_hours, 0)) * COALESCE(ep.bill_rate, 0)
+      + COALESCE(ts.ot_hours, 0) * COALESCE(NULLIF(ep.ot_bill_rate, 0), ep.bill_rate, 0)
     ), 0) as total
     FROM timesheet_entries te
     JOIN timesheets ts ON ts.id = te.timesheet_id
-    JOIN projects p ON p.id = ts.project_id
     LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved') ${excludeClause}
+    WHERE ts.project_id = ? AND ts.status IN ('draft', 'submitted', 'approved')
+      AND te.invoice_id IS NULL ${excludeClause}
   `).get(...params);
 
+  const totalBilled = invoicedTotal + (uninvoiced.total || 0);
   return {
     po_amount: project.po_amount,
-    total_billed: billed.total || 0,
-    remaining: project.po_amount - (billed.total || 0),
+    total_billed: totalBilled,
+    remaining: project.po_amount - totalBilled,
   };
 }
 
