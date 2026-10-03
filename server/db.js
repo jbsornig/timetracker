@@ -332,6 +332,11 @@ function initSchema() {
     db.exec('ALTER TABLE users ADD COLUMN holiday_pay_rate REAL DEFAULT 0');
     console.log('✅ Migration: Added holiday_pay_rate column to users');
   }
+  // Owner pay is excluded from business engineer costs in revenue reports
+  if (!userCols.find(c => c.name === 'exclude_from_costs')) {
+    db.exec('ALTER TABLE users ADD COLUMN exclude_from_costs INTEGER DEFAULT 0');
+    console.log('✅ Migration: Added exclude_from_costs column to users');
+  }
   if (!userCols.find(c => c.name === 'last_login')) {
     db.exec('ALTER TABLE users ADD COLUMN last_login DATETIME');
     console.log('✅ Migration: Added last_login column to users');

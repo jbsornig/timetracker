@@ -10,6 +10,7 @@ const { getDb, backupDatabase, replaceDatabase, BACKUP_DIR } = require('./db');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
+const { createInvoiceCostCalculator, getEngineerPaymentsInPeriod } = require('./revenue-costs');
 
 const crypto = require('crypto');
 
@@ -497,7 +498,7 @@ app.delete('/api/holidays/:id', auth, adminOnly, (req, res) => {
 
 app.get('/api/users', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, engineer_id, active, holiday_pay_eligible, holiday_pay_rate, pay_delay_months, address, city, state, zip, start_date, phone, carrier, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
+  const users = db.prepare('SELECT id, name, email, role, engineer_id, active, holiday_pay_eligible, holiday_pay_rate, exclude_from_costs, pay_delay_months, address, city, state, zip, start_date, phone, carrier, tax_id, bank_routing, bank_account, bank_account_type, bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2, created_at, last_login FROM users ORDER BY name').all();
   const masked = users.map(u => {
     const decrypted = decryptTaxId(u.tax_id);
     return {
@@ -576,6 +577,9 @@ app.post('/api/users', auth, adminOnly, (req, res) => {
         bank_routing_2 || null, bank_account_2 || null, bank_account_type_2 || 'checking',
         bank_pct_1 ?? 100, bank_pct_2 ?? 0
       );
+    if (req.body.exclude_from_costs) {
+      db.prepare('UPDATE users SET exclude_from_costs = 1 WHERE id = ?').run(result.lastInsertRowid);
+    }
     res.json({ id: result.lastInsertRowid, name, email, role: role || 'engineer' });
   } catch (e) {
     res.status(400).json({ error: 'Email already exists' });
@@ -640,6 +644,9 @@ app.put('/api/users/:id', auth, adminOnly, (req, res) => {
       pay_delay_months || 0,
       req.params.id
     );
+  }
+  if (req.body.exclude_from_costs !== undefined) {
+    db.prepare('UPDATE users SET exclude_from_costs = ? WHERE id = ?').run(req.body.exclude_from_costs ? 1 : 0, req.params.id);
   }
   res.json({ success: true });
 });
@@ -5714,17 +5721,17 @@ app.get('/api/reports/customer-revenue', auth, adminOnly, (req, res) => {
   const rangeParams = customerFilter ? [period_start, period_end, customerFilter] : [period_start, period_end];
 
   const invoicedRows = db.prepare(`
-    SELECT c.id as customer_id, c.name as customer_name,
-           p.id as project_id, p.name as project_name, p.po_number,
-           COUNT(i.id) as invoice_count, SUM(i.total_amount) as invoiced
+    SELECT i.id as invoice_id, i.total_amount,
+           c.id as customer_id, c.name as customer_name,
+           p.id as project_id, p.name as project_name, p.po_number
     FROM invoices i
     JOIN projects p ON p.id = i.project_id
     JOIN customers c ON c.id = p.customer_id
     WHERE i.voided_date IS NULL AND i.status != 'voided'
       AND (CASE WHEN i.notes LIKE 'Historical import%' THEN i.period_end ELSE DATE(i.created_at) END)
           BETWEEN ? AND ? ${customerClause}
-    GROUP BY p.id
   `).all(...rangeParams);
+  const getInvoiceCost = createInvoiceCostCalculator(db);
 
   const recordedPayments = db.prepare(`
     SELECT c.id as customer_id, c.name as customer_name,
@@ -5763,7 +5770,7 @@ app.get('/api/reports/customer-revenue', auth, adminOnly, (req, res) => {
     if (!projects.has(row.project_id)) {
       projects.set(row.project_id, {
         project_id: row.project_id, project_name: row.project_name, po_number: row.po_number,
-        invoice_count: 0, invoiced: 0, received: 0,
+        invoice_count: 0, invoiced: 0, received: 0, engineer_cost: 0, uncosted_invoice_count: 0,
       });
     }
     return projects.get(row.project_id);
@@ -5771,8 +5778,11 @@ app.get('/api/reports/customer-revenue', auth, adminOnly, (req, res) => {
 
   for (const row of invoicedRows) {
     const project = getProject(row);
-    project.invoice_count += row.invoice_count;
-    project.invoiced += row.invoiced || 0;
+    project.invoice_count += 1;
+    project.invoiced += row.total_amount || 0;
+    const cost = getInvoiceCost(row.invoice_id);
+    if (cost === null) project.uncosted_invoice_count += 1;
+    else project.engineer_cost += cost;
   }
   for (const row of recordedPayments) {
     getProject(row).received += row.received || 0;
@@ -5790,29 +5800,49 @@ app.get('/api/reports/customer-revenue', auth, adminOnly, (req, res) => {
   }
 
   const round = (value) => Math.round(value * 100) / 100;
+  const sumOf = (items, key) => items.reduce((s, item) => s + item[key], 0);
+  const withMargin = (item) => ({ ...item, margin: round(item.invoiced - item.engineer_cost) });
   const customerList = [...customers.values()].map(customer => {
     const projects = [...customer.projects.values()]
-      .map(p => ({ ...p, invoiced: round(p.invoiced), received: round(p.received) }))
+      .map(p => withMargin({ ...p, invoiced: round(p.invoiced), received: round(p.received), engineer_cost: round(p.engineer_cost) }))
       .sort((a, b) => b.invoiced - a.invoiced || b.received - a.received);
-    return {
+    return withMargin({
       customer_id: customer.customer_id,
       customer_name: customer.customer_name,
-      invoice_count: projects.reduce((s, p) => s + p.invoice_count, 0),
-      invoiced: round(projects.reduce((s, p) => s + p.invoiced, 0)),
-      received: round(projects.reduce((s, p) => s + p.received, 0)),
+      invoice_count: sumOf(projects, 'invoice_count'),
+      invoiced: round(sumOf(projects, 'invoiced')),
+      received: round(sumOf(projects, 'received')),
+      engineer_cost: round(sumOf(projects, 'engineer_cost')),
+      uncosted_invoice_count: sumOf(projects, 'uncosted_invoice_count'),
       projects,
-    };
+    });
   }).sort((a, b) => a.customer_name.localeCompare(b.customer_name));
+
+  const totals = withMargin({
+    invoice_count: sumOf(customerList, 'invoice_count'),
+    invoiced: round(sumOf(customerList, 'invoiced')),
+    received: round(sumOf(customerList, 'received')),
+    engineer_cost: round(sumOf(customerList, 'engineer_cost')),
+    uncosted_invoice_count: sumOf(customerList, 'uncosted_invoice_count'),
+  });
+
+  // Engineer payments aren't tied to customers, so cash earned is only meaningful across all customers
+  let cash = null;
+  if (!customerFilter) {
+    const paid = getEngineerPaymentsInPeriod(db, period_start, period_end);
+    cash = {
+      engineer_payments: round(paid.business),
+      owner_payments_excluded: round(paid.owner),
+      cash_earned: round(totals.received - paid.business),
+    };
+  }
 
   res.json({
     period_start,
     period_end,
     customers: customerList,
-    totals: {
-      invoice_count: customerList.reduce((s, c) => s + c.invoice_count, 0),
-      invoiced: round(customerList.reduce((s, c) => s + c.invoiced, 0)),
-      received: round(customerList.reduce((s, c) => s + c.received, 0)),
-    },
+    totals,
+    cash,
     undated_received: round(undatedReceived),
     undated_invoice_count: undatedInvoiceCount,
   });

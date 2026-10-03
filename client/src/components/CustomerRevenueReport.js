@@ -33,19 +33,34 @@ function escapeCsv(value) {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+function moneyColumns(item) {
+  return [item.invoiced, item.engineer_cost, item.margin, item.received].map(value => value.toFixed(2));
+}
+
 function buildCsv(report) {
-  const rows = [['Customer', 'Project', 'PO #', 'Invoices', 'Invoiced', 'Received']];
+  const rows = [['Customer', 'Project', 'PO #', 'Invoices', 'Invoiced', 'Engineer Cost', 'Margin', 'Received']];
   for (const customer of report.customers) {
     for (const project of customer.projects) {
       rows.push([customer.customer_name, project.project_name, project.po_number || '', project.invoice_count,
-        project.invoiced.toFixed(2), project.received.toFixed(2)]);
+        ...moneyColumns(project)]);
     }
-    rows.push([`${customer.customer_name} Total`, '', '', customer.invoice_count,
-      customer.invoiced.toFixed(2), customer.received.toFixed(2)]);
+    rows.push([`${customer.customer_name} Total`, '', '', customer.invoice_count, ...moneyColumns(customer)]);
   }
-  rows.push(['Grand Total', '', '', report.totals.invoice_count,
-    report.totals.invoiced.toFixed(2), report.totals.received.toFixed(2)]);
+  rows.push(['Grand Total', '', '', report.totals.invoice_count, ...moneyColumns(report.totals)]);
+  if (report.cash) {
+    rows.push([]);
+    rows.push(['Cash Basis']);
+    rows.push(['Received', '', '', '', report.totals.received.toFixed(2)]);
+    rows.push(['Engineer Payments (excluding owner)', '', '', '', report.cash.engineer_payments.toFixed(2)]);
+    rows.push(['Cash Earned', '', '', '', report.cash.cash_earned.toFixed(2)]);
+    rows.push(['Owner Pay (excluded)', '', '', '', report.cash.owner_payments_excluded.toFixed(2)]);
+  }
   return rows.map(row => row.map(escapeCsv).join(',')).join('\r\n');
+}
+
+function marginColor(value) {
+  if (value < 0) return 'var(--danger)';
+  return value > 0 ? 'var(--success)' : undefined;
 }
 
 function downloadCsv(report, customerLabel) {
@@ -184,27 +199,62 @@ export default function CustomerRevenueReport() {
             </p>
           </div>
 
+          <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted)', marginBottom: 6 }}>
+            Work invoiced in this period
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
             <div className="stat-card">
-              <div className="stat-label">Invoiced</div>
+              <div className="stat-label">Invoiced ({report.totals.invoice_count})</div>
               <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.totals.invoiced)}</div>
             </div>
-            <div className="stat-card accent">
-              <div className="stat-label">Received</div>
-              <div className="stat-value" style={{ fontSize: 22, color: 'var(--success)' }}>{formatCurrency(report.totals.received)}</div>
+            <div className="stat-card">
+              <div className="stat-label">Engineer Cost</div>
+              <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.totals.engineer_cost)}</div>
             </div>
             <div className="stat-card">
-              <div className="stat-label">Invoices</div>
-              <div className="stat-value">{report.totals.invoice_count}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Customers</div>
-              <div className="stat-value">{report.customers.length}</div>
+              <div className="stat-label">Margin</div>
+              <div className="stat-value" style={{ fontSize: 22, color: marginColor(report.totals.margin) }}>{formatCurrency(report.totals.margin)}</div>
+              {report.totals.invoiced > 0 && (
+                <div className="stat-sub">{((report.totals.margin / report.totals.invoiced) * 100).toFixed(1)}% of invoiced</div>
+              )}
             </div>
           </div>
 
+          {report.cash ? (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-muted)', marginBottom: 6 }}>
+                Cash in and out in this period
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 8 }}>
+                <div className="stat-card">
+                  <div className="stat-label">Received</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.totals.received)}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Engineer Payments</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.cash.engineer_payments)}</div>
+                  <div className="stat-sub">Owner pay excluded: {formatCurrency(report.cash.owner_payments_excluded)}</div>
+                </div>
+                <div className="stat-card accent">
+                  <div className="stat-label">Cash Earned</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.cash.cash_earned)}</div>
+                  <div className="stat-sub">Received minus engineer payments</div>
+                </div>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px' }}>
+                Cash Earned uses the actual payments made, so use it for taxes. It can dip below Margin when engineers
+                are paid before customers pay their invoices.
+              </p>
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px' }}>
+              Cash Earned is shown for All Customers only, since engineer payments aren't recorded per customer.
+            </p>
+          )}
+
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 12px' }}>
-            Invoiced counts invoices by the date they were created. Received counts money by the date it was paid.
+            Invoiced counts invoices by the date they were created. Engineer Cost is the pay for the work on those
+            invoices (hours &times; pay rate), leaving out anyone marked as owner. Received counts money by the date it was paid.
           </p>
 
           <div className="no-print" style={{ marginBottom: 8 }}>
@@ -221,6 +271,8 @@ export default function CustomerRevenueReport() {
                   <th>PO #</th>
                   <th style={{ textAlign: 'right' }}>Invoices</th>
                   <th style={{ textAlign: 'right' }}>Invoiced</th>
+                  <th style={{ textAlign: 'right' }}>Engineer Cost</th>
+                  <th style={{ textAlign: 'right' }}>Margin</th>
                   <th style={{ textAlign: 'right' }}>Received</th>
                 </tr>
               </thead>
@@ -240,7 +292,9 @@ export default function CustomerRevenueReport() {
                         <td></td>
                         <td style={{ ...MONO, textAlign: 'right' }}>{customer.invoice_count}</td>
                         <td style={{ ...MONO, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(customer.invoiced)}</td>
-                        <td style={{ ...MONO, textAlign: 'right', fontWeight: 600, color: 'var(--success)' }}>{formatCurrency(customer.received)}</td>
+                        <td style={{ ...MONO, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(customer.engineer_cost)}</td>
+                        <td style={{ ...MONO, textAlign: 'right', fontWeight: 600, color: marginColor(customer.margin) }}>{formatCurrency(customer.margin)}</td>
+                        <td style={{ ...MONO, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(customer.received)}</td>
                       </tr>
                       {isOpen && customer.projects.map(project => (
                         <tr key={project.project_id}>
@@ -248,6 +302,8 @@ export default function CustomerRevenueReport() {
                           <td style={{ ...MONO, fontSize: 13 }}>{project.po_number || '-'}</td>
                           <td style={{ ...MONO, textAlign: 'right' }}>{project.invoice_count}</td>
                           <td style={{ ...MONO, textAlign: 'right' }}>{formatCurrency(project.invoiced)}</td>
+                          <td style={{ ...MONO, textAlign: 'right' }}>{formatCurrency(project.engineer_cost)}</td>
+                          <td style={{ ...MONO, textAlign: 'right', color: marginColor(project.margin) }}>{formatCurrency(project.margin)}</td>
                           <td style={{ ...MONO, textAlign: 'right' }}>{formatCurrency(project.received)}</td>
                         </tr>
                       ))}
@@ -260,12 +316,20 @@ export default function CustomerRevenueReport() {
                   <td colSpan={2}>Total</td>
                   <td style={{ ...MONO, textAlign: 'right' }}>{report.totals.invoice_count}</td>
                   <td style={{ ...MONO, textAlign: 'right' }}>{formatCurrency(report.totals.invoiced)}</td>
-                  <td style={{ ...MONO, textAlign: 'right', color: 'var(--success)' }}>{formatCurrency(report.totals.received)}</td>
+                  <td style={{ ...MONO, textAlign: 'right' }}>{formatCurrency(report.totals.engineer_cost)}</td>
+                  <td style={{ ...MONO, textAlign: 'right', color: marginColor(report.totals.margin) }}>{formatCurrency(report.totals.margin)}</td>
+                  <td style={{ ...MONO, textAlign: 'right' }}>{formatCurrency(report.totals.received)}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
 
+          {report.totals.uncosted_invoice_count > 0 && (
+            <div className="alert alert-info" style={{ marginTop: 12, fontSize: 13 }}>
+              {report.totals.uncosted_invoice_count} invoice{report.totals.uncosted_invoice_count === 1 ? '' : 's'} had
+              no engineer pay rate to cost against, so Engineer Cost treats them as $0.
+            </div>
+          )}
           {report.undated_invoice_count > 0 && (
             <div className="alert alert-info" style={{ marginTop: 12, fontSize: 13 }}>
               {report.undated_invoice_count} paid invoice{report.undated_invoice_count === 1 ? '' : 's'} ({formatCurrency(report.undated_received)})

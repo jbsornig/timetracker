@@ -11,7 +11,7 @@ function formatPhone(value) {
 
 const emptyUser = {
   name: '', email: '', password: '', engineer_id: '', role: 'engineer',
-  holiday_pay_eligible: false, holiday_pay_rate: '',
+  holiday_pay_eligible: false, holiday_pay_rate: '', exclude_from_costs: false,
   address: '', city: '', state: '', zip: '', start_date: '', phone: '', carrier: '',
   tax_id: '',
   bank_routing: '', bank_account: '', bank_account_type: 'checking',
@@ -147,6 +147,7 @@ export default function Engineers() {
       password: '',
       holiday_pay_eligible: user.holiday_pay_eligible === 1,
       holiday_pay_rate: user.holiday_pay_rate || '',
+      exclude_from_costs: user.exclude_from_costs === 1,
       bank_routing: '', // Don't populate - will be masked display
       bank_account: '', // Don't populate - will be masked display
       bank_account_type: user.bank_account_type || 'checking',
@@ -216,6 +217,7 @@ export default function Engineers() {
         engineer_id: form.role === 'engineer' ? (form.engineer_id || null) : null,
         holiday_pay_eligible: form.role === 'engineer' ? (form.holiday_pay_eligible ? 1 : 0) : 0,
         holiday_pay_rate: form.role === 'engineer' ? (parseFloat(form.holiday_pay_rate) || 0) : 0,
+        exclude_from_costs: form.exclude_from_costs ? 1 : 0,
         bank_account_type: form.role === 'engineer' ? form.bank_account_type : null,
         bank_account_type_2: form.role === 'engineer' ? form.bank_account_type_2 : null,
         bank_pct_1: form.role === 'engineer' ? (parseInt(form.bank_pct_1) || 100) : 100,
@@ -611,6 +613,20 @@ export default function Engineers() {
                     <label className="form-label">Start Date</label>
                     <input className="form-input" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
                     <div className="form-hint">Date the engineer started working for you</div>
+                  </div>
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!form.exclude_from_costs}
+                        onChange={(e) => setForm({ ...form, exclude_from_costs: e.target.checked })}
+                        style={{ width: 18, height: 18 }}
+                      />
+                      <span>Owner &mdash; exclude from business costs</span>
+                    </label>
+                    <div className="form-hint">This person's pay is left out of engineer costs and payments on the Customer Revenue report</div>
                   </div>
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
