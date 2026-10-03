@@ -5696,6 +5696,128 @@ app.get('/api/reports/invoiced', auth, adminOnly, (req, res) => {
   res.json(enriched);
 });
 
+// Customer revenue roll-up: invoiced by invoice date, received by payment date.
+// Historically imported invoices carry the import date in created_at, so their period_end stands in.
+app.get('/api/reports/customer-revenue', auth, adminOnly, (req, res) => {
+  const { period_start, period_end, customer_id } = req.query;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(period_start || '') || !datePattern.test(period_end || '')) {
+    return res.status(400).json({ error: 'period_start and period_end are required (YYYY-MM-DD)' });
+  }
+  const customerFilter = customer_id ? parseInt(customer_id, 10) : null;
+  if (customer_id && !Number.isInteger(customerFilter)) {
+    return res.status(400).json({ error: 'customer_id must be a number' });
+  }
+
+  const db = getDb();
+  const customerClause = customerFilter ? 'AND c.id = ?' : '';
+  const rangeParams = customerFilter ? [period_start, period_end, customerFilter] : [period_start, period_end];
+
+  const invoicedRows = db.prepare(`
+    SELECT c.id as customer_id, c.name as customer_name,
+           p.id as project_id, p.name as project_name, p.po_number,
+           COUNT(i.id) as invoice_count, SUM(i.total_amount) as invoiced
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.voided_date IS NULL AND i.status != 'voided'
+      AND (CASE WHEN i.notes LIKE 'Historical import%' THEN i.period_end ELSE DATE(i.created_at) END)
+          BETWEEN ? AND ? ${customerClause}
+    GROUP BY p.id
+  `).all(...rangeParams);
+
+  const recordedPayments = db.prepare(`
+    SELECT c.id as customer_id, c.name as customer_name,
+           p.id as project_id, p.name as project_name, p.po_number,
+           SUM(pay.amount) as received
+    FROM payments pay
+    JOIN invoices i ON i.id = pay.invoice_id
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.voided_date IS NULL AND i.status != 'voided'
+      AND DATE(pay.payment_date) BETWEEN ? AND ? ${customerClause}
+    GROUP BY p.id
+  `).all(...rangeParams);
+
+  // Paid amounts with no payment record (e.g. historical imports) fall back to the invoice paid_date
+  const unrecordedSql = `
+    SELECT c.id as customer_id, c.name as customer_name,
+           p.id as project_id, p.name as project_name, p.po_number,
+           i.paid_date,
+           i.amount_paid - COALESCE((SELECT SUM(amount) FROM payments WHERE invoice_id = i.id), 0) as unrecorded
+    FROM invoices i
+    JOIN projects p ON p.id = i.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE i.voided_date IS NULL AND i.status != 'voided' AND i.amount_paid > 0 ${customerClause}
+  `;
+  const unrecordedRows = db.prepare(unrecordedSql)
+    .all(...(customerFilter ? [customerFilter] : []))
+    .filter(row => row.unrecorded > 0.01);
+
+  const customers = new Map();
+  const getProject = (row) => {
+    if (!customers.has(row.customer_id)) {
+      customers.set(row.customer_id, { customer_id: row.customer_id, customer_name: row.customer_name, projects: new Map() });
+    }
+    const projects = customers.get(row.customer_id).projects;
+    if (!projects.has(row.project_id)) {
+      projects.set(row.project_id, {
+        project_id: row.project_id, project_name: row.project_name, po_number: row.po_number,
+        invoice_count: 0, invoiced: 0, received: 0,
+      });
+    }
+    return projects.get(row.project_id);
+  };
+
+  for (const row of invoicedRows) {
+    const project = getProject(row);
+    project.invoice_count += row.invoice_count;
+    project.invoiced += row.invoiced || 0;
+  }
+  for (const row of recordedPayments) {
+    getProject(row).received += row.received || 0;
+  }
+  let undatedReceived = 0;
+  let undatedInvoiceCount = 0;
+  for (const row of unrecordedRows) {
+    const paidDate = (row.paid_date || '').slice(0, 10);
+    if (!paidDate) {
+      undatedReceived += row.unrecorded;
+      undatedInvoiceCount += 1;
+    } else if (paidDate >= period_start && paidDate <= period_end) {
+      getProject(row).received += row.unrecorded;
+    }
+  }
+
+  const round = (value) => Math.round(value * 100) / 100;
+  const customerList = [...customers.values()].map(customer => {
+    const projects = [...customer.projects.values()]
+      .map(p => ({ ...p, invoiced: round(p.invoiced), received: round(p.received) }))
+      .sort((a, b) => b.invoiced - a.invoiced || b.received - a.received);
+    return {
+      customer_id: customer.customer_id,
+      customer_name: customer.customer_name,
+      invoice_count: projects.reduce((s, p) => s + p.invoice_count, 0),
+      invoiced: round(projects.reduce((s, p) => s + p.invoiced, 0)),
+      received: round(projects.reduce((s, p) => s + p.received, 0)),
+      projects,
+    };
+  }).sort((a, b) => a.customer_name.localeCompare(b.customer_name));
+
+  res.json({
+    period_start,
+    period_end,
+    customers: customerList,
+    totals: {
+      invoice_count: customerList.reduce((s, c) => s + c.invoice_count, 0),
+      invoiced: round(customerList.reduce((s, c) => s + c.invoiced, 0)),
+      received: round(customerList.reduce((s, c) => s + c.received, 0)),
+    },
+    undated_received: round(undatedReceived),
+    undated_invoice_count: undatedInvoiceCount,
+  });
+});
+
 // Engineer payment reconciliation report
 app.get('/api/reports/engineer-reconciliation', auth, adminOnly, (req, res) => {
   const { user_id, period_start, period_end } = req.query;

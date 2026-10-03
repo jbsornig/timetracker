@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
+import CustomerRevenueReport from '../components/CustomerRevenueReport';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-US', {
@@ -857,6 +858,12 @@ export default function Reports() {
             onClick={() => setActiveTab('invoiced')}
           >
             Invoiced Report
+          </button>
+          <button
+            className={`btn ${activeTab === 'customer-revenue' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab('customer-revenue')}
+          >
+            Customer Revenue
           </button>
           <button
             className={`btn ${activeTab === 'budget' ? 'btn-primary' : 'btn-secondary'}`}
@@ -1760,6 +1767,8 @@ export default function Reports() {
           )}
         </div>
       )}
+
+      {activeTab === 'customer-revenue' && <CustomerRevenueReport />}
 
       {activeTab === 'budget' && (
         <div className="card">
