@@ -201,6 +201,7 @@ export default function Projects() {
         edi_po_quantity: data.edi_po_quantity || prev.edi_po_quantity,
         edi_unit_price: data.edi_unit_price || prev.edi_unit_price,
         po_amount: data.po_amount || prev.po_amount,
+        total_cost: prev.project_type === 'fixed_price' ? (data.po_amount || prev.total_cost) : prev.total_cost,
         location: data.location || prev.location,
       }));
 
@@ -744,7 +745,7 @@ export default function Projects() {
                     name="project_type"
                     value="fixed_price"
                     checked={form.project_type === 'fixed_price'}
-                    onChange={(e) => setForm({ ...form, project_type: e.target.value })}
+                    onChange={(e) => setForm({ ...form, project_type: e.target.value, total_cost: form.total_cost || form.po_amount })}
                   />
                   <span>Fixed Price</span>
                 </label>
