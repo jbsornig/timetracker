@@ -4621,6 +4621,7 @@ const STELLANTIS_PLANT_NAMES = {
   '2462': 'TOLEDO ASSEMBLY NORTH',
   '2470': 'MACK DETROIT ASSEMBLY',
   '9103': 'WINDSOR ASSEMBLY',
+  '8409': 'Stellantis Adv Mfg - Mexico',
 };
 
 function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber, companyName, ediUom, poQuantity, poUnitPrice }) {
@@ -4678,10 +4679,11 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
     segments.push(`DTM${ELEM_SEP}093${ELEM_SEP}${dtmEnd}${SEG_TERM}`);
   }
 
-  // For LO (Lot) UOM, consolidate all line items into a single line
-  // Skip consolidation when items have per-line EDI overrides (multi-line PO)
+  // For LO (Lot) and PCE (Piece) UOM, consolidate all line items into a single line so a 1-unit PO
+  // isn't claimed once per engineer/timesheet. Skip when items have per-line EDI overrides (multi-line PO)
   const hasPerLineEdi = lineItems.some(li => li.edi_uom);
-  const consolidatedItems = (!hasPerLineEdi && ediUom === 'LO') && lineItems.length > 1
+  const consolidatesToOneLine = ediUom === 'LO' || ediUom === 'PCE';
+  const consolidatedItems = (!hasPerLineEdi && consolidatesToOneLine) && lineItems.length > 1
     ? [{
         engineer: lineItems[0].engineer,
         hours: lineItems.reduce((s, li) => s + (li.hours || 0), 0),
