@@ -2732,6 +2732,8 @@ function InvoiceContent({ inv, settings }) {
   const contactName = inv.contact_name || inv.project?.contact_name || '';
   const cs = inv.currency_symbol || inv.project?.currency_symbol || '$';
   const periodRange = `${formatDate(inv.period_start)} to ${formatDate(inv.period_end)}`;
+  const showPeriod = (inv.show_invoice_period ?? inv.project?.show_invoice_period) !== 0;
+  const withPeriod = (text, range) => (showPeriod ? `${text} - ${range}` : text);
 
   const weekRange = (weekEnding) => {
     if (!weekEnding) return periodRange;
@@ -2851,12 +2853,12 @@ function InvoiceContent({ inv, settings }) {
                   {item.is_adjustment
                     ? item.description
                     : item.is_consolidated
-                    ? `${projectDescription || 'Engineering Services'} - ${periodRange}`
+                    ? withPeriod(projectDescription || 'Engineering Services', periodRange)
                     : item.is_fixed_price
                     ? (item.engineer ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}` : projectDescription || 'Fixed Price Service')
                     : item.is_fixed_monthly
-                    ? `${projectDescription || 'Monthly Service'} - ${item.engineer} - ${periodRange}`
-                    : `${projectDescription || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}`
+                    ? withPeriod(`${projectDescription || 'Monthly Service'} - ${item.engineer}`, periodRange)
+                    : withPeriod(`${projectDescription || 'Engineering Labor Hours'} - ${item.engineer}`, weekRange(item.week_ending))
                   }
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
@@ -2883,7 +2885,7 @@ function InvoiceContent({ inv, settings }) {
               <td style={{ border: '1px solid #ccc', padding: '8px' }}>{inv.total_hours?.toFixed(2) || '0.00'}</td>
               <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
               <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                {projectDescription || 'Engineering Labor Hours'} - {periodRange}
+                {withPeriod(projectDescription || 'Engineering Labor Hours', periodRange)}
               </td>
               <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>—</td>
               <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>

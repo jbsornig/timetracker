@@ -254,6 +254,11 @@ function initSchema() {
     db.exec('ALTER TABLE projects ADD COLUMN include_timesheets INTEGER DEFAULT 1');
     console.log('✅ Migration: Added include_timesheets column to projects');
   }
+  // Whether invoice line descriptions and the PDF filename include the billing period dates
+  if (!projectCols2.find(c => c.name === 'show_invoice_period')) {
+    db.exec('ALTER TABLE projects ADD COLUMN show_invoice_period INTEGER DEFAULT 1');
+    console.log('✅ Migration: Added show_invoice_period column to projects');
+  }
 
   // Add emailed_at column to invoices if missing
   const invoiceCols2 = db.prepare("PRAGMA table_info(invoices)").all();

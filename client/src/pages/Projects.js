@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false, unit_price: '' };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, show_invoice_period: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false, unit_price: '' };
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -88,6 +88,7 @@ export default function Projects() {
       description: project.description || '',
       po_amount: project.po_amount || '',
       include_timesheets: project.include_timesheets !== 0,
+      show_invoice_period: project.show_invoice_period !== 0,
       project_type: project.project_type || 'hourly',
       total_cost: project.total_cost || '',
       requires_daily_logs: project.requires_daily_logs !== 0,
@@ -1163,6 +1164,18 @@ export default function Projects() {
                 <span>Include timesheets with invoice emails</span>
               </label>
               <div className="form-hint">When checked, emailed invoices will include detailed timesheet reports</div>
+            </div>
+            <div className="form-group" style={{ marginTop: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={form.show_invoice_period}
+                  onChange={(e) => setForm({ ...form, show_invoice_period: e.target.checked })}
+                  style={{ width: 18, height: 18 }}
+                />
+                <span>Show billing period dates on invoices</span>
+              </label>
+              <div className="form-hint">Uncheck to leave the date range off invoice line descriptions and the PDF file name</div>
             </div>
             <div className="form-group" style={{ marginTop: 8 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

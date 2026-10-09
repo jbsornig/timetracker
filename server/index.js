@@ -1278,6 +1278,9 @@ app.post('/api/projects', auth, adminOnly, (req, res) => {
     }
   }
   const result = db.prepare('INSERT INTO projects (customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, contact_id || null, name, description || null, po_number, po_amount || 0, location, status || 'active', include_timesheets !== false ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs !== false ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0, unit_price || 0);
+  if (req.body.show_invoice_period === false) {
+    db.prepare('UPDATE projects SET show_invoice_period = 0 WHERE id = ?').run(result.lastInsertRowid);
+  }
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
@@ -1310,6 +1313,9 @@ app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
   }
 
   db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=?, edi_po_quantity=?, edi_unit_price=?, overtime_type=?, invoice_consolidate=?, unit_price=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0, unit_price || 0, req.params.id);
+  if (req.body.show_invoice_period !== undefined) {
+    db.prepare('UPDATE projects SET show_invoice_period = ? WHERE id = ?').run(req.body.show_invoice_period ? 1 : 0, req.params.id);
+  }
   res.json({ success: true });
 });
 
@@ -2429,6 +2435,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
            p.project_type, p.total_cost, p.include_timesheets, p.billing_method, p.invoice_consolidate, p.overtime_type, p.requires_daily_logs, p.unit_price,
+           p.show_invoice_period,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.currency_symbol, cc.name as contact_name
     FROM invoices i
@@ -3412,7 +3419,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       settings[row.key] = row.value;
     }
 
-    res.json({ id: invoiceId, invoice_number, print_notes: printNotes, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate, include_timesheets: project.include_timesheets, project_name: project.name, customer_name: project.customer_name, customer_address: project.customer_address, supplier_number: project.supplier_number, payment_terms: project.payment_terms, contact_name: project.contact_name, po_number: project.po_number, location: project.location, project_type: project.project_type });
+    res.json({ id: invoiceId, invoice_number, print_notes: printNotes, show_invoice_period: project.show_invoice_period, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate, include_timesheets: project.include_timesheets, project_name: project.name, customer_name: project.customer_name, customer_address: project.customer_address, supplier_number: project.supplier_number, payment_terms: project.payment_terms, contact_name: project.contact_name, po_number: project.po_number, location: project.location, project_type: project.project_type });
   } catch (err) {
     console.error('Invoice generation error:', err);
     res.status(500).json({ error: err.message });
@@ -3967,7 +3974,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   // Get invoice with all related info
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-           p.include_timesheets,
+           p.include_timesheets, p.show_invoice_period,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.ap_email, c.email as customer_email, c.currency_symbol, c.send_invoice_to_self,
            cc.name as contact_name, cc.email as contact_email
@@ -4102,13 +4109,15 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     return `${formatDate(start.toISOString().split('T')[0])} to ${formatDate(end.toISOString().split('T')[0])}`;
   };
 
+  const showPeriod = invoice.show_invoice_period !== 0;
+  const withPeriod = (text, range) => (showPeriod ? `${text} - ${range}` : text);
   const hasHours = lineItems.some(item => item.hours > 0);
   const lineItemRows = lineItems.map(item => {
     const qty = item.hours > 0 ? item.hours.toFixed(2) : '1';
     const rate = item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const desc = item.is_adjustment
       ? item.description
-      : `${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}`;
+      : withPeriod(`${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer}`, weekRange(item.week_ending));
     return `
     <tr>
       <td style="border: 1px solid #ccc; padding: 8px;">${qty}</td>
@@ -4131,7 +4140,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
     <tr>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.total_hours > 0 ? invoice.total_hours.toFixed(2) : '1'}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.project_description || 'Engineering Labor Hours'} - ${periodRange}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${withPeriod(invoice.project_description || 'Engineering Labor Hours', periodRange)}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${invoice.total_hours > 0 ? '—' : cs + (invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -4464,7 +4473,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
           const fileDate = (dateStr) => formatDate(dateStr).replace(/\//g, '_');
           const parts = [po, `Inv ${invoice.invoice_number}`];
           if (name) parts.push(name);
-          parts.push(`${fileDate(invoice.period_start)} to ${fileDate(invoice.period_end)}`);
+          if (invoice.show_invoice_period !== 0) parts.push(`${fileDate(invoice.period_start)} to ${fileDate(invoice.period_end)}`);
           return parts.join(' - ') + '.pdf';
         })(),
         content: pdfBuffer,
@@ -4942,6 +4951,10 @@ app.post('/api/invoices/upload-edi-response', auth, adminOnly, ediUpload.array('
       UPDATE invoices SET edi_status = ?, edi_response_date = datetime('now'), edi_error_details = ?
       WHERE invoice_number = ?
     `);
+    // An accepted EDI response means the customer received the invoice
+    const markReceivedStmt = db.prepare(
+      'UPDATE invoices SET received_at = COALESCE(received_at, CURRENT_TIMESTAMP) WHERE invoice_number = ?'
+    );
 
     for (const file of files) {
       const content = require('fs').readFileSync(file.path, 'utf-8');
@@ -4960,6 +4973,7 @@ app.post('/api/invoices/upload-edi-response', auth, adminOnly, ediUpload.array('
           const invoice = db.prepare('SELECT id, invoice_number FROM invoices WHERE invoice_number = ?').get(result.invoiceNumber);
           if (invoice) {
             updateStmt.run(result.status, result.errorMessage || null, result.invoiceNumber);
+            if (result.status === 'accepted') markReceivedStmt.run(result.invoiceNumber);
             matched = true;
           }
         }
@@ -8862,7 +8876,7 @@ async function generateInvoicePdf(invoiceId, outputPath) {
   const db = getDb();
   const invoice = db.prepare(`
     SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-           p.include_timesheets, p.billing_method,
+           p.include_timesheets, p.billing_method, p.show_invoice_period,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
            c.ap_email, c.email as customer_email, c.currency_symbol,
            cc.name as contact_name, cc.email as contact_email
@@ -8922,7 +8936,7 @@ async function generateInvoicePdf(invoiceId, outputPath) {
       </div>
       <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
         <div><strong>Bill To:</strong><br/>${invoice.customer_name}<br/>${invoice.customer_address || ''}</div>
-        <div style="text-align: right;"><strong>PO Number:</strong> ${invoice.po_number || 'N/A'}<br/><strong>Project:</strong> ${invoice.project_name}<br/><strong>Period:</strong> ${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}</div>
+        <div style="text-align: right;"><strong>PO Number:</strong> ${invoice.po_number || 'N/A'}<br/><strong>Project:</strong> ${invoice.project_name}${invoice.show_invoice_period !== 0 ? `<br/><strong>Period:</strong> ${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}` : ''}</div>
       </div>
       <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
         <thead><tr style="background: #1e40af; color: white;"><th style="padding: 8px; text-align: left;">Description</th><th style="padding: 8px; text-align: right;">Hours</th><th style="padding: 8px; text-align: right;">Rate</th><th style="padding: 8px; text-align: right;">Amount</th></tr></thead>
