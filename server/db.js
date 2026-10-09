@@ -941,6 +941,21 @@ function initSchema() {
     db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_quote_number TEXT");
     console.log('✅ Migration: Added vendor_quote_number column to purchase_orders');
   }
+  // Vendor-PO billing: notes to print on the customer invoice, and the invoice that billed each vendor payment
+  if (!poCols.find(c => c.name === 'invoice_notes')) {
+    db.exec("ALTER TABLE purchase_orders ADD COLUMN invoice_notes TEXT");
+    console.log('✅ Migration: Added invoice_notes column to purchase_orders');
+  }
+  const poPaymentCols = db.prepare("PRAGMA table_info(po_payments)").all();
+  if (!poPaymentCols.find(c => c.name === 'invoice_id')) {
+    db.exec("ALTER TABLE po_payments ADD COLUMN invoice_id INTEGER");
+    console.log('✅ Migration: Added invoice_id column to po_payments');
+  }
+  const invoicePrintCols = db.prepare("PRAGMA table_info(invoices)").all();
+  if (!invoicePrintCols.find(c => c.name === 'print_notes')) {
+    db.exec("ALTER TABLE invoices ADD COLUMN print_notes TEXT");
+    console.log('✅ Migration: Added print_notes column to invoices');
+  }
 
   // Add carrier column to users for SMS via email-to-SMS gateway
   const userCols2 = db.prepare("PRAGMA table_info(users)").all();

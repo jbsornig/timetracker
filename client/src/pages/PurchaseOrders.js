@@ -296,6 +296,7 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
     ship_to: '',
     notes: '',
     terms: '',
+    invoice_notes: '',
   });
   const [lineItems, setLineItems] = useState([{ ...emptyLineItem }]);
 
@@ -312,6 +313,7 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
         ship_to: editPO.ship_to || '',
         notes: editPO.notes || '',
         terms: editPO.terms || '',
+        invoice_notes: editPO.invoice_notes || '',
       });
       setLineItems(editPO.line_items?.length ? editPO.line_items.map(i => ({ description: i.description, quantity: i.quantity, unit_price: i.unit_price })) : [{ ...emptyLineItem }]);
     }
@@ -447,6 +449,14 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
           </div>
         </div>
 
+        {form.project_id && (
+          <InvoiceNotesField
+            value={form.invoice_notes}
+            onChange={value => setForm({ ...form, invoice_notes: value })}
+            inputStyle={inputStyle}
+          />
+        )}
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
           <button onClick={handleSave} style={{ padding: '8px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>{isEdit ? 'Update PO' : 'Create PO'}</button>
@@ -456,8 +466,26 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
   );
 }
 
+function InvoiceNotesField({ value, onChange, inputStyle }) {
+  return (
+    <div style={{ marginBottom: 16, padding: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6 }}>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: '#334155' }}>Notes for the customer invoice</label>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={3}
+        placeholder="e.g. Training dates: Sept 22-26, 2026. Attendees: 8."
+        style={{ ...inputStyle, resize: 'vertical' }}
+      />
+      <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+        Once this PO is paid, the linked fixed-price project can be invoiced for the same percentage. These notes print on that invoice.
+      </div>
+    </div>
+  );
+}
+
 function PaymentModal({ po, onClose, onSaved }) {
-  const [form, setForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: '', reference_number: '', notes: '' });
+  const [form, setForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: '', reference_number: '', notes: '', invoice_notes: po.invoice_notes || '' });
 
   const handleSave = async () => {
     if (!form.amount || parseFloat(form.amount) <= 0) return alert('Enter a valid amount');
@@ -503,6 +531,13 @@ function PaymentModal({ po, onClose, onSaved }) {
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Notes</label>
           <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
         </div>
+        {po.project_id && (
+          <InvoiceNotesField
+            value={form.invoice_notes}
+            onChange={value => setForm({ ...form, invoice_notes: value })}
+            inputStyle={inputStyle}
+          />
+        )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
           <button onClick={handleSave} style={{ padding: '8px 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Record Payment</button>

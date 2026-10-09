@@ -11,6 +11,7 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 const { createInvoiceCostCalculator, getEngineerPaymentsInPeriod } = require('./revenue-costs');
+const vendorBilling = require('./vendor-billing');
 
 const crypto = require('crypto');
 
@@ -2358,9 +2359,62 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
     };
   });
 
+  // Fixed-price projects with paid, unbilled vendor POs are billable even without timesheets
+  const vendorProjects = db.prepare(`
+    SELECT p.id, p.name as project_name, p.po_number, p.total_cost, c.name as customer_name
+    FROM po_payments pay
+    JOIN purchase_orders po ON po.id = pay.purchase_order_id
+    JOIN projects p ON p.id = po.project_id
+    JOIN customers c ON c.id = p.customer_id
+    WHERE pay.invoice_id IS NULL AND DATE(pay.payment_date) BETWEEN ? AND ?
+      AND p.project_type = 'fixed_price' AND COALESCE(p.internal, 0) = 0
+    GROUP BY p.id
+  `).all(period_start, period_end);
+
+  const withVendorWork = vendorProjects.reduce((acc, vp) => {
+    const items = vendorBilling.buildVendorLineItems(
+      vendorBilling.getUnbilledVendorPayments(db, vp.id, period_start, period_end), vp.total_cost
+    );
+    const vendorAmount = items.reduce((s, i) => s + i.amount, 0);
+    const vendorCost = items.reduce((s, i) => s + i.engineer_amount, 0);
+    const vendorPos = items.map(i => i.vendor_po_number);
+    const existing = acc.find(r => r.id === vp.id);
+    if (existing) {
+      const estimated = existing.estimated_amount + vendorAmount;
+      return acc.map(r => r.id !== vp.id ? r : {
+        ...r,
+        estimated_amount: estimated,
+        fixed_amount: r.fixed_amount + vendorCost,
+        vendor_pos: vendorPos,
+        over_budget: r.po_amount > 0 && estimated > (r.remaining_balance + 0.01),
+      });
+    }
+    const billed = db.prepare('SELECT COALESCE(SUM(total_amount), 0) as total FROM invoices WHERE project_id = ? AND voided_date IS NULL').get(vp.id).total;
+    const budget = vp.total_cost || 0;
+    const remaining = budget > 0 ? budget - billed : null;
+    return [...acc, {
+      id: vp.id,
+      project_name: vp.project_name,
+      customer_name: vp.customer_name,
+      po_number: vp.po_number,
+      project_type: 'fixed_price',
+      timesheet_count: 0,
+      total_hours: 0,
+      fixed_amount: vendorCost,
+      estimated_amount: vendorAmount,
+      engineers: vendorPos.map(n => `Vendor ${n}`),
+      vendor_pos: vendorPos,
+      existing_invoice: null,
+      po_amount: budget,
+      total_billed: billed,
+      remaining_balance: remaining,
+      over_budget: budget > 0 && vendorAmount > (remaining + 0.01),
+    }];
+  }, results);
+
   // Filter out projects with no billable data available
   // For fixed_monthly: must have actual hours to invoice (not just a monthly rate)
-  const filtered = results.filter(r => {
+  const filtered = withVendorWork.filter(r => {
     if (r.project_type === 'fixed_monthly') return r.total_hours > 0;
     if (r.project_type === 'fixed_price') return r.fixed_amount > 0;
     if (r.project_type === 'piece_rate') return r.fixed_amount > 0;
@@ -2610,6 +2664,11 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     });
   }
 
+  if (isFixedPrice) {
+    const vendorPayments = vendorBilling.getInvoiceVendorPayments(db, req.params.id);
+    lineItems.push(...vendorBilling.buildVendorLineItems(vendorPayments, invoice.total_cost));
+  }
+
   // Consolidate line items into a single line if project is configured for it
   if (invoice.invoice_consolidate && lineItems.length > 1) {
     const totalHours = lineItems.reduce((sum, item) => sum + (item.hours || 0), 0);
@@ -2685,9 +2744,10 @@ app.delete('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-  // Un-stamp timesheet entries and timesheets before deleting
+  // Un-stamp timesheet entries, timesheets and vendor PO payments before deleting
   db.prepare('UPDATE timesheet_entries SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
   db.prepare('UPDATE timesheets SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
+  vendorBilling.releaseVendorPayments(db, req.params.id);
 
   db.prepare('DELETE FROM invoices WHERE id = ?').run(req.params.id);
   res.json({ success: true });
@@ -3263,6 +3323,15 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       }
     }
 
+    // Subcontracted work: paid vendor POs on this project bill the same share of the contract
+    const vendorPayments = isFixedPrice ? vendorBilling.getUnbilledVendorPayments(db, project_id, period_start, period_end) : [];
+    const vendorLineItems = vendorBilling.buildVendorLineItems(vendorPayments, project.total_cost);
+    for (const item of vendorLineItems) {
+      lineItems.push(item);
+      total_amount += item.amount;
+    }
+    const printNotes = vendorBilling.collectInvoiceNotes(vendorPayments) || null;
+
     // Consolidate line items into a single line if project is configured for it
     if (project.invoice_consolidate && lineItems.length > 1) {
       const totalHours = lineItems.reduce((sum, item) => sum + (item.hours || 0), 0);
@@ -3317,8 +3386,9 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     const invoice_number = String(nextNum);
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('next_invoice_number', ?)").run(String(nextNum + 1));
 
-    const result = db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes);
+    const result = db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes, print_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes, printNotes);
     const invoiceId = result.lastInsertRowid;
+    vendorBilling.stampVendorPayments(db, vendorPayments, invoiceId);
 
     // Stamp timesheet entries and timesheets as invoiced to prevent double-billing
     if (isFixedPrice || isPieceRate) {
@@ -3342,7 +3412,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       settings[row.key] = row.value;
     }
 
-    res.json({ id: invoiceId, invoice_number, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate, include_timesheets: project.include_timesheets, project_name: project.name, customer_name: project.customer_name, customer_address: project.customer_address, supplier_number: project.supplier_number, payment_terms: project.payment_terms, contact_name: project.contact_name, po_number: project.po_number, location: project.location, project_type: project.project_type });
+    res.json({ id: invoiceId, invoice_number, print_notes: printNotes, project, settings, total_hours, total_amount, lineItems, timesheetDetails, period_start, period_end, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate, include_timesheets: project.include_timesheets, project_name: project.name, customer_name: project.customer_name, customer_address: project.customer_address, supplier_number: project.supplier_number, payment_terms: project.payment_terms, contact_name: project.contact_name, po_number: project.po_number, location: project.location, project_type: project.project_type });
   } catch (err) {
     console.error('Invoice generation error:', err);
     res.status(500).json({ error: err.message });
@@ -3799,9 +3869,10 @@ app.put('/api/invoices/:id/void', auth, adminOnly, (req, res) => {
   const voidReason = (req.body && req.body.reason) ? req.body.reason.trim() : null;
   db.prepare('UPDATE invoices SET status = ?, voided_date = ?, void_reason = ? WHERE id = ?').run('voided', today, voidReason, req.params.id);
 
-  // Un-stamp timesheet entries and timesheets so they can be re-invoiced
+  // Un-stamp timesheet entries, timesheets and vendor PO payments so they can be re-invoiced
   db.prepare('UPDATE timesheet_entries SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
   db.prepare('UPDATE timesheets SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
+  vendorBilling.releaseVendorPayments(db, req.params.id);
 
   res.json({ success: true });
 });
@@ -4138,6 +4209,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
           <tr style="border-top: 2px solid #000;"><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">Total</td><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
         </table>
       </div>
+      ${vendorBilling.renderPrintNotesHtml(invoice.print_notes)}
     </div>
   `;
 
@@ -4555,6 +4627,13 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
           item.amount = portion * customerTotal;
         }
       });
+    }
+
+    if (isFixedPrice) {
+      const vendorItems = vendorBilling.buildVendorLineItems(
+        vendorBilling.getInvoiceVendorPayments(db, req.params.id), invoice.total_cost
+      );
+      lineItems.push(...vendorItems.map(item => ({ engineer: '', amount: item.amount, is_fixed_price: true })));
     }
 
     const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(req.params.id);
@@ -5834,8 +5913,9 @@ app.get('/api/reports/customer-revenue', auth, adminOnly, (req, res) => {
     const paid = getEngineerPaymentsInPeriod(db, period_start, period_end);
     cash = {
       engineer_payments: round(paid.business),
+      vendor_payments: round(paid.vendor),
       owner_payments_excluded: round(paid.owner),
-      cash_earned: round(totals.received - paid.business),
+      cash_earned: round(totals.received - paid.business - paid.vendor),
     };
   }
 
@@ -7883,7 +7963,8 @@ app.delete('/api/vendors/:id', auth, adminOnly, (req, res) => {
 app.get('/api/purchase-orders', auth, adminOnly, (req, res) => {
   const db = getDb();
   const pos = db.prepare(`
-    SELECT po.*, v.name as vendor_name, p.name as project_name, p.po_number as project_po_number, c.name as customer_name
+    SELECT po.*, v.name as vendor_name, p.name as project_name, p.po_number as project_po_number,
+           p.project_type, c.name as customer_name
     FROM purchase_orders po
     JOIN vendors v ON v.id = po.vendor_id
     LEFT JOIN projects p ON p.id = po.project_id
@@ -8137,7 +8218,7 @@ app.post('/api/purchase-orders', auth, adminOnly, (req, res) => {
 
 app.put('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const { vendor_id, project_id, po_number, status, issue_date, due_date, vendor_quote_number, ship_to, notes, terms, line_items } = req.body;
+  const { vendor_id, project_id, po_number, status, issue_date, due_date, vendor_quote_number, ship_to, notes, terms, line_items, invoice_notes } = req.body;
 
   const items = line_items || [];
   const subtotal = items.reduce((s, i) => s + ((i.quantity || 1) * (i.unit_price || 0)), 0);
@@ -8147,6 +8228,9 @@ app.put('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
   db.prepare('UPDATE purchase_orders SET vendor_id=?, project_id=?, po_number=?, status=?, issue_date=?, due_date=?, vendor_quote_number=?, subtotal=?, tax_amount=?, total_amount=?, ship_to=?, notes=?, terms=? WHERE id=?').run(
     vendor_id, project_id || null, po_number, status || 'draft', issue_date || null, due_date || null, vendor_quote_number || null, subtotal, taxAmount, totalAmount, ship_to || null, notes || null, terms || null, req.params.id
   );
+  if (invoice_notes !== undefined) {
+    db.prepare('UPDATE purchase_orders SET invoice_notes = ? WHERE id = ?').run((invoice_notes || '').trim() || null, req.params.id);
+  }
 
   db.prepare('DELETE FROM po_line_items WHERE purchase_order_id = ?').run(req.params.id);
   const insertItem = db.prepare('INSERT INTO po_line_items (purchase_order_id, description, quantity, unit_price, amount) VALUES (?, ?, ?, ?, ?)');
@@ -8170,12 +8254,15 @@ app.delete('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
 // PO Payments
 app.post('/api/purchase-orders/:id/payments', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const { amount, payment_date, payment_method, reference_number, notes } = req.body;
+  const { amount, payment_date, payment_method, reference_number, notes, invoice_notes } = req.body;
   if (!amount || !payment_date) return res.status(400).json({ error: 'Amount and payment date are required' });
 
   db.prepare('INSERT INTO po_payments (purchase_order_id, amount, payment_date, payment_method, reference_number, notes) VALUES (?, ?, ?, ?, ?, ?)').run(
     req.params.id, parseFloat(amount), payment_date, payment_method || null, reference_number || null, notes || null
   );
+  if (invoice_notes !== undefined) {
+    db.prepare('UPDATE purchase_orders SET invoice_notes = ? WHERE id = ?').run(invoice_notes.trim() || null, req.params.id);
+  }
 
   const totalPaid = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM po_payments WHERE purchase_order_id = ?').get(req.params.id).total;
   const po = db.prepare('SELECT total_amount FROM purchase_orders WHERE id = ?').get(req.params.id);
@@ -8842,6 +8929,7 @@ async function generateInvoicePdf(invoiceId, outputPath) {
         <tbody>${lineItems.map(li => `<tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px;">${li.description}</td><td style="padding: 8px; text-align: right;">${li.hours}</td><td style="padding: 8px; text-align: right;">${li.rate}</td><td style="padding: 8px; text-align: right;">${li.amount}</td></tr>`).join('')}</tbody>
       </table>
       <div style="text-align: right; font-size: 18px; font-weight: bold;">Total: ${formatCurrency(invoice.total_amount)}</div>
+      ${vendorBilling.renderPrintNotesHtml(invoice.print_notes)}
       <div style="margin-top: 30px; font-size: 12px; color: #666;">Payment Terms: ${invoice.payment_terms || 'Net 30'}</div>
     </div>
   `;

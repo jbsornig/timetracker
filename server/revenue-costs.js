@@ -1,4 +1,5 @@
-// Engineer cost of the work billed on each invoice, excluding owners (users.exclude_from_costs).
+// Engineer and vendor (subcontractor) cost of the work billed on each invoice, excluding owners
+// (users.exclude_from_costs).
 
 const HISTORICAL_PREFIX = 'Historical import';
 const WEEKLY_OT_THRESHOLD = 40;
@@ -29,6 +30,9 @@ function createInvoiceCostCalculator(db) {
     FROM timesheets ts JOIN users u ON u.id = ts.user_id
     WHERE ts.invoice_id = ? AND COALESCE(u.exclude_from_costs, 0) = 0
   `);
+  const vendorPaymentStmt = db.prepare(
+    'SELECT COALESCE(SUM(amount), 0) as total FROM po_payments WHERE invoice_id = ?'
+  );
   const historicalEngineerStmt = db.prepare(`
     SELECT u.exclude_from_costs, ep.pay_rate, ep.monthly_pay
     FROM users u
@@ -93,7 +97,7 @@ function createInvoiceCostCalculator(db) {
       return costFromHistoricalNotes(invoice);
     }
     if (invoice.project_type === 'fixed_price' || invoice.project_type === 'piece_rate') {
-      return stampedTimesheetStmt.get(invoiceId).total;
+      return stampedTimesheetStmt.get(invoiceId).total + vendorPaymentStmt.get(invoiceId).total;
     }
     return costFromEntries(invoiceId, invoice.project_type);
   };
@@ -107,7 +111,10 @@ function getEngineerPaymentsInPeriod(db, periodStart, periodEnd) {
     GROUP BY COALESCE(u.exclude_from_costs, 0)
   `).all(periodStart, periodEnd);
   const totalFor = (isOwner) => rows.find(r => r.is_owner === isOwner)?.total || 0;
-  return { business: totalFor(0), owner: totalFor(1) };
+  const vendor = db.prepare(
+    'SELECT COALESCE(SUM(amount), 0) as total FROM po_payments WHERE DATE(payment_date) BETWEEN ? AND ?'
+  ).get(periodStart, periodEnd).total;
+  return { business: totalFor(0), owner: totalFor(1), vendor };
 }
 
 module.exports = { createInvoiceCostCalculator, getEngineerPaymentsInPeriod };

@@ -52,6 +52,7 @@ function buildCsv(report) {
     rows.push(['Cash Basis']);
     rows.push(['Received', '', '', '', report.totals.received.toFixed(2)]);
     rows.push(['Engineer Payments (excluding owner)', '', '', '', report.cash.engineer_payments.toFixed(2)]);
+    rows.push(['Vendor Payments', '', '', '', report.cash.vendor_payments.toFixed(2)]);
     rows.push(['Cash Earned', '', '', '', report.cash.cash_earned.toFixed(2)]);
     rows.push(['Owner Pay (excluded)', '', '', '', report.cash.owner_payments_excluded.toFixed(2)]);
   }
@@ -235,10 +236,15 @@ export default function CustomerRevenueReport() {
                   <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.cash.engineer_payments)}</div>
                   <div className="stat-sub">Owner pay excluded: {formatCurrency(report.cash.owner_payments_excluded)}</div>
                 </div>
+                <div className="stat-card">
+                  <div className="stat-label">Vendor Payments</div>
+                  <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.cash.vendor_payments)}</div>
+                  <div className="stat-sub">Subcontractor purchase orders</div>
+                </div>
                 <div className="stat-card accent">
                   <div className="stat-label">Cash Earned</div>
                   <div className="stat-value" style={{ fontSize: 22 }}>{formatCurrency(report.cash.cash_earned)}</div>
-                  <div className="stat-sub">Received minus engineer payments</div>
+                  <div className="stat-sub">Received minus engineer and vendor payments</div>
                 </div>
               </div>
               <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 16px' }}>
@@ -254,7 +260,8 @@ export default function CustomerRevenueReport() {
 
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 12px' }}>
             Invoiced counts invoices by the date they were created. Engineer Cost is the pay for the work on those
-            invoices (hours &times; pay rate), leaving out anyone marked as owner. Received counts money by the date it was paid.
+            invoices (hours &times; pay rate) plus any subcontractor purchase orders billed on them, leaving out anyone
+            marked as owner. Received counts money by the date it was paid.
           </p>
 
           <div className="no-print" style={{ marginBottom: 8 }}>

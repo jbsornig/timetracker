@@ -2853,7 +2853,7 @@ function InvoiceContent({ inv, settings }) {
                     : item.is_consolidated
                     ? `${projectDescription || 'Engineering Services'} - ${periodRange}`
                     : item.is_fixed_price
-                    ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}`
+                    ? (item.engineer ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}` : projectDescription || 'Fixed Price Service')
                     : item.is_fixed_monthly
                     ? `${projectDescription || 'Monthly Service'} - ${item.engineer} - ${periodRange}`
                     : `${projectDescription || 'Engineering Labor Hours'} - ${item.engineer} - ${weekRange(item.week_ending)}`
@@ -2916,6 +2916,12 @@ function InvoiceContent({ inv, settings }) {
           </tbody>
         </table>
       </div>
+
+      {inv.print_notes && (
+        <div style={{ marginTop: 16, padding: '8px 12px', border: '1px solid #ccc', borderRadius: 4, fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+          <strong>Notes:</strong>{'\n'}{inv.print_notes}
+        </div>
+      )}
     </div>
   );
 }
