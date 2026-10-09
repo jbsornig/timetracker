@@ -61,6 +61,15 @@ function collectInvoiceNotes(payments) {
   return [...notesByPo.values()].join('\n\n');
 }
 
+// Notes typed on the invoice plus any vendor-PO notes, without repeating text already present
+// (regenerating an invoice passes its existing notes back in)
+function combinePrintNotes(enteredNotes, vendorNotes) {
+  const entered = (enteredNotes || '').trim();
+  const vendor = (vendorNotes || '').trim();
+  if (!vendor || entered.includes(vendor)) return entered || null;
+  return entered ? `${entered}\n\n${vendor}` : vendor;
+}
+
 function renderPrintNotesHtml(printNotes) {
   const text = (printNotes || '').trim();
   if (!text) return '';
@@ -85,6 +94,7 @@ module.exports = {
   getInvoiceVendorPayments,
   buildVendorLineItems,
   collectInvoiceNotes,
+  combinePrintNotes,
   renderPrintNotesHtml,
   stampVendorPayments,
   releaseVendorPayments,

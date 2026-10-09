@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
+import { PrintNotesField, InvoiceNotesEditor } from '../components/InvoiceNotes';
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -432,8 +433,8 @@ export default function Invoices() {
   const [balances, setBalances] = useState({ total_outstanding: 0, by_customer: [], by_project: [] });
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
-  const [generateForm, setGenerateForm] = useState({ project_id: '', ...getDefaultDates(), notes: '' });
-  const [manualForm, setManualForm] = useState({ project_id: '', total_amount: '', description: '', period_start: '', period_end: '', notes: '' });
+  const [generateForm, setGenerateForm] = useState({ project_id: '', ...getDefaultDates(), print_notes: '' });
+  const [manualForm, setManualForm] = useState({ project_id: '', total_amount: '', description: '', period_start: '', period_end: '', notes: '', print_notes: '' });
   const [viewingInvoice, setViewingInvoice] = useState(null);
   const [editingAmount, setEditingAmount] = useState(null);
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
@@ -541,13 +542,13 @@ export default function Invoices() {
   }, [activeTab, submissionMonth]);
 
   const openGenerate = () => {
-    setGenerateForm({ project_id: '', ...getDefaultDates(), notes: '' });
+    setGenerateForm({ project_id: '', ...getDefaultDates(), print_notes: '' });
     setError('');
     setModal('generate');
   };
 
   const openManual = () => {
-    setManualForm({ project_id: '', total_amount: '', description: '', period_start: '', period_end: '', notes: '' });
+    setManualForm({ project_id: '', total_amount: '', description: '', period_start: '', period_end: '', notes: '', print_notes: '' });
     setError('');
     setModal('manual');
   };
@@ -714,6 +715,7 @@ export default function Invoices() {
         period_start: viewingInvoice.period_start,
         period_end: viewingInvoice.period_end,
         notes: viewingInvoice.notes || '',
+        print_notes: viewingInvoice.print_notes || '',
       };
 
       // Delete the old invoice
@@ -2109,16 +2111,10 @@ export default function Invoices() {
                 Current Month
               </button>
             </div>
-            <div className="form-group">
-              <label className="form-label">Notes (optional)</label>
-              <textarea
-                className="form-textarea"
-                value={generateForm.notes}
-                onChange={(e) => setGenerateForm({ ...generateForm, notes: e.target.value })}
-                placeholder="Additional notes for the invoice..."
-                rows={3}
-              />
-            </div>
+            <PrintNotesField
+              value={generateForm.print_notes}
+              onChange={(value) => setGenerateForm({ ...generateForm, print_notes: value })}
+            />
           </form>
         </Modal>
       )}
@@ -2198,14 +2194,18 @@ export default function Invoices() {
                 />
               </div>
             </div>
+            <PrintNotesField
+              value={manualForm.print_notes}
+              onChange={(value) => setManualForm({ ...manualForm, print_notes: value })}
+            />
             <div className="form-group">
-              <label className="form-label">Notes (optional)</label>
+              <label className="form-label">Internal notes (optional, not printed)</label>
               <textarea
                 className="form-textarea"
                 value={manualForm.notes}
                 onChange={(e) => setManualForm({ ...manualForm, notes: e.target.value })}
-                placeholder="Additional notes..."
-                rows={3}
+                placeholder="For your records only"
+                rows={2}
               />
             </div>
           </form>
@@ -2233,6 +2233,13 @@ export default function Invoices() {
               <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 24, background: 'white' }}>
                 <InvoiceContent inv={inv} settings={settings} />
               </div>
+
+              {inv.status !== 'voided' && inv.id && (
+                <InvoiceNotesEditor
+                  invoice={inv}
+                  onSaved={(printNotes) => setViewingInvoice(prev => ({ ...prev, print_notes: printNotes }))}
+                />
+              )}
 
               {/* Invoice Adjustments */}
               {inv.status !== 'voided' && (

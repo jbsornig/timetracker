@@ -3337,7 +3337,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       lineItems.push(item);
       total_amount += item.amount;
     }
-    const printNotes = vendorBilling.collectInvoiceNotes(vendorPayments) || null;
+    const printNotes = vendorBilling.combinePrintNotes(req.body.print_notes, vendorBilling.collectInvoiceNotes(vendorPayments));
 
     // Consolidate line items into a single line if project is configured for it
     if (project.invoice_consolidate && lineItems.length > 1) {
@@ -3464,8 +3464,9 @@ app.post('/api/invoices/manual', auth, adminOnly, (req, res) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('next_invoice_number', ?)").run(String(nextNum + 1));
 
     const invoiceNotes = [description, notes].filter(Boolean).join('\n');
-    const result = db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      project_id, invoice_number, period_start || null, period_end || null, 0, parseFloat(total_amount), invoiceNotes || null
+    const printNotes = (req.body.print_notes || '').trim() || null;
+    const result = db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes, print_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      project_id, invoice_number, period_start || null, period_end || null, 0, parseFloat(total_amount), invoiceNotes || null, printNotes
     );
 
     const invoice = db.prepare(`
@@ -3947,13 +3948,14 @@ app.put('/api/invoices/:id', auth, adminOnly, (req, res) => {
   const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-  const { total_amount, total_hours, notes } = req.body;
+  const { total_amount, total_hours, notes, print_notes } = req.body;
   const updates = [];
   const params = [];
 
   if (total_amount !== undefined) { updates.push('total_amount = ?'); params.push(total_amount); }
   if (total_hours !== undefined) { updates.push('total_hours = ?'); params.push(total_hours); }
   if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
+  if (print_notes !== undefined) { updates.push('print_notes = ?'); params.push(String(print_notes).trim() || null); }
 
   if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
