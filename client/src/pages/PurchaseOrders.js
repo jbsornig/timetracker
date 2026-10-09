@@ -22,6 +22,7 @@ const STATUS_COLORS = {
 const emptyVendor = { name: '', contact_name: '', email: '', phone: '', address: '', city_state_zip: '', payment_terms: 'Net 30', notes: '' };
 
 const emptyLineItem = { description: '', quantity: 1, unit_price: 0 };
+const DEFAULT_PO_TAX_RATE_PERCENT = 6; // Michigan; used when no default is saved in Settings
 
 function VendorsTab() {
   const [vendors, setVendors] = useState([]);
@@ -251,7 +252,7 @@ function POContent({ po, settings }) {
             </div>
             {po.tax_amount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 10, borderBottom: '1px solid #e2e8f0' }}>
-                <span>Tax:</span><span>{formatCurrency(po.tax_amount)}</span>
+                <span>Sales tax ({Number(po.tax_rate)}%):</span><span>{formatCurrency(po.tax_amount)}</span>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontWeight: 700, fontSize: 12, borderTop: '2px solid #1e293b' }}>
@@ -297,8 +298,19 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
     notes: '',
     terms: '',
     invoice_notes: '',
+    tax_rate: '',
   });
   const [lineItems, setLineItems] = useState([{ ...emptyLineItem }]);
+
+  useEffect(() => {
+    if (editPO) return;
+    apiFetch('/settings')
+      .then(settings => {
+        const saved = parseFloat(settings.default_po_tax_rate);
+        setForm(prev => ({ ...prev, tax_rate: String(Number.isFinite(saved) ? saved : DEFAULT_PO_TAX_RATE_PERCENT) }));
+      })
+      .catch(() => setForm(prev => ({ ...prev, tax_rate: String(DEFAULT_PO_TAX_RATE_PERCENT) })));
+  }, [editPO]);
 
   useEffect(() => {
     if (editPO) {
@@ -314,6 +326,7 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
         notes: editPO.notes || '',
         terms: editPO.terms || '',
         invoice_notes: editPO.invoice_notes || '',
+        tax_rate: String(editPO.tax_rate || 0),
       });
       setLineItems(editPO.line_items?.length ? editPO.line_items.map(i => ({ description: i.description, quantity: i.quantity, unit_price: i.unit_price })) : [{ ...emptyLineItem }]);
     }
@@ -330,7 +343,9 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
     setLineItems(lineItems.filter((_, i) => i !== idx));
   };
 
-  const calcTotal = () => lineItems.reduce((s, i) => s + ((i.quantity || 0) * (i.unit_price || 0)), 0);
+  const subtotal = lineItems.reduce((s, i) => s + ((i.quantity || 0) * (i.unit_price || 0)), 0);
+  const taxRate = parseFloat(form.tax_rate) || 0;
+  const taxAmount = Math.round(subtotal * (taxRate / 100) * 100) / 100;
 
   const handleSave = async () => {
     if (!form.vendor_id) return alert('Please select a vendor');
@@ -430,7 +445,28 @@ function POFormModal({ editPO, vendors, projects, onClose, onSaved }) {
               ))}
             </tbody>
           </table>
-          <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 15, marginTop: 8, paddingRight: 48 }}>Total: {formatCurrency(calcTotal())}</div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, paddingRight: 48 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 110px', gap: '4px 16px', alignItems: 'center', fontSize: 14, textAlign: 'right' }}>
+              <span>Subtotal:</span><span>{formatCurrency(subtotal)}</span>
+              <label htmlFor="po-tax-rate" style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                Sales tax
+                <input
+                  id="po-tax-rate"
+                  type="number"
+                  value={form.tax_rate}
+                  onChange={e => setForm({ ...form, tax_rate: e.target.value })}
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  style={{ ...inputStyle, width: 70, padding: '4px 6px', textAlign: 'right' }}
+                />
+                %
+              </label>
+              <span>{formatCurrency(taxAmount)}</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Total:</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>{formatCurrency(subtotal + taxAmount)}</span>
+            </div>
+          </div>
         </div>
 
         <div style={{ marginBottom: 12 }}>

@@ -54,6 +54,7 @@ export default function Settings() {
     chase_ach_account: '',
     authorized_signer_name: '',
     signature_image: '',
+    default_po_tax_rate: '6',
   });
   const [smtpPasswordChanged, setSmtpPasswordChanged] = useState(false);
   const [hasExistingPassword, setHasExistingPassword] = useState(false);
@@ -474,6 +475,21 @@ export default function Settings() {
               onChange={(e) => handleChange('company_email', e.target.value)}
               placeholder="billing@yourcompany.com"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Default Sales Tax on Vendor POs (%)</label>
+            <input
+              className="form-input"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={settings.default_po_tax_rate}
+              onChange={(e) => handleChange('default_po_tax_rate', e.target.value)}
+              style={{ maxWidth: 140 }}
+            />
+            <div className="form-hint">Filled in on new purchase orders and added to their total. You can change it on each PO, or set it to 0 for vendors that don't charge tax.</div>
           </div>
         </div>
 

@@ -8099,6 +8099,9 @@ app.post('/api/purchase-orders/:id/email', auth, adminOnly, async (req, res) => 
         </thead>
         <tbody>${lineItemRows}</tbody>
       </table>
+      ${po.tax_amount > 0 ? `
+      <div style="text-align:right;font-size:13px;margin-bottom:4px;">Subtotal: ${formatMoney(po.subtotal)}</div>
+      <div style="text-align:right;font-size:13px;margin-bottom:4px;">Sales tax (${Number(po.tax_rate)}%): ${formatMoney(po.tax_amount)}</div>` : ''}
       <div style="text-align:right;font-size:16px;font-weight:bold;margin-bottom:16px;">
         Total: ${formatMoney(po.total_amount)}
       </div>
@@ -8194,10 +8197,31 @@ app.post('/api/purchase-orders/:id/email', auth, adminOnly, async (req, res) => 
   }
 });
 
+const MAX_TAX_RATE_PERCENT = 100;
+const DEFAULT_PO_TAX_RATE_PERCENT = 6; // Michigan sales tax; overridden by the default_po_tax_rate setting
+
+// tax_rate is a percent (6 = 6%); tax is rounded to the cent
+function calculatePoTotals(items, taxRatePercent) {
+  const subtotal = items.reduce((s, i) => s + ((i.quantity || 1) * (i.unit_price || 0)), 0);
+  const taxAmount = Math.round(subtotal * (taxRatePercent / 100) * 100) / 100;
+  return { subtotal, taxRate: taxRatePercent, taxAmount, totalAmount: subtotal + taxAmount };
+}
+
+function parseTaxRate(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const rate = parseFloat(value);
+  if (!Number.isFinite(rate) || rate < 0 || rate > MAX_TAX_RATE_PERCENT) return null;
+  return rate;
+}
+
 app.post('/api/purchase-orders', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const { vendor_id, project_id, po_number, issue_date, due_date, vendor_quote_number, ship_to, notes, terms, line_items } = req.body;
+  const { vendor_id, project_id, po_number, issue_date, due_date, vendor_quote_number, ship_to, notes, terms, line_items, tax_rate } = req.body;
   if (!vendor_id) return res.status(400).json({ error: 'Vendor is required' });
+  const savedDefault = db.prepare("SELECT value FROM settings WHERE key = 'default_po_tax_rate'").get()?.value;
+  const defaultRate = parseTaxRate(savedDefault, DEFAULT_PO_TAX_RATE_PERCENT) ?? DEFAULT_PO_TAX_RATE_PERCENT;
+  const taxRatePercent = parseTaxRate(tax_rate, defaultRate);
+  if (taxRatePercent === null) return res.status(400).json({ error: 'Sales tax must be a percent between 0 and 100' });
 
   let finalPoNumber = po_number;
   if (!finalPoNumber) {
@@ -8210,10 +8234,7 @@ app.post('/api/purchase-orders', auth, adminOnly, (req, res) => {
   if (existing) return res.status(400).json({ error: 'PO number already exists' });
 
   const items = line_items || [];
-  const subtotal = items.reduce((s, i) => s + ((i.quantity || 1) * (i.unit_price || 0)), 0);
-  const taxRate = 0;
-  const taxAmount = subtotal * taxRate;
-  const totalAmount = subtotal + taxAmount;
+  const { subtotal, taxRate, taxAmount, totalAmount } = calculatePoTotals(items, taxRatePercent);
 
   const result = db.prepare('INSERT INTO purchase_orders (po_number, vendor_id, project_id, status, issue_date, due_date, vendor_quote_number, subtotal, tax_rate, tax_amount, total_amount, ship_to, notes, terms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
     finalPoNumber, vendor_id, project_id || null, 'draft', issue_date || new Date().toISOString().split('T')[0], due_date || null, vendor_quote_number || null, subtotal, taxRate, taxAmount, totalAmount, ship_to || null, notes || null, terms || null
@@ -8232,15 +8253,17 @@ app.post('/api/purchase-orders', auth, adminOnly, (req, res) => {
 
 app.put('/api/purchase-orders/:id', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const { vendor_id, project_id, po_number, status, issue_date, due_date, vendor_quote_number, ship_to, notes, terms, line_items, invoice_notes } = req.body;
+  const { vendor_id, project_id, po_number, status, issue_date, due_date, vendor_quote_number, ship_to, notes, terms, line_items, invoice_notes, tax_rate } = req.body;
+  const current = db.prepare('SELECT tax_rate FROM purchase_orders WHERE id = ?').get(req.params.id);
+  if (!current) return res.status(404).json({ error: 'Purchase order not found' });
+  const taxRatePercent = parseTaxRate(tax_rate, current.tax_rate || 0);
+  if (taxRatePercent === null) return res.status(400).json({ error: 'Sales tax must be a percent between 0 and 100' });
 
   const items = line_items || [];
-  const subtotal = items.reduce((s, i) => s + ((i.quantity || 1) * (i.unit_price || 0)), 0);
-  const taxAmount = 0;
-  const totalAmount = subtotal + taxAmount;
+  const { subtotal, taxRate, taxAmount, totalAmount } = calculatePoTotals(items, taxRatePercent);
 
-  db.prepare('UPDATE purchase_orders SET vendor_id=?, project_id=?, po_number=?, status=?, issue_date=?, due_date=?, vendor_quote_number=?, subtotal=?, tax_amount=?, total_amount=?, ship_to=?, notes=?, terms=? WHERE id=?').run(
-    vendor_id, project_id || null, po_number, status || 'draft', issue_date || null, due_date || null, vendor_quote_number || null, subtotal, taxAmount, totalAmount, ship_to || null, notes || null, terms || null, req.params.id
+  db.prepare('UPDATE purchase_orders SET vendor_id=?, project_id=?, po_number=?, status=?, issue_date=?, due_date=?, vendor_quote_number=?, subtotal=?, tax_rate=?, tax_amount=?, total_amount=?, ship_to=?, notes=?, terms=? WHERE id=?').run(
+    vendor_id, project_id || null, po_number, status || 'draft', issue_date || null, due_date || null, vendor_quote_number || null, subtotal, taxRate, taxAmount, totalAmount, ship_to || null, notes || null, terms || null, req.params.id
   );
   if (invoice_notes !== undefined) {
     db.prepare('UPDATE purchase_orders SET invoice_notes = ? WHERE id = ?').run((invoice_notes || '').trim() || null, req.params.id);
