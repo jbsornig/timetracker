@@ -4,6 +4,8 @@ import Modal from '../components/Modal';
 
 const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, show_invoice_period: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false, unit_price: '' };
 
+const NO_ENGINEER_FILTER = 'none';
+
 export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -129,6 +131,23 @@ export default function Projects() {
   const handleCustomerChange = async (customerId) => {
     setForm({ ...form, customer_id: customerId, contact_id: '' });
     await loadContacts(customerId);
+  };
+
+  const matchesEngineerFilter = (project) => {
+    if (!engineerFilter) return true;
+    const assigned = engineerAssignments.filter(ea => ea.project_id === project.id);
+    if (engineerFilter === NO_ENGINEER_FILTER) return assigned.length === 0;
+    return assigned.some(ea => String(ea.user_id) === engineerFilter);
+  };
+
+  const matchesFilters = (p) => {
+    if (statusFilter && p.status !== statusFilter) return false;
+    if (customerFilter && String(p.customer_id) !== customerFilter) return false;
+    if (contactFilter && p.contact_name !== contactFilter) return false;
+    if (!matchesEngineerFilter(p)) return false;
+    if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
+    if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
+    return true;
   };
 
   const handleImportPo = async (e) => {
@@ -497,6 +516,7 @@ export default function Projects() {
               style={{ width: 'auto', minWidth: 180 }}
             >
               <option value="">All Engineers</option>
+              <option value={NO_ENGINEER_FILTER}>No engineer assigned</option>
               {engineers.map((e) => (
                 <option key={e.id} value={e.id}>{e.name}</option>
               ))}
@@ -510,15 +530,7 @@ export default function Projects() {
             {(dateFrom || dateTo) && <button className="btn btn-secondary btn-sm" onClick={() => { setDateFrom(''); setDateTo(''); }} style={{ padding: '2px 8px', fontSize: 11 }}>Clear</button>}
           </div>
           <span style={{ fontSize: 13, color: '#94a3b8', marginLeft: 'auto' }}>
-            {projects.filter(p => {
-              if (statusFilter && p.status !== statusFilter) return false;
-              if (customerFilter && String(p.customer_id) !== customerFilter) return false;
-              if (contactFilter && p.contact_name !== contactFilter) return false;
-              if (engineerFilter && !engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter)) return false;
-              if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
-              if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
-              return true;
-            }).length} of {projects.length} projects
+            {projects.filter(matchesFilters).length} of {projects.length} projects
           </span>
         </div>
       </div>
@@ -551,15 +563,7 @@ export default function Projects() {
                 </tr>
               </thead>
               <tbody>
-                {projects.filter(p => {
-                  if (statusFilter && p.status !== statusFilter) return false;
-                  if (customerFilter && String(p.customer_id) !== customerFilter) return false;
-                  if (contactFilter && p.contact_name !== contactFilter) return false;
-                  if (engineerFilter && !engineerAssignments.some(ea => ea.project_id === p.id && String(ea.user_id) === engineerFilter)) return false;
-                  if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
-                  if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
-                  return true;
-                }).sort((a, b) => {
+                {projects.filter(matchesFilters).sort((a, b) => {
                   let aVal, bVal;
                   if (sortField === 'created_at') {
                     aVal = a.created_at || '';
