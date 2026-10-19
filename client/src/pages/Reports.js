@@ -2790,6 +2790,17 @@ export default function Reports() {
           return true;
         });
 
+        // Payments aren't recorded per project, so when filters hide some of an engineer's projects,
+        // only the share of their pay matching the visible projects' earned cost is counted
+        const sumCostByEngineer = (rows) => rows.reduce((acc, r) => ({ ...acc, [r.engineer_id]: (acc[r.engineer_id] || 0) + r.cost }), {});
+        const allCostByEngineer = sumCostByEngineer(profitData);
+        const visibleCostByEngineer = sumCostByEngineer(filtered);
+        const paidInView = (engineerId) => {
+          const paid = profitActualPaid[engineerId] || 0;
+          const allCost = allCostByEngineer[engineerId] || 0;
+          return allCost > 0 ? paid * ((visibleCostByEngineer[engineerId] || 0) / allCost) : paid;
+        };
+
         const customers = [...new Set(profitData.map(r => r.customer_name))].sort();
         const projects = [...new Map(profitData.map(r => [r.project_id, { id: r.project_id, name: r.project_name, customer: r.customer_name }])).values()]
           .filter(p => !profitCustomerFilter || p.customer === profitCustomerFilter)
@@ -2802,7 +2813,7 @@ export default function Reports() {
           cost: acc.cost + r.cost,
           profit: acc.profit + r.profit,
         }), { hours: 0, billed: 0, cost: 0, profit: 0 });
-        const summaryTotalPaid = Object.values(filtered.reduce((acc, r) => { acc[r.engineer_id] = profitActualPaid[r.engineer_id] || 0; return acc; }, {})).reduce((s, v) => s + v, 0);
+        const summaryTotalPaid = Object.values(filtered.reduce((acc, r) => { acc[r.engineer_id] = paidInView(r.engineer_id) || 0; return acc; }, {})).reduce((s, v) => s + v, 0);
         const summaryEffectiveCost = Math.max(totals.cost, summaryTotalPaid);
         const summaryProfit = totals.billed - summaryEffectiveCost;
         const totalMargin = totals.billed > 0 ? (summaryProfit / totals.billed) * 100 : 0;
@@ -2820,10 +2831,10 @@ export default function Reports() {
         const sortedEngineerSummary = [...engineerSummary].sort((a, b) => {
           const k = profitSummarySort.key;
           let av, bv;
-          if (k === 'actual_paid') { av = profitActualPaid[a.engineer_id] || 0; bv = profitActualPaid[b.engineer_id] || 0; }
-          else if (k === 'over_under') { av = (profitActualPaid[a.engineer_id] || 0) - a.cost; bv = (profitActualPaid[b.engineer_id] || 0) - b.cost; }
-          else if (k === 'actual_profit') { const pa = profitActualPaid[a.engineer_id] || 0; av = a.billed - Math.max(a.cost, pa); const pb = profitActualPaid[b.engineer_id] || 0; bv = b.billed - Math.max(b.cost, pb); }
-          else if (k === 'margin') { const pa = profitActualPaid[a.engineer_id] || 0; const apA = a.billed - Math.max(a.cost, pa); av = a.billed > 0 ? apA / a.billed : 0; const pb = profitActualPaid[b.engineer_id] || 0; const apB = b.billed - Math.max(b.cost, pb); bv = b.billed > 0 ? apB / b.billed : 0; }
+          if (k === 'actual_paid') { av = paidInView(a.engineer_id) || 0; bv = paidInView(b.engineer_id) || 0; }
+          else if (k === 'over_under') { av = (paidInView(a.engineer_id) || 0) - a.cost; bv = (paidInView(b.engineer_id) || 0) - b.cost; }
+          else if (k === 'actual_profit') { const pa = paidInView(a.engineer_id) || 0; av = a.billed - Math.max(a.cost, pa); const pb = paidInView(b.engineer_id) || 0; bv = b.billed - Math.max(b.cost, pb); }
+          else if (k === 'margin') { const pa = paidInView(a.engineer_id) || 0; const apA = a.billed - Math.max(a.cost, pa); av = a.billed > 0 ? apA / a.billed : 0; const pb = paidInView(b.engineer_id) || 0; const apB = b.billed - Math.max(b.cost, pb); bv = b.billed > 0 ? apB / b.billed : 0; }
           else if (k === 'engineer_name') { av = a.engineer_name; bv = b.engineer_name; }
           else { av = a[k]; bv = b[k]; }
           if (typeof av === 'string') return profitSummarySort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -2915,7 +2926,7 @@ export default function Reports() {
                       </thead>
                       <tbody>
                         {sortedEngineerSummary.map(e => {
-                          const paid = profitActualPaid[e.engineer_id] || 0;
+                          const paid = paidInView(e.engineer_id) || 0;
                           const effectiveCost = Math.max(e.cost, paid);
                           const actualProfit = e.billed - effectiveCost;
                           const m = e.billed > 0 ? (actualProfit / e.billed) * 100 : 0;
@@ -2934,7 +2945,7 @@ export default function Reports() {
                           );
                         })}
                         {(() => {
-                          const totalPaid = engineerSummary.reduce((s, e) => s + (profitActualPaid[e.engineer_id] || 0), 0);
+                          const totalPaid = engineerSummary.reduce((s, e) => s + (paidInView(e.engineer_id) || 0), 0);
                           const totalOverUnder = totalPaid - totals.cost;
                           const totalEffectiveCost = Math.max(totals.cost, totalPaid);
                           const totalActualProfit = totals.billed - totalEffectiveCost;
@@ -2979,7 +2990,7 @@ export default function Reports() {
                           let av, bv;
                           const getDetailVals = (r) => {
                             const es = engineerSummary.find(e => e.engineer_id === r.engineer_id);
-                            const p = profitActualPaid[r.engineer_id] || 0;
+                            const p = paidInView(r.engineer_id) || 0;
                             const etc = es?.cost || 0;
                             const ec = Math.max(etc, p);
                             const cs = etc > 0 ? r.cost / etc : 0;
@@ -2996,7 +3007,7 @@ export default function Reports() {
                           return profitDetailSort.dir === 'asc' ? av - bv : bv - av;
                         }).map((r, i) => {
                           const engSummary = engineerSummary.find(e => e.engineer_id === r.engineer_id);
-                          const paid = profitActualPaid[r.engineer_id] || 0;
+                          const paid = paidInView(r.engineer_id) || 0;
                           const engTotalCost = engSummary?.cost || 0;
                           const effectiveCost = Math.max(engTotalCost, paid);
                           const costShare = engTotalCost > 0 ? r.cost / engTotalCost : 0;

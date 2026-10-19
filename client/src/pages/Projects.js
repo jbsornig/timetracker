@@ -18,6 +18,7 @@ export default function Projects() {
   const [saving, setSaving] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectEngineers, setProjectEngineers] = useState([]);
+  const [assignLoadError, setAssignLoadError] = useState('');
   const [assignForm, setAssignForm] = useState({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '', ot_pay_rate: '', ot_bill_rate: '' });
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
@@ -119,11 +120,13 @@ export default function Projects() {
   const openAssign = async (project) => {
     setSelectedProject(project);
     setAssignForm({ user_id: '', pay_rate: '', bill_rate: '', total_payment: '', monthly_pay: '', monthly_bill: '', max_hours: '', ot_pay_rate: '', ot_bill_rate: '' });
+    setAssignLoadError('');
     try {
       const engs = await apiFetch(`/projects/${project.id}/engineers`);
       setProjectEngineers(engs);
     } catch (e) {
       setProjectEngineers([]);
+      setAssignLoadError(`Couldn't load the assigned engineers: ${e.message}. Close this window and try again.`);
     }
     setModal('assign');
   };
@@ -1244,7 +1247,9 @@ export default function Projects() {
                 <span style={{ fontWeight: 400, color: '#64748b', marginLeft: 8 }}>(Piece Rate Project)</span>
               )}
             </div>
-            {projectEngineers.length === 0 ? (
+            {assignLoadError ? (
+              <div className="alert alert-error">{assignLoadError}</div>
+            ) : projectEngineers.length === 0 ? (
               <p style={{ color: '#94a3b8', fontSize: 14 }}>No engineers assigned yet.</p>
             ) : (
               <div>

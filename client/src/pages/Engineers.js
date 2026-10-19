@@ -32,6 +32,7 @@ export default function Engineers() {
   const [saving, setSaving] = useState(false);
   const [selectedEngineer, setSelectedEngineer] = useState(null);
   const [engineerProjects, setEngineerProjects] = useState([]);
+  const [projectsError, setProjectsError] = useState('');
   const [profileHistory, setProfileHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [holidays, setHolidays] = useState([]);
@@ -176,23 +177,20 @@ export default function Engineers() {
 
   const openProjects = async (engineer) => {
     setSelectedEngineer(engineer);
+    setProjectsError('');
     try {
-      const allProjects = await apiFetch('/projects');
-      const assignedProjects = [];
-      for (const proj of allProjects) {
-        try {
-          const engs = await apiFetch(`/projects/${proj.id}/engineers`);
-          const found = engs.find((e) => e.user_id === engineer.id);
-          if (found) {
-            assignedProjects.push({ ...proj, pay_rate: found.pay_rate, bill_rate: found.bill_rate });
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
+      const [allProjects, assignments] = await Promise.all([apiFetch('/projects'), apiFetch('/engineer-projects')]);
+      const mine = assignments.filter((a) => a.user_id === engineer.id);
+      const assignedProjects = mine
+        .map((a) => {
+          const proj = allProjects.find((p) => p.id === a.project_id);
+          return proj ? { ...proj, pay_rate: a.pay_rate, bill_rate: a.bill_rate } : null;
+        })
+        .filter(Boolean);
       setEngineerProjects(assignedProjects);
     } catch (e) {
       setEngineerProjects([]);
+      setProjectsError(`Couldn't load this engineer's projects: ${e.message}. Close this window and try again.`);
     }
     setModal('projects');
   };
@@ -923,7 +921,9 @@ export default function Engineers() {
           onClose={() => setModal(null)}
           footer={<button className="btn btn-secondary" onClick={() => setModal(null)}>Close</button>}
         >
-          {engineerProjects.length === 0 ? (
+          {projectsError ? (
+            <div className="alert alert-error">{projectsError}</div>
+          ) : engineerProjects.length === 0 ? (
             <div className="empty-state">
               <h3>No project assignments</h3>
               <p>Assign this engineer to projects from the Projects page.</p>
