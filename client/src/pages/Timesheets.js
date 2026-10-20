@@ -1194,6 +1194,16 @@ export default function Timesheets() {
                 Submit
               </button>
             )}
+            {isAdmin && ts.status === 'submitted' && (
+              <>
+                <button className="btn btn-danger" onClick={handleReject} disabled={saving} style={{ flex: '1 1 45%' }}>
+                  Reject
+                </button>
+                <button className="btn btn-success" onClick={handleApprove} disabled={saving} style={{ flex: '1 1 45%' }}>
+                  Approve
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1524,6 +1534,20 @@ export default function Timesheets() {
                     onChange={(e) => handleEntryChange(idx, 'lunch_break', e.target.value)}
                     disabled={mobileDisabled}
                     placeholder="0"
+                    style={{ width: 60 }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Shift</label>
+                  <input
+                    className="timesheet-time-input"
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="9"
+                    value={entry.shift}
+                    onChange={(e) => handleEntryChange(idx, 'shift', parseInt(e.target.value) || 1)}
+                    disabled={mobileDisabled}
                     style={{ width: 60 }}
                   />
                 </div>
@@ -1985,7 +2009,7 @@ export default function Timesheets() {
             const isMonthly = !isFixedPrice && !isPieceRate && ts.requires_daily_logs === 0;
             const mProj = projects.find(p => p.id === ts.project_id);
             const mIsInstallment = isFixedPrice && mProj?.billing_method === 'monthly_installment';
-            const canOpen = !isFixedPrice && !isPieceRate && !isMonthly;
+            const canOpen = !isFixedPrice && !isPieceRate;
             const getBadgeClass = () => {
               if (isFixedPrice || isPieceRate) return 'badge-fixed';
               if (isMonthly) return 'badge-submitted';
