@@ -7802,6 +7802,10 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
     ORDER BY payment_date
   `).all(req.params.userId, startDate, endDate, endDate, startDate);
 
+  // Without a recorded start date, the earliest payment is the best evidence of when the engagement began
+  const firstPayment = db.prepare('SELECT MIN(payment_date) AS first_date FROM engineer_payments WHERE user_id = ?').get(req.params.userId);
+  const engagedSince = user.start_date || firstPayment?.first_date || (user.created_at || '').substring(0, 10) || null;
+
   const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
   const coveredMonths = new Set(payments.map(p => (p.period_start || p.payment_date).substring(0, 7))).size || 1;
   const avgMonthly = totalPaid / coveredMonths;
@@ -7811,7 +7815,7 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
   db.prepare("SELECT key, value FROM settings").all().forEach(s => { settings[s.key] = s.value; });
 
   res.json({
-    engineer: user,
+    engineer: { ...user, engaged_since: engagedSince },
     period: { start: startDate, end: endDate },
     total_paid: totalPaid,
     payment_count: payments.length,
@@ -7825,6 +7829,7 @@ app.get('/api/engineer-payments/verification/:userId', auth, adminOnly, (req, re
       email: settings.company_email || '',
       authorized_signer_name: settings.authorized_signer_name || '',
       signature_image: settings.signature_image || '',
+      logo: settings.company_logo || '',
     }
   });
 });

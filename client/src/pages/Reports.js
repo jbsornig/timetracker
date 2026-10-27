@@ -2674,7 +2674,14 @@ export default function Reports() {
                     <button className="btn btn-secondary" onClick={() => setVerificationData(null)}>Back</button>
                     <button className="btn btn-primary" onClick={() => window.print()}>Print Letter</button>
                   </div>
-                  <div className="card" style={{ maxWidth: 800, margin: '0 auto', padding: 40, fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.6 }}>
+                  <div className="card" style={{ position: 'relative', maxWidth: 800, margin: '0 auto', padding: 40, fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.6 }}>
+                    {verificationData.company.logo && (
+                      <img
+                        src={verificationData.company.logo}
+                        alt="Company logo"
+                        style={{ position: 'absolute', top: 40, right: 40, maxWidth: 160, maxHeight: 64, objectFit: 'contain' }}
+                      />
+                    )}
                     {/* Company Header */}
                     <div style={{ textAlign: 'center', marginBottom: 20 }}>
                       <div style={{ fontSize: 18, fontWeight: 'bold' }}>{verificationData.company.name}</div>
@@ -2700,7 +2707,9 @@ export default function Reports() {
                       This letter is to confirm that <strong>{verificationData.engineer.name}</strong>
                       {verificationData.engineer.engineer_id && <span> (ID: {verificationData.engineer.engineer_id})</span>}
                       {' '}has been engaged as an independent contractor with {verificationData.company.name || 'our company'} since{' '}
-                      {new Date((verificationData.engineer.start_date || verificationData.engineer.created_at) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.
+                      {verificationData.engineer.engaged_since
+                        ? new Date(verificationData.engineer.engaged_since.substring(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                        : 'the date of first engagement'}.
                     </div>
 
                     <div style={{ marginBottom: 12 }}>
