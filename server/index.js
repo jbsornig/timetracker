@@ -12,6 +12,8 @@ const XLSX = require('xlsx');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 const { createInvoiceCostCalculator, getEngineerPaymentsInPeriod } = require('./revenue-costs');
 const vendorBilling = require('./vendor-billing');
+const invoicePdf = require('./invoice-pdf');
+const pastDueStatement = require('./past-due-statement');
 
 const crypto = require('crypto');
 
@@ -3974,18 +3976,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   const db = getDb();
 
   // Get invoice with all related info
-  const invoice = db.prepare(`
-    SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-           p.include_timesheets, p.show_invoice_period,
-           c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
-           c.ap_email, c.email as customer_email, c.currency_symbol, c.send_invoice_to_self,
-           cc.name as contact_name, cc.email as contact_email
-    FROM invoices i
-    JOIN projects p ON p.id = i.project_id
-    JOIN customers c ON c.id = p.customer_id
-    LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
-    WHERE i.id = ?
-  `).get(req.params.id);
+  const invoice = invoicePdf.getInvoiceForEmail(db, req.params.id);
 
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
@@ -4016,423 +4007,16 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
   if (invoice.contact_email && invoice.contact_email !== recipientEmail) ccList.push(invoice.contact_email);
   if (settings.admin_notification_email && settings.admin_notification_email !== recipientEmail) ccList.push(settings.admin_notification_email);
 
-  // Get line items and timesheet details
-  // Find timesheets that have entries stamped with this invoice ID
-  const timesheets = db.prepare(`
-    SELECT DISTINCT ts.*, u.name as engineer_name, u.engineer_id, ep.bill_rate, ep.monthly_bill, ep.monthly_pay, p.project_type
-    FROM timesheets ts
-    JOIN users u ON u.id = ts.user_id
-    JOIN projects p ON p.id = ts.project_id
-    LEFT JOIN engineer_projects ep ON ep.user_id = ts.user_id AND ep.project_id = ts.project_id
-    LEFT JOIN timesheet_entries te ON te.timesheet_id = ts.id
-    WHERE ts.project_id = ? AND ts.status = 'approved'
-    AND (te.invoice_id = ? OR (p.project_type = 'fixed_price' AND ts.invoice_id = ?))
-    ORDER BY u.name, ts.week_ending
-  `).all(invoice.project_id, invoice.id, invoice.id);
-
-  const lineItems = [];
-  const timesheetDetails = [];
-  const isFixedMonthly = timesheets.length > 0 && timesheets[0].project_type === 'fixed_monthly';
-  for (const ts of timesheets) {
-    const entries = db.prepare('SELECT * FROM timesheet_entries WHERE timesheet_id = ? AND invoice_id = ? ORDER BY entry_date')
-      .all(ts.id, invoice.id);
-    const hrs = entries.reduce((s, e) => s + (e.hours || 0), 0);
-    if (hrs > 0) {
-      if (isFixedMonthly) {
-        const existing = lineItems.find(li => li.engineer === ts.engineer_name);
-        if (existing) {
-          existing.hours += hrs;
-        } else {
-          lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.monthly_bill || 0, amount: ts.monthly_bill || 0, is_fixed_monthly: true });
-        }
-      } else {
-        lineItems.push({ engineer: ts.engineer_name, hours: hrs, rate: ts.bill_rate || 0, amount: hrs * (ts.bill_rate || 0), week_ending: ts.week_ending });
-      }
-      timesheetDetails.push({
-        engineer_name: ts.engineer_name,
-        engineer_id: ts.engineer_id,
-        week_ending: ts.week_ending,
-        bill_rate: isFixedMonthly ? (ts.monthly_bill || 0) : ts.bill_rate,
-        is_fixed_monthly: isFixedMonthly,
-        total_hours: hrs,
-        entries
-      });
-    }
-  }
-
-  const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(invoice.id);
-  adjustments.forEach(adj => {
-    lineItems.push({ description: adj.description, hours: adj.hours || 0, rate: adj.rate || 0, amount: adj.amount, is_adjustment: true });
-  });
-
-  // Currency symbol for this customer
-  const cs = invoice.currency_symbol || '$';
-
-  // Helper functions
-  const formatCurrency = (amt) => `${cs}${(amt || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '';
-    const str = String(dateStr);
-    const datePart = str.includes('T') ? str.split('T')[0] : str.split(' ')[0];
-    const d = new Date(datePart + 'T00:00:00');
-    if (isNaN(d.getTime())) return datePart;
-    return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-  };
-  const formatTime = (time) => {
-    if (!time) return '';
-    const [h, m] = time.split(':');
-    const hour = parseInt(h);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${hour12}:${m} ${ampm}`;
-  };
-
-  // Calculate due date
-  let daysUntilDue = 30;
-  if (invoice.payment_terms === 'Immediate') {
-    daysUntilDue = 0;
-  } else {
-    const match = invoice.payment_terms?.match(/Net\s*(\d+)/i);
-    if (match) daysUntilDue = parseInt(match[1], 10);
-  }
-  const invoiceDate = new Date(String(invoice.created_at).replace(' ', 'T'));
-  const dueDate = new Date(invoiceDate);
-  dueDate.setDate(dueDate.getDate() + daysUntilDue);
-  const dueDateStr = isNaN(dueDate.getTime()) ? '' : dueDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-  const invoiceDateStr = formatDate(invoice.created_at);
-  const periodRange = `${formatDate(invoice.period_start)} to ${formatDate(invoice.period_end)}`;
-
-  // Build invoice page HTML (matches print view)
-  const weekRange = (weekEnding) => {
-    if (!weekEnding) return periodRange;
-    const end = new Date(weekEnding.split('T')[0] + 'T00:00:00');
-    const start = new Date(end);
-    start.setDate(start.getDate() - 6);
-    return `${formatDate(start.toISOString().split('T')[0])} to ${formatDate(end.toISOString().split('T')[0])}`;
-  };
-
-  const showPeriod = invoice.show_invoice_period !== 0;
-  const withPeriod = (text, range) => (showPeriod ? `${text} - ${range}` : text);
-  const hasHours = lineItems.some(item => item.hours > 0);
-  const lineItemRows = lineItems.map(item => {
-    const qty = item.hours > 0 ? item.hours.toFixed(2) : '1';
-    const rate = item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const desc = item.is_adjustment
-      ? item.description
-      : withPeriod(`${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer}`, weekRange(item.week_ending));
-    return `
-    <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${qty}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${desc}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rate}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-    </tr>
-  `;
-  }).join('');
-  const totalHoursRow = hasHours && lineItems.length > 1 ? `
-    <tr style="border-top: 2px solid #000; font-weight: bold;">
-      <td style="border: 1px solid #ccc; padding: 8px;">${lineItems.reduce((s, i) => s + (i.hours || 0), 0).toFixed(2)}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;" colspan="4">Total Hours</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${lineItems.reduce((s, i) => s + (i.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-    </tr>
-  ` : '';
-  const lineItemsHtml = lineItems.length > 0 ? lineItemRows + totalHoursRow : `
-    <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.total_hours > 0 ? invoice.total_hours.toFixed(2) : '1'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${withPeriod(invoice.project_description || 'Engineering Labor Hours', periodRange)}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${invoice.total_hours > 0 ? '—' : cs + (invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-    </tr>
-  `;
-
-  const invoicePageHtml = `
-    <div style="font-family: Arial, sans-serif; color: #000; padding: 20px;">
-      <!-- Header -->
-      <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
-        <div style="line-height: 1.4;">
-          <div style="font-weight: bold; font-size: 16px;">${settings.company_name || 'Your Company Name'}</div>
-          ${settings.company_address ? `<div>${settings.company_address}</div>` : ''}
-          ${settings.company_city_state_zip ? `<div>${settings.company_city_state_zip}</div>` : ''}
-          ${settings.company_phone ? `<div>Phone: ${settings.company_phone}</div>` : ''}
-          ${settings.company_fax ? `<div>Fax: ${settings.company_fax}</div>` : ''}
-          ${settings.company_email ? `<div>E-mail: ${settings.company_email}</div>` : ''}
-        </div>
-        <div style="text-align: right;">
-          <div style="font-weight: bold; font-size: 18px; margin-bottom: 8px;">Invoice</div>
-          <table style="margin-left: auto; border-collapse: collapse; font-size: 12px;">
-            <tr><td style="padding: 2px 8px; text-align: left;">Invoice no:</td><td style="padding: 2px 8px; text-align: right; font-weight: bold;">${invoice.invoice_number}</td></tr>
-            <tr><td style="padding: 2px 8px; text-align: left;">Invoice date:</td><td style="padding: 2px 8px; text-align: right;">${invoiceDateStr}</td></tr>
-            <tr><td style="padding: 2px 8px; text-align: left;">Due date:</td><td style="padding: 2px 8px; text-align: right;">${dueDateStr}</td></tr>
-            <tr><td style="padding: 2px 8px; text-align: left;">Supplier ID:</td><td style="padding: 2px 8px; text-align: right;">${invoice.supplier_number || '—'}</td></tr>
-            <tr><td style="padding: 2px 8px; text-align: left;">PO Number:</td><td style="padding: 2px 8px; text-align: right; font-weight: bold;">${invoice.po_number || '—'}</td></tr>
-          </table>
-        </div>
-      </div>
-
-      <!-- Bill To and Logo -->
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-        <div>
-          <div style="font-weight: bold; margin-bottom: 4px;">To:</div>
-          <div style="line-height: 1.5; margin-left: 20px;">
-            <div style="font-weight: bold;">${invoice.customer_name}</div>
-            ${(invoice.customer_address || '').split('\n').map(line => `<div>${line}</div>`).join('')}
-          </div>
-        </div>
-        ${settings.company_logo ? `<div style="text-align: right;"><img src="${settings.company_logo}" style="max-width: 200px; max-height: 80px;" /></div>` : ''}
-      </div>
-
-      <!-- Project Info -->
-      <div style="margin-bottom: 16px; padding: 8px 12px; background: #f5f5f5; border-radius: 4px;">
-        <strong>Project:</strong> ${invoice.project_name}
-      </div>
-
-      <!-- Sales Info -->
-      <div style="display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 12px; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc; padding: 8px 0;">
-        <div><strong>Sales Person:</strong> ${settings.company_name || '—'}</div>
-        <div><strong>Contact name:</strong> ${invoice.contact_name || '—'}</div>
-        <div><strong>Payment terms:</strong> ${invoice.payment_terms || 'Net 30'}</div>
-      </div>
-
-      <!-- Line Items Table -->
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
-        <thead>
-          <tr style="background: #f0f0f0;">
-            <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Qty.</th>
-            <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Item</th>
-            <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Description</th>
-            <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Unit Price</th>
-            <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Discount</th>
-            <th style="border: 1px solid #ccc; padding: 8px; text-align: right;">Line Total</th>
-          </tr>
-        </thead>
-        <tbody>${lineItemsHtml}</tbody>
-      </table>
-
-      <!-- Totals -->
-      <div style="display: flex; justify-content: flex-end;">
-        <table style="border-collapse: collapse; min-width: 200px;">
-          <tr><td style="padding: 4px 12px; text-align: right;">Subtotal</td><td style="padding: 4px 12px; text-align: right; font-weight: bold;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
-          <tr><td style="padding: 4px 12px; text-align: right;">Sales tax</td><td style="padding: 4px 12px; text-align: right;">${cs}0.00</td></tr>
-          <tr style="border-top: 2px solid #000;"><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">Total</td><td style="padding: 8px 12px; text-align: right; font-weight: bold; font-size: 14px;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr>
-        </table>
-      </div>
-      ${vendorBilling.renderPrintNotesHtml(invoice.print_notes)}
-    </div>
-  `;
-
-  // Build timesheet pages HTML (only if include_timesheets is set)
-  let timesheetPagesHtml = '';
-  if (invoice.include_timesheets && timesheetDetails.length > 0) {
-    timesheetPagesHtml = timesheetDetails.map(ts => {
-      const weekEnding = formatDate(ts.week_ending);
-      const isFixedMonthlyTs = ts.is_fixed_monthly;
-      const rate = isFixedMonthlyTs ? 0 : (ts.bill_rate || 0);
-      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-      // Build entries by date map
-      const entriesByDate = {};
-      ts.entries.forEach(e => {
-        const dateKey = e.entry_date ? e.entry_date.split('T')[0] : '';
-        if (dateKey) entriesByDate[dateKey] = e;
-      });
-
-      // Calculate week dates, filtered to billing month
-      const weekEnd = new Date(ts.week_ending + 'T00:00:00');
-      const allWeekDates = [];
-      for (let i = -6; i <= 0; i++) {
-        const d = new Date(weekEnd);
-        d.setDate(weekEnd.getDate() + i);
-        allWeekDates.push(d.toISOString().split('T')[0]);
-      }
-      // Filter to only dates within the invoice period
-      const weekDates = allWeekDates.filter(date => date >= invoice.period_start && date <= invoice.period_end);
-
-      // Calculate totals
-      let totalST = 0;
-      weekDates.forEach(date => {
-        const entry = entriesByDate[date];
-        if (entry && entry.hours) totalST += entry.hours;
-      });
-      const laborSubtotal = isFixedMonthlyTs ? (ts.bill_rate || 0) : (totalST * rate);
-
-      // Build rows
-      const rowsHtml = weekDates.map((date) => {
-        const entry = entriesByDate[date] || {};
-        const dateObj = new Date(date + 'T00:00:00');
-        const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}/${dateObj.getFullYear()}`;
-        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dateObj.getDay()];
-        const hours = entry.hours || 0;
-        const st = hours > 0 ? hours.toFixed(2) : '0.00';
-
-        return `
-          <tr>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formattedDate} ${dayName}</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${invoice.location || ''}</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;"></td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${entry.shift || '1'}</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;"></td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formatTime(entry.start_time)}</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${formatTime(entry.end_time)}</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">${st}</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center;">0.00</td>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${st}</td>
-          </tr>
-          <tr>
-            <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; height: 45px; vertical-align: top;"><strong>Description:</strong></td>
-            <td colspan="12" style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; height: 45px; vertical-align: top;">${entry.description || ''}</td>
-          </tr>
-        `;
-      }).join('');
-
-      return `
-        <div style="page-break-before: always; font-family: Arial, sans-serif; font-size: 6pt; padding: 10px;">
-          <!-- Header -->
-          <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
-            <div style="width: 160px;">
-              ${settings.company_logo ? `<img src="${settings.company_logo}" style="max-width: 80px; max-height: 30px; margin-bottom: 1px;" />` : ''}
-              <div style="font-weight: bold; font-style: italic; font-size: 7pt;">${settings.company_name || 'Company Name'}</div>
-              <div style="font-size: 5pt;">Service at: <strong>${invoice.customer_name}</strong></div>
-              <div style="font-size: 5pt;">Location: ${invoice.location || ''}</div>
-            </div>
-            <div style="width: 160px; text-align: center;">
-              <div style="font-weight: bold; font-size: 9pt; margin-bottom: 1px;">Daily Time Report</div>
-              <div style="font-size: 5pt;">Mon shift 1 - Sun shift 3<br/>${isFixedMonthlyTs ? 'Fixed Monthly' : `${cs}${rate.toFixed(2)}/hr`} | ST = All | OT/PT = N/A</div>
-            </div>
-            <div style="width: 180px; font-size: 5pt; line-height: 1.1;">
-              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Week Ending:</span><strong>${weekEnding}</strong></div>
-              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Engineer:</span>${ts.engineer_name}</div>
-              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Engineer ID:</span>${ts.engineer_id || ''}</div>
-              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Work Order #:</span>${invoice.po_number || ''}</div>
-              <div><span style="display: inline-block; width: 55px; text-align: right; padding-right: 2px;">Project:</span>${invoice.project_name}</div>
-            </div>
-          </div>
-
-          <!-- Time Table -->
-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 4px;">
-            <thead>
-              <tr>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 55px;">Date</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 50px;">Travel To</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 55px;">Travel From</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 30px;">Shift</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 40px;">On Call</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 50px;">Start Time</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 50px;">End Time</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">ST</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">OT</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">PT</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">STT</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 28px;">OTT</th>
-                <th style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; background: #f5f5f5; width: 35px;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-              <tr style="background: #f5f5f5;">
-                <td colspan="7" style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; font-weight: bold;">Weekly Totals:</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(2)}</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">0.00</td>
-                <td style="border: 1px solid #000; padding: 1px 2px; font-size: 6pt; text-align: center; font-weight: bold;">${totalST.toFixed(2)}</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <!-- Signatures and Expenses -->
-          <div style="display: flex; justify-content: space-between; font-size: 5pt; margin-top: 2px;">
-            <div style="width: 48%;">
-              <div style="margin-bottom: 2px;">
-                <div style="border-bottom: 1px solid #000; height: 10px; margin-bottom: 1px;"></div>
-                <div>Certified by: <span style="margin-left: 20px;">Date: _______</span></div>
-                <div style="font-size: 4pt;">${settings.company_name || 'Company'} Site Lead</div>
-              </div>
-              <div>
-                <div style="border-bottom: 1px solid #000; height: 10px; margin-bottom: 1px;"></div>
-                <div>Approved by: <span style="margin-left: 20px;">Date: _______</span></div>
-                <div style="font-size: 4pt;">Customer Representative</div>
-              </div>
-            </div>
-            <div style="width: 50%; border: 1px solid #000;">
-              <div style="background: #f5f5f5; text-align: center; font-weight: bold; border-bottom: 1px solid #000; padding: 0 1px; font-size: 5pt;">Expenses</div>
-              <div style="padding: 0 2px; font-size: 5pt;">Air: ${cs}0 | Car: ${cs}0 | Meals: ${cs}0 | Parking: ${cs}0 | Misc: ${cs}0</div>
-              <div style="text-align: right; padding: 0 2px; font-size: 5pt;"><strong>Exp Subtotal:</strong> ${cs}0.00</div>
-              <div style="text-align: right; padding: 0 2px; font-size: 5pt;">${isFixedMonthlyTs ? `Fixed Monthly | Hours: ${totalST.toFixed(2)}` : `Rate: ${cs}${rate.toFixed(2)}/hr | Hours: ${totalST.toFixed(2)}`}</div>
-              <div style="text-align: right; padding: 1px 2px; font-weight: bold; font-size: 6pt;">Total: ${cs}${laborSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // Full PDF HTML
-  const pdfHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        @page { margin: 0.25in; size: letter; }
-        body { margin: 0; padding: 0; }
-      </style>
-    </head>
-    <body>
-      ${invoicePageHtml}
-      ${timesheetPagesHtml}
-    </body>
-    </html>
-  `;
+  const { html: pdfHtml, dueDateStr, formatCurrency, filename: pdfFilename } = invoicePdf.buildInvoicePdf(db, invoice, settings);
 
   try {
-    // Generate PDF with puppeteer
-    // Use different browser options for local vs cloud environments
-    let browserOptions;
-    const isLocal = process.platform === 'win32' || !process.env.RENDER;
-
-    if (isLocal) {
-      // Local development - try common Chromium-based browser paths
-      const fs = require('fs');
-      const possiblePaths = [
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-        process.env.LOCALAPPDATA + '\\Microsoft\\Edge\\Application\\msedge.exe',
-      ];
-      const chromePath = possiblePaths.find(p => fs.existsSync(p));
-      if (!chromePath) {
-        throw new Error('No compatible browser found. Install Chrome or Edge for PDF generation.');
-      }
-      browserOptions = {
-        executablePath: chromePath,
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      };
-    } else {
-      // Cloud/Render environment - use @sparticuz/chromium
-      browserOptions = {
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
-      };
+    const browser = await invoicePdf.launchPdfBrowser();
+    let pdfBuffer;
+    try {
+      pdfBuffer = await invoicePdf.renderPdf(browser, pdfHtml);
+    } finally {
+      await browser.close();
     }
-
-    const browser = await puppeteer.launch(browserOptions);
-    const page = await browser.newPage();
-    await page.setContent(pdfHtml, { waitUntil: 'networkidle0' });
-    const pdfBuffer = await page.pdf({ format: 'Letter', printBackground: true, margin: { top: '0.25in', right: '0.25in', bottom: '0.25in', left: '0.25in' } });
-    await browser.close();
 
     // Send email with PDF attachment
     const transporter = nodemailer.createTransport({
@@ -4463,21 +4047,7 @@ app.post('/api/invoices/:id/email', auth, adminOnly, async (req, res) => {
       subject: `Invoice #${invoice.invoice_number} from ${settings.company_name || 'UTech TimeTracker'} - ${invoice.project_name}`,
       html: emailBody,
       attachments: [{
-        filename: (() => {
-          const rawPo = invoice.po_number || 'N-A';
-          const poNum = rawPo.replace(/^PO\s*/i, '').trim();
-          const po = rawPo !== 'N-A' ? `PO ${poNum}` : 'N-A';
-          let name = invoice.project_name || '';
-          if (poNum && name.includes(poNum)) {
-            const escaped = poNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            name = name.replace(new RegExp(`\\s*-?\\s*(?:PO\\s*)?${escaped}\\s*-?\\s*`), ' ').trim();
-          }
-          const fileDate = (dateStr) => formatDate(dateStr).replace(/\//g, '_');
-          const parts = [po, `Inv ${invoice.invoice_number}`];
-          if (name) parts.push(name);
-          if (invoice.show_invoice_period !== 0) parts.push(`${fileDate(invoice.period_start)} to ${fileDate(invoice.period_end)}`);
-          return parts.join(' - ') + '.pdf';
-        })(),
+        filename: pdfFilename,
         content: pdfBuffer,
         contentType: 'application/pdf'
       }]
@@ -6565,43 +6135,112 @@ app.get('/api/reports/contract-hours', auth, adminOnly, (req, res) => {
 
 app.get('/api/reports/overdue-invoices', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const invoices = db.prepare(`
-    SELECT i.*, p.name as project_name, p.po_number,
-           c.name as customer_name, c.payment_terms
-    FROM invoices i
-    JOIN projects p ON p.id = i.project_id
-    JOIN customers c ON c.id = p.customer_id
-    WHERE i.status IN ('unpaid', 'partial') AND i.voided_date IS NULL
-    ORDER BY i.created_at
-  `).all();
+  res.json(pastDueStatement.getOpenInvoicesWithAging(db));
+});
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+// ─── PAST-DUE STATEMENTS ──────────────────────────────────────────────────────
 
-  const results = invoices.map(inv => {
-    const terms = inv.payment_terms || 'Net 30';
-    let days = 30;
-    if (terms === 'Immediate') { days = 0; }
-    else { const m = terms.match(/Net\s*(\d+)/i); if (m) days = parseInt(m[1], 10); }
+function getSettingsMap(db) {
+  const settings = {};
+  db.prepare('SELECT key, value FROM settings').all().forEach(row => { settings[row.key] = row.value; });
+  return settings;
+}
 
-    const created = new Date(inv.created_at.replace(' ', 'T'));
-    const dueDate = new Date(created);
-    dueDate.setDate(dueDate.getDate() + days);
-    dueDate.setHours(0, 0, 0, 0);
+function loadPastDueStatement(db, customerId) {
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!customer) return null;
+  const settings = getSettingsMap(db);
+  const invoices = pastDueStatement.getPastDueInvoices(db, customer.id);
+  return { customer, invoices, settings };
+}
 
-    const daysOverdue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
-    const balance = (inv.total_amount || 0) - (inv.amount_paid || 0);
+app.get('/api/past-due-statements/last-sent', auth, adminOnly, (req, res) => {
+  res.json(pastDueStatement.getLastStatementSends(getDb()));
+});
 
-    return {
-      ...inv,
-      due_date: dueDate.toISOString().split('T')[0],
-      days_overdue: daysOverdue,
-      balance,
-      aging: daysOverdue <= 0 ? 'current' : daysOverdue <= 30 ? '1-30' : daysOverdue <= 60 ? '31-60' : daysOverdue <= 90 ? '61-90' : '90+',
-    };
+app.get('/api/customers/:id/past-due-statement', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const statement = loadPastDueStatement(db, Number(req.params.id));
+  if (!statement) return res.status(404).json({ error: 'Customer not found' });
+  const { customer, invoices, settings } = statement;
+  const recipients = pastDueStatement.getDefaultRecipients(db, customer, invoices, settings);
+  res.json({
+    customer: { id: customer.id, name: customer.name, currency_symbol: customer.currency_symbol || '$' },
+    invoices: invoices.map(({ id, invoice_number, project_name, due_date, days_overdue, balance }) => ({ id, invoice_number, project_name, due_date, days_overdue, balance })),
+    total_past_due: invoices.reduce((sum, invoice) => sum + invoice.balance, 0),
+    recipients,
+    html: pastDueStatement.buildStatementHtml({ customer, invoices, settings, note: req.query.note || '' }),
   });
+});
 
-  res.json(results);
+app.post('/api/customers/:id/past-due-statement/send', auth, adminOnly, async (req, res) => {
+  const db = getDb();
+  const statement = loadPastDueStatement(db, Number(req.params.id));
+  if (!statement) return res.status(404).json({ error: 'Customer not found' });
+  const { customer, invoices, settings } = statement;
+
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return res.status(400).json({ error: 'Email not configured. Set up SMTP in Settings.' });
+  }
+  if (invoices.length === 0) {
+    return res.status(400).json({ error: `${customer.name} has no past due invoices.` });
+  }
+
+  const toList = pastDueStatement.parseEmailList(req.body.to);
+  const ccList = pastDueStatement.parseEmailList(req.body.cc);
+  const invalid = pastDueStatement.findInvalidEmails([...toList, ...ccList]);
+  if (toList.length === 0) return res.status(400).json({ error: 'Enter at least one recipient email.' });
+  if (invalid.length > 0) return res.status(400).json({ error: `Not a valid email address: ${invalid.join(', ')}` });
+
+  const note = String(req.body.note || '');
+  if (note.length > pastDueStatement.MAX_NOTE_LENGTH) {
+    return res.status(400).json({ error: `Note is too long (maximum ${pastDueStatement.MAX_NOTE_LENGTH} characters).` });
+  }
+  const attachInvoices = req.body.attach_invoices !== false;
+
+  try {
+    const attachments = [];
+    const browser = await invoicePdf.launchPdfBrowser();
+    try {
+      const statementHtml = pastDueStatement.buildStatementHtml({ customer, invoices, settings, note });
+      attachments.push({
+        filename: pastDueStatement.buildStatementFilename(customer),
+        content: await invoicePdf.renderPdf(browser, statementHtml, pastDueStatement.STATEMENT_PDF_OPTIONS),
+        contentType: 'application/pdf',
+      });
+      if (attachInvoices) {
+        for (const pastDue of invoices) {
+          const invoice = invoicePdf.getInvoiceForEmail(db, pastDue.id);
+          const { html, filename } = invoicePdf.buildInvoicePdf(db, invoice, settings);
+          attachments.push({ filename, content: await invoicePdf.renderPdf(browser, html), contentType: 'application/pdf' });
+        }
+      }
+    } finally {
+      await browser.close();
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: settings.smtp_email, pass: settings.smtp_password },
+    });
+    await transporter.sendMail({
+      from: settings.smtp_email,
+      to: toList.join(', '),
+      cc: ccList.length > 0 ? ccList.join(', ') : undefined,
+      subject: `Past Due Statement from ${settings.company_name || 'UTech TimeTracker'} - ${customer.name}`,
+      html: pastDueStatement.buildStatementEmailHtml({ customer, invoices, settings, note }),
+      attachments,
+    });
+
+    const totalPastDue = invoices.reduce((sum, invoice) => sum + invoice.balance, 0);
+    pastDueStatement.recordStatementSend(db, { customerId: customer.id, recipient: toList.join(', '), cc: ccList, invoices, totalPastDue, note });
+
+    const attachedCopies = attachInvoices ? ` with ${invoices.length} invoice cop${invoices.length === 1 ? 'y' : 'ies'}` : '';
+    res.json({ success: true, message: `Statement emailed to ${toList.join(', ')}${ccList.length ? ` (CC: ${ccList.join(', ')})` : ''}${attachedCopies}` });
+  } catch (err) {
+    console.error('Failed to send past-due statement:', err);
+    res.status(500).json({ error: 'Failed to send statement: ' + err.message });
+  }
 });
 
 // ─── ENGINEER PROFITABILITY REPORT ────────────────────────────────────────────

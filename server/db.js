@@ -923,6 +923,22 @@ function initSchema() {
       FOREIGN KEY (engineer_id) REFERENCES users(id)
     )
   `);
+
+  // Log of past-due statements emailed to customers
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS past_due_statements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      sent_at DATETIME NOT NULL,
+      recipient TEXT NOT NULL,
+      cc TEXT,
+      invoice_ids TEXT NOT NULL,
+      invoice_count INTEGER NOT NULL,
+      total_past_due REAL NOT NULL,
+      note TEXT,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    )
+  `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_customer_po_lines_project_id ON customer_po_lines(project_id)`);
 
   db.exec(`

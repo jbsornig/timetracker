@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 import CustomerRevenueReport from '../components/CustomerRevenueReport';
+import PastDueStatements from '../components/PastDueStatements';
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-US', {
@@ -3767,6 +3768,8 @@ export default function Reports() {
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>{overdue.length} invoice{overdue.length !== 1 ? 's' : ''}</div>
                   </div>
                 </div>
+
+                <PastDueStatements overdueInvoices={overdue} />
 
                 {/* Overdue Invoice Table */}
                 {overdue.length === 0 ? (
