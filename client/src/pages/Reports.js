@@ -2674,9 +2674,21 @@ export default function Reports() {
                     <button className="btn btn-secondary" onClick={() => setVerificationData(null)}>Back</button>
                     <button className="btn btn-primary" onClick={() => window.print()}>Print Letter</button>
                   </div>
-                  <div className="card" style={{ position: 'relative', maxWidth: 800, margin: '0 auto', padding: 40, fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.6 }}>
+                  {/* Zero page margin keeps the browser from printing its title, URL and date around the letter */}
+                  <style>{`
+                    @media print {
+                      @page { size: letter; margin: 0; }
+                      .verification-letter.card { max-width: none !important; padding: 0.6in 0.75in !important; }
+                      .verification-letter .letter-logo { top: 0.6in !important; right: 0.75in !important; }
+                      .verification-letter th, .verification-letter td { padding: 3px 8px !important; }
+                      .verification-letter .letter-summary td { border: none !important; }
+                      .verification-letter .letter-signature { break-inside: avoid; }
+                    }
+                  `}</style>
+                  <div className="card verification-letter" style={{ position: 'relative', maxWidth: 800, margin: '0 auto', padding: 40, fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.6 }}>
                     {verificationData.company.logo && (
                       <img
+                        className="letter-logo"
                         src={verificationData.company.logo}
                         alt="Company logo"
                         style={{ position: 'absolute', top: 40, right: 40, maxWidth: 160, maxHeight: 64, objectFit: 'contain' }}
@@ -2756,7 +2768,7 @@ export default function Reports() {
 
                     {/* Summary */}
                     <div style={{ margin: '12px 20px', padding: 10, border: '1px solid #ccc', background: '#fafafa' }}>
-                      <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                      <table className="letter-summary" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                         <tbody>
                           <tr><td style={{ padding: '3px 0' }}>Total Compensation:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.total_paid)}</td></tr>
                           <tr><td style={{ padding: '3px 0' }}>Average Monthly Income:</td><td style={{ textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(verificationData.avg_monthly)}</td></tr>
@@ -2769,7 +2781,7 @@ export default function Reports() {
                       This information is provided for verification purposes only. If you have any questions or require additional information, please do not hesitate to contact us.
                     </div>
 
-                    <div style={{ marginTop: 30 }}>
+                    <div className="letter-signature" style={{ marginTop: 30 }}>
                       <div>Sincerely,</div>
                       {verificationData.company.signature_image && (
                         <img

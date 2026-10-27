@@ -242,7 +242,7 @@ tr:hover td { background: var(--surface2); }
 
 /* ── PRINT STYLES ── */
 @media print {
-  .sidebar, .mobile-header, .no-print { display: none !important; }
+  .sidebar, .mobile-header, .mobile-top-header, .mobile-nav, .no-print { display: none !important; }
   .main-content { margin-left: 0 !important; padding: 0 !important; }
   .card { box-shadow: none !important; border: none !important; padding: 0 !important; }
   body { background: white !important; }
