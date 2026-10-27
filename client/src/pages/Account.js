@@ -10,7 +10,7 @@ function formatPhone(value) {
 }
 
 export default function Account() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [passwordForm, setPasswordForm] = useState({
     current_password: '',
     new_password: '',
@@ -261,6 +261,12 @@ export default function Account() {
             {saving ? 'Changing...' : 'Change Password'}
           </button>
         </form>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <button className="btn btn-danger" type="button" onClick={logout} style={{ width: '100%' }}>
+          Sign Out
+        </button>
       </div>
     </div>
   );
