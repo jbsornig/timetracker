@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
-const { getDb, backupDatabase, replaceDatabase, BACKUP_DIR } = require('./db');
+const { getDb, backupDatabase, replaceDatabase, createYearEndBackup, BACKUP_DIR } = require('./db');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
@@ -14,6 +14,20 @@ const { createInvoiceCostCalculator, getEngineerPaymentsInPeriod } = require('./
 const vendorBilling = require('./vendor-billing');
 const invoicePdf = require('./invoice-pdf');
 const pastDueStatement = require('./past-due-statement');
+const yearClose = require('./year-close');
+const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
+
+// Route guards that reject changes to records dated in a closed year
+const lockClosedYear = {
+  timesheet: yearClose.rejectClosedYear(getDb, yearClose.timesheetDates),
+  invoice: yearClose.rejectClosedYear(getDb, yearClose.invoiceDates),
+  invoiceAmounts: yearClose.rejectClosedYear(getDb, yearClose.invoiceAmountDates),
+  paymentDate: yearClose.rejectClosedYear(getDb, yearClose.bodyDates('payment_date')),
+  customerPayment: yearClose.rejectClosedYear(getDb, yearClose.customerPaymentDates),
+  engineerPayment: yearClose.rejectClosedYear(getDb, yearClose.engineerPaymentDates),
+  markPaid: yearClose.rejectClosedYear(getDb, yearClose.markPaidDates),
+  writeoff: yearClose.rejectClosedYear(getDb, yearClose.writeoffDates),
+};
 
 const crypto = require('crypto');
 
@@ -249,6 +263,74 @@ app.get('/api/backups/:filename/download', auth, adminOnly, (req, res) => {
   const filePath = path.join(BACKUP_DIR, filename);
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'Backup file not found' });
+  }
+  res.download(filePath, filename);
+});
+
+// ─── YEAR-END CLOSE ───────────────────────────────────────────────────────────
+
+const YEAR_END_ARCHIVE_PATTERN = /^yearend-\d{4}-[\dT\-Z]+\.db$/;
+
+function sendYearCloseError(res, error, fallbackMessage) {
+  if (error instanceof yearClose.YearCloseError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(fallbackMessage, error);
+  return res.status(500).json({ error: fallbackMessage });
+}
+
+app.get('/api/year-close', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const state = yearClose.getYearCloseState(db);
+  const checklistYear = state.next_year_to_close || state.current_year - 1;
+  res.json({ ...state, checklist_year: checklistYear, checklist: yearClose.getYearChecklist(db, checklistYear) });
+});
+
+app.get('/api/year-close/:year/workbook', auth, adminOnly, (req, res) => {
+  try {
+    const year = yearClose.parseYear(req.params.year);
+    const db = getDb();
+    const companyRow = db.prepare("SELECT value FROM settings WHERE key = 'company_name'").get();
+    const companyName = companyRow?.value || 'TimeTracker';
+    const buffer = buildYearEndWorkbook(db, year, companyName);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${buildWorkbookFilename(year, companyName)}"`);
+    res.send(buffer);
+  } catch (error) {
+    sendYearCloseError(res, error, 'Could not build the year-end workbook');
+  }
+});
+
+app.post('/api/year-close/:year/close', auth, adminOnly, (req, res) => {
+  try {
+    const year = yearClose.parseYear(req.params.year);
+    const result = yearClose.closeYear(getDb(), { year, userId: req.user.id, createArchive: createYearEndBackup });
+    res.json({ ...result, message: `${year} is closed. The archive copy is saved as ${result.archive_file}.` });
+  } catch (error) {
+    sendYearCloseError(res, error, 'Could not close the year');
+  }
+});
+
+app.post('/api/year-close/:year/reopen', auth, adminOnly, (req, res) => {
+  try {
+    const year = yearClose.parseYear(req.params.year);
+    backupDatabase();
+    const result = yearClose.reopenYear(getDb(), { year, userId: req.user.id, reason: req.body?.reason });
+    res.json({ ...result, message: `${year} is reopened. Its records can be changed again.` });
+  } catch (error) {
+    sendYearCloseError(res, error, 'Could not reopen the year');
+  }
+});
+
+app.get('/api/year-close/archives/:filename/download', auth, adminOnly, (req, res) => {
+  const fs = require('fs');
+  const filename = req.params.filename;
+  if (!YEAR_END_ARCHIVE_PATTERN.test(filename)) {
+    return res.status(400).json({ error: 'Invalid archive filename' });
+  }
+  const filePath = path.join(BACKUP_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Archive file not found' });
   }
   res.download(filePath, filename);
 });
@@ -1732,7 +1814,7 @@ app.get('/api/projects/over-budget', auth, adminOnly, (req, res) => {
   res.json(overBudget);
 });
 
-app.post('/api/timesheets', auth, (req, res) => {
+app.post('/api/timesheets', auth, lockClosedYear.timesheet, (req, res) => {
   const { project_id, week_ending, period_start, period_end, percentage, monthly_hours, description, ot_hours } = req.body;
   const user_id = req.user.role === 'admin' && req.body.user_id ? req.body.user_id : req.user.id;
   const db = getDb();
@@ -1907,7 +1989,7 @@ app.post('/api/timesheets', auth, (req, res) => {
 });
 
 // Update fixed price timesheet
-app.put('/api/timesheets/:id/fixed-price', auth, (req, res) => {
+app.put('/api/timesheets/:id/fixed-price', auth, lockClosedYear.timesheet, (req, res) => {
   const { period_start, period_end, percentage } = req.body;
   const db = getDb();
   const ts = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
@@ -1925,7 +2007,7 @@ app.put('/api/timesheets/:id/fixed-price', auth, (req, res) => {
   res.json({ success: true });
 });
 
-app.put('/api/timesheets/:id/piece-rate', auth, (req, res) => {
+app.put('/api/timesheets/:id/piece-rate', auth, lockClosedYear.timesheet, (req, res) => {
   const { period_start, period_end, units } = req.body;
   const db = getDb();
   const ts = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
@@ -1943,7 +2025,7 @@ app.put('/api/timesheets/:id/piece-rate', auth, (req, res) => {
   res.json({ success: true });
 });
 
-app.put('/api/timesheets/:id/entries', auth, (req, res) => {
+app.put('/api/timesheets/:id/entries', auth, lockClosedYear.timesheet, (req, res) => {
   const { entries } = req.body;
   const db = getDb();
   const ts = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
@@ -2021,7 +2103,7 @@ app.put('/api/timesheets/:id/entries', auth, (req, res) => {
   res.json({ success: true, warning: hoursWarning });
 });
 
-app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
+app.put('/api/timesheets/:id/submit', auth, lockClosedYear.timesheet, async (req, res) => {
   const db = getDb();
   const ts = db.prepare(`
     SELECT ts.*, u.name as engineer_name, p.name as project_name, p.project_type, c.name as customer_name,
@@ -2101,7 +2183,7 @@ app.put('/api/timesheets/:id/submit', auth, async (req, res) => {
   res.json({ success: true });
 });
 
-app.put('/api/timesheets/:id/approve', auth, adminOnly, (req, res) => {
+app.put('/api/timesheets/:id/approve', auth, adminOnly, lockClosedYear.timesheet, (req, res) => {
   const db = getDb();
   const ts = db.prepare(`
     SELECT ts.*, ep.bill_rate, p.po_amount, p.name as project_name, p.project_type, p.unit_price
@@ -2135,13 +2217,13 @@ app.put('/api/timesheets/:id/approve', auth, adminOnly, (req, res) => {
   res.json({ success: true, warning: budgetWarning });
 });
 
-app.put('/api/timesheets/:id/reject', auth, adminOnly, (req, res) => {
+app.put('/api/timesheets/:id/reject', auth, adminOnly, lockClosedYear.timesheet, (req, res) => {
   const db = getDb();
   db.prepare("UPDATE timesheets SET status='draft' WHERE id=?").run(req.params.id);
   res.json({ success: true });
 });
 
-app.delete('/api/timesheets/:id', auth, (req, res) => {
+app.delete('/api/timesheets/:id', auth, lockClosedYear.timesheet, (req, res) => {
   const db = getDb();
   const timesheet = db.prepare('SELECT * FROM timesheets WHERE id = ?').get(req.params.id);
 
@@ -2719,7 +2801,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
   }
 });
 
-app.post('/api/invoices/:id/adjustments', auth, adminOnly, (req, res) => {
+app.post('/api/invoices/:id/adjustments', auth, adminOnly, lockClosedYear.invoice, (req, res) => {
   const { description, hours, rate, amount } = req.body;
   if (!description || !description.trim()) return res.status(400).json({ error: 'Description is required' });
   if (amount == null || amount === 0) return res.status(400).json({ error: 'Amount is required' });
@@ -2737,7 +2819,7 @@ app.post('/api/invoices/:id/adjustments', auth, adminOnly, (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/invoices/:id/adjustments/:adjId', auth, adminOnly, (req, res) => {
+app.delete('/api/invoices/:id/adjustments/:adjId', auth, adminOnly, lockClosedYear.invoice, (req, res) => {
   const db = getDb();
   const adj = db.prepare('SELECT * FROM invoice_adjustments WHERE id = ? AND invoice_id = ?').get(req.params.adjId, req.params.id);
   if (!adj) return res.status(404).json({ error: 'Adjustment not found' });
@@ -2748,7 +2830,7 @@ app.delete('/api/invoices/:id/adjustments/:adjId', auth, adminOnly, (req, res) =
   res.json({ success: true });
 });
 
-app.delete('/api/invoices/:id', auth, adminOnly, (req, res) => {
+app.delete('/api/invoices/:id', auth, adminOnly, lockClosedYear.invoice, (req, res) => {
   const db = getDb();
   const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -3494,7 +3576,7 @@ app.post('/api/invoices/manual', auth, adminOnly, (req, res) => {
 // ─── PAYMENTS & BALANCES ─────────────────────────────────────────────────────
 
 // Record a payment on an invoice
-app.post('/api/invoices/:id/payments', auth, adminOnly, (req, res) => {
+app.post('/api/invoices/:id/payments', auth, adminOnly, lockClosedYear.paymentDate, (req, res) => {
   const { amount, payment_date, payment_method, reference_number, notes } = req.body;
   const db = getDb();
 
@@ -3532,7 +3614,7 @@ app.get('/api/invoices/:id/payments', auth, adminOnly, (req, res) => {
 });
 
 // Delete a payment
-app.delete('/api/payments/:id', auth, adminOnly, (req, res) => {
+app.delete('/api/payments/:id', auth, adminOnly, lockClosedYear.customerPayment, (req, res) => {
   const db = getDb();
   const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
   if (!payment) return res.status(404).json({ error: 'Payment not found' });
@@ -3564,7 +3646,7 @@ app.delete('/api/payments/:id', auth, adminOnly, (req, res) => {
 });
 
 // Batch payment - record payment on multiple invoices at once
-app.post('/api/invoices/batch-payment', auth, adminOnly, (req, res) => {
+app.post('/api/invoices/batch-payment', auth, adminOnly, lockClosedYear.paymentDate, (req, res) => {
   const { invoice_ids, payment_date, payment_method, reference_number, notes, payment_amounts } = req.body;
   if (!invoice_ids || !Array.isArray(invoice_ids) || invoice_ids.length === 0) {
     return res.status(400).json({ error: 'No invoices selected' });
@@ -3870,7 +3952,7 @@ function parseStellantisPaymentAdvice(rows, db) {
 }
 
 // Void an invoice
-app.put('/api/invoices/:id/void', auth, adminOnly, (req, res) => {
+app.put('/api/invoices/:id/void', auth, adminOnly, lockClosedYear.invoice, (req, res) => {
   const db = getDb();
   const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -3888,7 +3970,7 @@ app.put('/api/invoices/:id/void', auth, adminOnly, (req, res) => {
 });
 
 // Unvoid an invoice (restore to previous state)
-app.put('/api/invoices/:id/unvoid', auth, adminOnly, (req, res) => {
+app.put('/api/invoices/:id/unvoid', auth, adminOnly, lockClosedYear.invoice, (req, res) => {
   const db = getDb();
   const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -3945,7 +4027,7 @@ app.get('/api/invoices/by-number/:invoiceNumber', auth, adminOnly, (req, res) =>
 });
 
 // Edit invoice details (amount, hours, notes)
-app.put('/api/invoices/:id', auth, adminOnly, (req, res) => {
+app.put('/api/invoices/:id', auth, adminOnly, lockClosedYear.invoiceAmounts, (req, res) => {
   const db = getDb();
   const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -5782,7 +5864,7 @@ app.get('/api/reports/overpayments', auth, adminOnly, (req, res) => {
   res.json(overpayments);
 });
 
-app.post('/api/reports/overpayment-writeoff', auth, adminOnly, (req, res) => {
+app.post('/api/reports/overpayment-writeoff', auth, adminOnly, lockClosedYear.writeoff, (req, res) => {
   const db = getDb();
   const { user_id, amount, reason, year } = req.body;
   if (!user_id || !amount || !reason) {
@@ -7156,7 +7238,7 @@ app.get('/api/engineer-payments', auth, adminOnly, (req, res) => {
 });
 
 // Create an engineer payment
-app.post('/api/engineer-payments', auth, adminOnly, (req, res) => {
+app.post('/api/engineer-payments', auth, adminOnly, lockClosedYear.engineerPayment, (req, res) => {
   const { user_id, amount, payment_date, payment_type, period_start, period_end, reference_number, payment_method, notes } = req.body;
   if (!user_id || !amount || !payment_date || !payment_type) {
     return res.status(400).json({ error: 'user_id, amount, payment_date, and payment_type are required' });
@@ -7182,7 +7264,7 @@ app.put('/api/engineer-payments/:id/clear', auth, adminOnly, (req, res) => {
 });
 
 // Mark timesheets as paid for a user in a given period
-app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
+app.post('/api/timesheets/mark-paid', auth, adminOnly, lockClosedYear.markPaid, (req, res) => {
   const { user_id, period_start, period_end, paid_date } = req.body;
   if (!user_id || !period_start || !period_end) {
     return res.status(400).json({ error: 'user_id, period_start, and period_end are required' });
@@ -7225,7 +7307,7 @@ app.post('/api/timesheets/mark-paid', auth, adminOnly, (req, res) => {
 });
 
 // Unmark timesheets as paid for a user in a given period
-app.post('/api/timesheets/unmark-paid', auth, adminOnly, (req, res) => {
+app.post('/api/timesheets/unmark-paid', auth, adminOnly, lockClosedYear.markPaid, (req, res) => {
   const { user_id, period_start, period_end } = req.body;
   if (!user_id || !period_start || !period_end) {
     return res.status(400).json({ error: 'user_id, period_start, and period_end are required' });
@@ -7323,7 +7405,7 @@ app.get('/api/projects/:id/timesheets-summary', auth, adminOnly, (req, res) => {
 });
 
 // Update an engineer payment
-app.put('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
+app.put('/api/engineer-payments/:id', auth, adminOnly, lockClosedYear.engineerPayment, (req, res) => {
   const db = getDb();
   const payment = db.prepare('SELECT * FROM engineer_payments WHERE id = ?').get(req.params.id);
   if (!payment) return res.status(404).json({ error: 'Payment not found' });
@@ -7339,7 +7421,7 @@ app.put('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
 });
 
 // Delete an engineer payment
-app.delete('/api/engineer-payments/:id', auth, adminOnly, (req, res) => {
+app.delete('/api/engineer-payments/:id', auth, adminOnly, lockClosedYear.engineerPayment, (req, res) => {
   const db = getDb();
   const payment = db.prepare('SELECT * FROM engineer_payments WHERE id = ?').get(req.params.id);
   if (!payment) return res.status(404).json({ error: 'Payment not found' });

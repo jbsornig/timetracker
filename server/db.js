@@ -939,6 +939,22 @@ function initSchema() {
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
     )
   `);
+
+  // Year-end closes: records dated in a closed year are locked against edits
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS year_closures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      year INTEGER NOT NULL,
+      closed_at DATETIME NOT NULL,
+      closed_by INTEGER,
+      archive_file TEXT NOT NULL,
+      reopened_at DATETIME,
+      reopened_by INTEGER,
+      reopen_reason TEXT,
+      FOREIGN KEY (closed_by) REFERENCES users(id),
+      FOREIGN KEY (reopened_by) REFERENCES users(id)
+    )
+  `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_customer_po_lines_project_id ON customer_po_lines(project_id)`);
 
   db.exec(`
@@ -1066,4 +1082,18 @@ function replaceDatabase(newDbPath) {
   return db;
 }
 
-module.exports = { getDb, backupDatabase, replaceDatabase, BACKUP_DIR };
+// Year-end archives use their own prefix so the 10-backup rotation never deletes them.
+// Unlike backupDatabase, failures throw: a year must not close without its archive.
+function createYearEndBackup(year) {
+  if (!fs.existsSync(BACKUP_DIR)) {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  }
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `yearend-${year}-${timestamp}.db`;
+  const backupPath = path.join(BACKUP_DIR, filename);
+  getDb().exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+  console.log(`✅ Year-end archive created: ${backupPath}`);
+  return filename;
+}
+
+module.exports = { getDb, backupDatabase, replaceDatabase, createYearEndBackup, BACKUP_DIR };

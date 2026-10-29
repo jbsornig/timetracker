@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
+import YearEndClose from '../components/YearEndClose';
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -1031,6 +1032,8 @@ export default function Settings() {
           </div>
         )}
       </div>
+
+      <YearEndClose />
 
       <div className="card" style={{ marginTop: 20 }}>
         <div className="card-title">Database Backup</div>

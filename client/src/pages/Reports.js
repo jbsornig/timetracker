@@ -95,7 +95,7 @@ export default function Reports() {
   const [writeoffTarget, setWriteoffTarget] = useState(null);
   const [writeoffReason, setWriteoffReason] = useState('');
   const [engPayments, setEngPayments] = useState([]);
-  const [engPayFilter, setEngPayFilter] = useState({ user_id: '', period_start: '', period_end: '', payment_type: '' });
+  const [engPayFilter, setEngPayFilter] = useState({ user_id: '', period_start: `${new Date().getFullYear()}-01-01`, period_end: '', payment_type: '' });
   const [engPayForm, setEngPayForm] = useState({ user_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], payment_type: 'advance', period_start: '', period_end: '', reference_number: '', payment_method: '', notes: '' });
   const [engPaySaving, setEngPaySaving] = useState(false);
   const [editingPayment, setEditingPayment] = useState(null);

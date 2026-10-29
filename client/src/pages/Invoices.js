@@ -446,6 +446,7 @@ export default function Invoices() {
   const [customerFilter, setCustomerFilter] = useState('');
   const [engineerFilter, setEngineerFilter] = useState('');
   const [receivedFilter, setReceivedFilter] = useState('');
+  const [yearFilter, setYearFilter] = useState(String(new Date().getFullYear()));
   const [engineers, setEngineers] = useState([]);
   const [engineerAssignments, setEngineerAssignments] = useState([]);
   const [sortField, setSortField] = useState('created_at');
@@ -1049,6 +1050,9 @@ export default function Invoices() {
     return status === 'draft' ? 'unpaid' : status;
   };
 
+  // Years that have invoices, newest first, always including the current year
+  const invoiceYears = [...new Set([String(new Date().getFullYear()), ...invoices.map(inv => (inv.created_at || '').substring(0, 4)).filter(Boolean)])].sort().reverse();
+
   // Get unique customers for filter dropdown
   const uniqueCustomers = [...new Map(invoices.map(inv => [inv.customer_name, { name: inv.customer_name }])).values()].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -1071,6 +1075,14 @@ export default function Invoices() {
       .filter(ea => String(ea.user_id) === engineerFilter)
       .map(ea => ea.project_id);
     filteredInvoices = filteredInvoices.filter(inv => projectIdsWithEngineer.includes(inv.project_id));
+  }
+  // Apply year filter (by invoice date) but always show unpaid/partial invoices from earlier years
+  if (yearFilter) {
+    filteredInvoices = filteredInvoices.filter(inv => {
+      const status = getStatus(inv);
+      if (status === 'unpaid' || status === 'partial') return true;
+      return (inv.created_at || '').startsWith(yearFilter);
+    });
   }
   // Apply received filter
   if (receivedFilter === 'received') {
@@ -1869,6 +1881,21 @@ export default function Invoices() {
               <option value="partial">Partial Only</option>
               <option value="paid">Paid Only</option>
               <option value="voided">Voided Only</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>Year:</span>
+            <select
+              className="form-select"
+              value={yearFilter}
+              onChange={(e) => setYearFilter(e.target.value)}
+              style={{ width: 'auto', minWidth: 110 }}
+              title="Unpaid and partial invoices from earlier years are always shown"
+            >
+              <option value="">All Years</option>
+              {invoiceYears.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
