@@ -61,6 +61,13 @@ function getDefaultDates() {
   };
 }
 
+// Every engineer assigned to at least one PO project, alphabetical, no duplicates
+function getPoHistoryEngineers(projects) {
+  const engineersById = new Map();
+  projects.forEach(project => project.engineers.forEach(eng => engineersById.set(eng.id, eng)));
+  return [...engineersById.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
 export default function Reports() {
   const [activeTab, setActiveTab] = useState('hours-summary');
   const [hoursSummaryData, setHoursSummaryData] = useState([]);
@@ -131,6 +138,7 @@ export default function Reports() {
   // PO History state
   const [poHistoryProjects, setPoHistoryProjects] = useState([]);
   const [poHistoryProjectId, setPoHistoryProjectId] = useState('');
+  const [poHistoryEngineerId, setPoHistoryEngineerId] = useState('');
   const [poHistoryData, setPoHistoryData] = useState(null);
   const [poHistoryLoading, setPoHistoryLoading] = useState(false);
 
@@ -160,7 +168,7 @@ export default function Reports() {
     } else if (activeTab === 'year-end') {
       loadYearEndData();
     } else if (activeTab === 'po-history') {
-      apiFetch('/projects').then(data => setPoHistoryProjects((data || []).filter(p => p.po_number))).catch(() => {});
+      apiFetch('/reports/po-history/projects').then(data => setPoHistoryProjects(data || [])).catch(err => setError(err.message));
     }
   }, [activeTab]);
 
@@ -3886,6 +3894,27 @@ export default function Reports() {
           <h3 style={{ marginBottom: 16 }}>PO History</h3>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 20, flexWrap: 'wrap' }}>
             <div>
+              <label className="form-label">Engineer Assigned</label>
+              <select
+                className="form-select"
+                value={poHistoryEngineerId}
+                onChange={(e) => {
+                  const engineerId = e.target.value;
+                  setPoHistoryEngineerId(engineerId);
+                  const selectedProject = poHistoryProjects.find(p => String(p.id) === String(poHistoryProjectId));
+                  if (engineerId && selectedProject && !selectedProject.engineers.some(eng => String(eng.id) === engineerId)) {
+                    setPoHistoryProjectId('');
+                  }
+                }}
+                style={{ minWidth: 200 }}
+              >
+                <option value="">All Engineers</option>
+                {getPoHistoryEngineers(poHistoryProjects).map(eng => (
+                  <option key={eng.id} value={eng.id}>{eng.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="form-label">Select Project / PO</label>
               <select
                 className="form-select"
@@ -3894,7 +3923,9 @@ export default function Reports() {
                 style={{ minWidth: 350 }}
               >
                 <option value="">-- Select a project --</option>
-                {poHistoryProjects.sort((a, b) => (a.customer_name || '').localeCompare(b.customer_name || '') || (a.name || '').localeCompare(b.name || '')).map(p => (
+                {poHistoryProjects
+                  .filter(p => !poHistoryEngineerId || p.engineers.some(eng => String(eng.id) === poHistoryEngineerId))
+                  .map(p => (
                   <option key={p.id} value={p.id}>{p.customer_name} — {p.name}{p.po_number ? ` (PO: ${p.po_number})` : ''}</option>
                 ))}
               </select>

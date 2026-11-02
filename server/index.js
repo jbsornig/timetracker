@@ -6332,6 +6332,30 @@ app.post('/api/customers/:id/past-due-statement/send', auth, adminOnly, async (r
 
 // ─── ENGINEER PROFITABILITY REPORT ────────────────────────────────────────────
 
+// Projects with a PO, each with its assigned engineers so the report can filter by engineer
+app.get('/api/reports/po-history/projects', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  const projects = db.prepare(`
+    SELECT p.id, p.name, p.po_number, p.status, c.name as customer_name
+    FROM projects p
+    JOIN customers c ON c.id = p.customer_id
+    WHERE p.po_number IS NOT NULL AND p.po_number != ''
+    ORDER BY c.name, p.name
+  `).all();
+  const assignments = db.prepare(`
+    SELECT ep.project_id, u.id, u.name
+    FROM engineer_projects ep
+    JOIN users u ON u.id = ep.user_id
+    ORDER BY u.name
+  `).all();
+
+  const engineersByProject = new Map();
+  for (const { project_id: projectId, id, name } of assignments) {
+    engineersByProject.set(projectId, [...(engineersByProject.get(projectId) || []), { id, name }]);
+  }
+  res.json(projects.map(project => ({ ...project, engineers: engineersByProject.get(project.id) || [] })));
+});
+
 app.get('/api/reports/po-history', auth, adminOnly, (req, res) => {
   const db = getDb();
   const { project_id } = req.query;
