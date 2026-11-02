@@ -2,6 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../api';
 
+const PAYMENTS_NOTE = 'Payments are listed by the pay period they cover, not the date they were paid.';
+
+function formatPaidOn(paymentDate) {
+  return new Date(paymentDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatPayPeriod(payment) {
+  if (!payment.period_start || !payment.period_end) return '—';
+  const format = (date) => new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${format(payment.period_start)} - ${format(payment.period_end)}`;
+}
+
+function sortByPeriodNewestFirst(timesheets) {
+  const periodOf = (t) => t.week_ending || t.period_end || '';
+  return [...timesheets].sort((a, b) =>
+    periodOf(b).localeCompare(periodOf(a)) || (a.project_name || '').localeCompare(b.project_name || ''));
+}
+
 export default function Earnings() {
   const { user } = useAuth();
   const [year, setYear] = useState(new Date().getFullYear());
@@ -166,13 +184,14 @@ export default function Earnings() {
 
           {reportData.payments?.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>Payments Received</div>
+              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>Payments Received</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>{PAYMENTS_NOTE}</div>
               <div className="table-wrap">
                 <table style={{ fontSize: 13 }}>
                   <thead>
                     <tr>
-                      <th>Payment Date</th>
-                      <th>Period</th>
+                      <th>Pay Period</th>
+                      <th>Paid On</th>
                       <th>Type</th>
                       <th>Method</th>
                       <th>Amount</th>
@@ -181,12 +200,8 @@ export default function Earnings() {
                   <tbody>
                     {reportData.payments.map(p => (
                       <tr key={p.id}>
-                        <td>{new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                        <td style={{ color: '#64748b' }}>
-                          {p.period_start && p.period_end
-                            ? `${new Date(p.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(p.period_end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                            : '—'}
-                        </td>
+                        <td>{formatPayPeriod(p)}</td>
+                        <td style={{ color: '#64748b' }}>{formatPaidOn(p.payment_date)}</td>
                         <td style={{ textTransform: 'capitalize' }}>{(p.payment_type || 'payroll').replace(/_/g, ' ')}</td>
                         <td style={{ textTransform: 'capitalize' }}>{(p.payment_method || '').replace(/_/g, ' ') || '—'}</td>
                         <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>
@@ -295,12 +310,13 @@ export default function Earnings() {
       {data?.payments?.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-title">{year} Payments Received</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: -8, marginBottom: 12 }}>{PAYMENTS_NOTE}</div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Payment Date</th>
-                  <th>Period</th>
+                  <th>Pay Period</th>
+                  <th>Paid On</th>
                   <th>Type</th>
                   <th>Method</th>
                   <th>Amount</th>
@@ -309,12 +325,8 @@ export default function Earnings() {
               <tbody>
                 {data.payments.map(p => (
                   <tr key={p.id}>
-                    <td>{new Date(p.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                    <td style={{ fontSize: 13, color: '#64748b' }}>
-                      {p.period_start && p.period_end
-                        ? `${new Date(p.period_start + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(p.period_end + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                        : '—'}
-                    </td>
+                    <td>{formatPayPeriod(p)}</td>
+                    <td style={{ fontSize: 13, color: '#64748b' }}>{formatPaidOn(p.payment_date)}</td>
                     <td style={{ textTransform: 'capitalize' }}>{(p.payment_type || 'payroll').replace(/_/g, ' ')}</td>
                     <td style={{ textTransform: 'capitalize' }}>{(p.payment_method || '').replace(/_/g, ' ') || '—'}</td>
                     <td style={{ fontFamily: 'DM Mono, monospace', fontWeight: 600, color: '#10b981' }}>
@@ -360,7 +372,7 @@ export default function Earnings() {
                 </tr>
               </thead>
               <tbody>
-                {data.timesheets.map(t => {
+                {sortByPeriodNewestFirst(data.timesheets).map(t => {
                   const isFixed = t.project_type === 'fixed_price' || t.project_type === 'fixed_monthly';
                   const regHrs = t.regular_hours || t.total_hours || 0;
                   const otHrs = t.ot_hours || 0;

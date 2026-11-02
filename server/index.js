@@ -5984,12 +5984,17 @@ app.get('/api/reports/my-earnings', auth, (req, res) => {
 
   const safeTimesheets = timesheets.map(({ monthly_bill, total_payment, fixed_amount, ts_ot_hours, requires_daily_logs, overtime_type, ...safe }) => safe);
 
+  // Match payments to the work they pay for: by pay period when it has one, so
+  // September's payroll paid on Oct 1 doesn't appear in an October report
   const payments = db.prepare(`
     SELECT id, amount, payment_date, payment_type, period_start, period_end, payment_method, notes
     FROM engineer_payments
-    WHERE user_id = ? AND payment_date BETWEEN ? AND ?
-    ORDER BY payment_date DESC
-  `).all(req.user.id, dateStart, dateEnd);
+    WHERE user_id = ? AND (
+      (period_start IS NOT NULL AND period_end IS NOT NULL AND period_start <= ? AND period_end >= ?)
+      OR ((period_start IS NULL OR period_end IS NULL) AND payment_date BETWEEN ? AND ?)
+    )
+    ORDER BY COALESCE(period_end, payment_date) DESC, payment_date DESC
+  `).all(req.user.id, dateEnd, dateStart, dateStart, dateEnd);
 
   res.json({
     start_date: dateStart,
