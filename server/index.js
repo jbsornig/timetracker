@@ -16,6 +16,7 @@ const invoicePdf = require('./invoice-pdf');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
 const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
+const engineerData = require('./engineer-data-workbook');
 
 // Route guards that reject changes to records dated in a closed year
 const lockClosedYear = {
@@ -299,6 +300,35 @@ app.get('/api/year-close/:year/workbook', auth, adminOnly, (req, res) => {
   } catch (error) {
     sendYearCloseError(res, error, 'Could not build the year-end workbook');
   }
+});
+
+// ─── ENGINEER DATA EXPORT ─────────────────────────────────────────────────────
+
+function sendEngineerDataWorkbook(res, userId, yearParam) {
+  try {
+    const year = engineerData.parseExportYear(yearParam);
+    const { buffer, filename } = engineerData.buildEngineerDataWorkbook(getDb(), userId, year);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    if (error instanceof engineerData.EngineerDataError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Could not build the data export', error);
+    res.status(500).json({ error: 'Could not build the data export' });
+  }
+}
+
+// Engineers download their own records; the user id always comes from the login token
+app.get('/api/my-data/workbook', auth, (req, res) => {
+  sendEngineerDataWorkbook(res, req.user.id, req.query.year);
+});
+
+app.get('/api/users/:id/data-workbook', auth, adminOnly, (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Invalid user id' });
+  sendEngineerDataWorkbook(res, userId, req.query.year);
 });
 
 app.post('/api/year-close/:year/close', auth, adminOnly, (req, res) => {

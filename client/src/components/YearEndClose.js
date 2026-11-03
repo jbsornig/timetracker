@@ -1,40 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from './Modal';
+import { downloadFile } from '../download-file';
 
-const API_BASE = process.env.REACT_APP_API_URL || '';
 const ARCHIVE_YEARS_SHOWN = 5;
 const MUTED = { color: '#64748b', fontSize: 13 };
 
 function formatDateTime(isoString) {
   if (!isoString) return '';
   return new Date(isoString).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
-
-function getFilenameFromResponse(response, fallbackName) {
-  const disposition = response.headers.get('content-disposition') || '';
-  const match = disposition.match(/filename="([^"]+)"/);
-  return match ? match[1] : fallbackName;
-}
-
-async function downloadFile(path, fallbackName) {
-  const token = localStorage.getItem('tt_token');
-  const response = await fetch(`${API_BASE}/api${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) {
-    const text = await response.text();
-    let message = `HTTP ${response.status}`;
-    try { message = JSON.parse(text).error || message; } catch { /* not JSON */ }
-    throw new Error(message);
-  }
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = getFilenameFromResponse(response, fallbackName);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
 }
 
 function buildChecklistItems(checklist) {

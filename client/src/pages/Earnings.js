@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../api';
+import DataExportControls from '../components/DataExportControls';
 
 const PAYMENTS_NOTE = 'Payments are listed by the pay period they cover, not the date they were paid.';
 
@@ -304,6 +305,14 @@ export default function Earnings() {
         </div>
         <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
           Generate a printable report of your earnings sorted by project for any date range.
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title">Download My Data</div>
+        <DataExportControls buildPath={(exportYear) => `/my-data/workbook?year=${exportYear}`} buttonLabel="Download Excel" />
+        <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+          Keep your own copy of your daily entries, timesheets and payments. The payments total uses the date you were paid, which matches your 1099.
         </div>
       </div>
 

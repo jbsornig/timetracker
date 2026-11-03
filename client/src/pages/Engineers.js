@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
+import DataExportControls from '../components/DataExportControls';
 
 function formatPhone(value) {
   const digits = value.replace(/\D/g, '').slice(0, 10);
@@ -26,6 +27,7 @@ export default function Engineers() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
+  const [dataExportEngineer, setDataExportEngineer] = useState(null);
   const [form, setForm] = useState(emptyUser);
   const [admins, setAdmins] = useState([]);
   const [error, setError] = useState('');
@@ -459,6 +461,7 @@ export default function Engineers() {
                     </td>
                     <td>
                       <button className="btn btn-secondary btn-sm" onClick={() => openEdit(eng)} style={{ marginRight: 8 }}>Edit</button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setDataExportEngineer(eng)} style={{ marginRight: 8 }}>Data</button>
                       <button className="btn btn-danger btn-sm" onClick={() => handleDelete(eng.id)}>Delete</button>
                     </td>
                   </tr>
@@ -1043,6 +1046,15 @@ export default function Engineers() {
             />
             <div className="form-hint">{textForm.message.length}/160 characters (SMS limit)</div>
           </div>
+        </Modal>
+      )}
+
+      {dataExportEngineer && (
+        <Modal title={`Download data: ${dataExportEngineer.name}`} onClose={() => setDataExportEngineer(null)}>
+          <p style={{ fontSize: 14, color: '#64748b', marginBottom: 12 }}>
+            The same Excel file {dataExportEngineer.name} can download from My Earnings: daily entries, timesheets and payments.
+          </p>
+          <DataExportControls buildPath={(exportYear) => `/users/${dataExportEngineer.id}/data-workbook?year=${exportYear}`} />
         </Modal>
       )}
     </div>

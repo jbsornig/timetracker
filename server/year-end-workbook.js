@@ -1,15 +1,9 @@
 // Builds the year-end archive workbook: one sheet per record type for a calendar year.
 
-const XLSX = require('xlsx');
-
-const CURRENCY_FORMAT = '#,##0.00';
+const { roundToCents, sumColumn, addSheet, newWorkbook, writeWorkbook, toSafeFilenamePart } = require('./workbook-sheets');
 
 function yearBounds(year) {
   return { start: `${year}-01-01`, end: `${year}-12-31`, endOfDay: `${year}-12-31 23:59:59` };
-}
-
-function roundToCents(amount) {
-  return Math.round((amount || 0) * 100) / 100;
 }
 
 function getInvoiceRows(db, year) {
@@ -142,10 +136,6 @@ function getTimesheetRows(db, year) {
   }));
 }
 
-function sumColumn(rows, column) {
-  return roundToCents(rows.reduce((total, row) => total + (Number(row[column]) || 0), 0));
-}
-
 function buildSummaryRows({ year, companyName, invoices, customerPayments, engineerPayments, contractors }) {
   const activeInvoices = invoices.filter(row => row.Status !== 'voided');
   const generatedAt = new Date().toISOString().replace('T', ' ').substring(0, 16);
@@ -162,31 +152,6 @@ function buildSummaryRows({ year, companyName, invoices, customerPayments, engin
   ];
 }
 
-function addSheet(workbook, name, rows, currencyColumns = []) {
-  const sheet = rows.length > 0
-    ? XLSX.utils.json_to_sheet(rows)
-    : XLSX.utils.aoa_to_sheet([['No records for this year']]);
-  if (rows.length > 0) {
-    const headers = Object.keys(rows[0]);
-    sheet['!cols'] = headers.map(header => ({
-      wch: Math.min(40, Math.max(header.length, ...rows.map(row => String(row[header] ?? '').length)) + 2),
-    }));
-    applyCurrencyFormat(sheet, headers, rows.length, currencyColumns);
-  }
-  XLSX.utils.book_append_sheet(workbook, sheet, name);
-}
-
-function applyCurrencyFormat(sheet, headers, rowCount, currencyColumns) {
-  for (const column of currencyColumns) {
-    const columnIndex = headers.indexOf(column);
-    if (columnIndex < 0) continue;
-    for (let rowIndex = 1; rowIndex <= rowCount; rowIndex++) {
-      const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
-      if (cell && cell.t === 'n') cell.z = CURRENCY_FORMAT;
-    }
-  }
-}
-
 function buildYearEndWorkbook(db, year, companyName) {
   const invoices = getInvoiceRows(db, year);
   const customerPayments = getCustomerPaymentRows(db, year);
@@ -194,18 +159,18 @@ function buildYearEndWorkbook(db, year, companyName) {
   const contractors = get1099Rows(db, year);
   const timesheets = getTimesheetRows(db, year);
 
-  const workbook = XLSX.utils.book_new();
+  const workbook = newWorkbook();
   addSheet(workbook, 'Summary', buildSummaryRows({ year, companyName, invoices, customerPayments, engineerPayments, contractors }));
   addSheet(workbook, 'Invoices', invoices, ['Amount', 'Paid', 'Balance Due']);
   addSheet(workbook, 'Payments Received', customerPayments, ['Amount']);
   addSheet(workbook, 'Engineer Payments', engineerPayments, ['Amount']);
   addSheet(workbook, '1099 Totals', contractors, ['Total Paid']);
   addSheet(workbook, 'Timesheets', timesheets, ['Fixed Amount']);
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return writeWorkbook(workbook);
 }
 
 function buildWorkbookFilename(year, companyName) {
-  const safeCompany = String(companyName || 'TimeTracker').replace(/[^A-Za-z0-9 ]/g, '').trim() || 'TimeTracker';
+  const safeCompany = toSafeFilenamePart(companyName, 'TimeTracker');
   return `${safeCompany} ${year} Year-End Archive.xlsx`;
 }
 
