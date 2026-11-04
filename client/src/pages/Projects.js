@@ -6,6 +6,54 @@ const emptyProject = { customer_id: '', contact_id: '', name: '', description: '
 
 const NO_ENGINEER_FILTER = 'none';
 
+const CENTS_TOLERANCE = 0.005;
+
+function formatMoney(amount) {
+  return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Works out how a fixed-monthly PO splits into whole months, and how to bill it when it doesn't divide evenly
+function getMonthlyContractPlan(poAmount, monthlyBill) {
+  const months = Math.round(poAmount / monthlyBill);
+  if (months < 1) return null;
+  const billedTotal = months * monthlyBill;
+  const evenMonthlyBill = Math.floor((poAmount / months) * 100) / 100;
+  const finalMonthExtra = Math.round((poAmount - evenMonthlyBill * months) * 100) / 100;
+  return {
+    months,
+    exactMonths: poAmount / monthlyBill,
+    billedTotal,
+    isEven: Math.abs(billedTotal - poAmount) < CENTS_TOLERANCE,
+    evenMonthlyBill,
+    finalMonthExtra,
+  };
+}
+
+function MonthlyContractSummary({ poAmount, monthlyBill, monthlyPay }) {
+  if (!(poAmount > 0) || !(monthlyBill > 0)) return null;
+  const plan = getMonthlyContractPlan(poAmount, monthlyBill);
+  if (!plan) return null;
+
+  const difference = poAmount - plan.billedTotal;
+  return (
+    <div style={{ fontSize: 13, padding: '10px 12px', borderRadius: 6, marginBottom: 16, background: plan.isEven ? '#f0fdf4' : '#fffbeb', border: `1px solid ${plan.isEven ? '#bbf7d0' : '#fde68a'}` }}>
+      <div>
+        <strong>{plan.months} months</strong> ({formatMoney(poAmount)} PO ÷ {formatMoney(monthlyBill)}/month
+        {plan.isEven ? ')' : ` = ${plan.exactMonths.toFixed(2)})`}
+        {monthlyPay > 0 && <> · Engineer total: {plan.months} × {formatMoney(monthlyPay)} = <strong>{formatMoney(plan.months * monthlyPay)}</strong></>}
+      </div>
+      {!plan.isEven && (
+        <div style={{ marginTop: 6, color: '#92400e' }}>
+          {plan.months} months at {formatMoney(monthlyBill)} bills {formatMoney(plan.billedTotal)}, which is {formatMoney(Math.abs(difference))} {difference > 0 ? 'less' : 'more'} than the PO
+          {difference < 0 ? ', so the final invoice would be blocked for going over budget' : ''}.
+          {' '}To bill the PO exactly, use <strong>{formatMoney(plan.evenMonthlyBill)}</strong>/month
+          {plan.finalMonthExtra > 0 ? <> and add {formatMoney(plan.finalMonthExtra)} to the final invoice as an adjustment.</> : '.'}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -1411,6 +1459,7 @@ export default function Projects() {
                   <div className="form-hint">Total amount the engineer will be paid for this project</div>
                 </div>
               ) : selectedProject.project_type === 'fixed_monthly' ? (
+                <>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Monthly Pay ($)</label>
@@ -1437,6 +1486,12 @@ export default function Projects() {
                     <div className="form-hint">Amount billed to customer each month</div>
                   </div>
                 </div>
+                <MonthlyContractSummary
+                  poAmount={selectedProject.po_amount}
+                  monthlyBill={parseFloat(assignForm.monthly_bill)}
+                  monthlyPay={parseFloat(assignForm.monthly_pay)}
+                />
+                </>
               ) : (
                 <>
                 <div className="form-row">

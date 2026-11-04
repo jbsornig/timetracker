@@ -1576,9 +1576,10 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     const monthlyPay = parseFloat(assignment.monthly_pay || 0);
     compensationHtml = `<li><strong>Monthly Pay:</strong> $${monthlyPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/month</li>`;
     if (project.po_amount && assignment.monthly_bill) {
-      const months = project.po_amount / assignment.monthly_bill;
+      // Whole months: a PO that doesn't divide evenly by the monthly bill still runs a whole number of months
+      const months = Math.round(project.po_amount / assignment.monthly_bill);
       estTotal = months * monthlyPay;
-      compensationHtml += `<li><strong>Duration:</strong> ${months.toFixed(0)} months</li>`;
+      compensationHtml += `<li><strong>Duration:</strong> ${months} months</li>`;
     } else {
       estTotal = monthlyPay;
     }
