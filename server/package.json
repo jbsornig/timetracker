@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "esupplier": "node esupplier-cli.js"
+    "esupplier": "node esupplier-cli.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",

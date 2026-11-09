@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
+import PoLineUnitsPanel, { useMyPoLines, findSelectedLine } from '../components/PoLineUnitsPanel';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -596,6 +597,12 @@ export default function Timesheets() {
   };
 
   const proxyProjects = actingAs ? actingAsProjects : projects;
+  const newFormProject = proxyProjects.find(p => String(p.id) === String(newForm.project_id));
+  const newFormPoLines = useMyPoLines(
+    newForm.project_id,
+    actingAs ? actingAs.id : null,
+    modal === 'new' && newFormProject?.project_type === 'piece_rate'
+  );
 
   // Check if we should open the new timesheet modal (from Dashboard button)
   useEffect(() => {
@@ -637,6 +644,17 @@ export default function Timesheets() {
       if (isNaN(units) || units <= 0) {
         setError('Units must be a positive number');
         return;
+      }
+      if (newFormPoLines.lines.length > 0) {
+        const line = findSelectedLine(newFormPoLines.lines, newForm.po_line_number);
+        if (!line) {
+          setError('Choose which PO line these units are for');
+          return;
+        }
+        if (units > line.remaining_units) {
+          setError(`Only ${line.remaining_units} units are left on PO line ${line.line_number}`);
+          return;
+        }
       }
     } else if (isFixedPrice && isMonthlyInstallment) {
       if (!newForm.period_start || !newForm.period_end) {
@@ -697,7 +715,14 @@ export default function Timesheets() {
     try {
       let body;
       if (isPieceRate) {
-        body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end, units: parseFloat(newForm.units) };
+        const line = findSelectedLine(newFormPoLines.lines, newForm.po_line_number);
+        body = {
+          project_id: newForm.project_id,
+          period_start: newForm.period_start,
+          period_end: newForm.period_end,
+          units: parseFloat(newForm.units),
+          ...(line ? { po_line_number: line.line_number } : {}),
+        };
       } else if (isFixedPrice && isMonthlyInstallment) {
         body = { project_id: newForm.project_id, period_start: newForm.period_start, period_end: newForm.period_end };
       } else if (isFixedPrice) {
@@ -1094,13 +1119,16 @@ export default function Timesheets() {
   };
 
   const openEditPieceRate = (ts) => {
+    const isPoLine = ts.po_line_number !== null && ts.po_line_number !== undefined;
     setEditPieceRateForm({
       id: ts.id,
       period_start: ts.period_start || '',
       period_end: ts.period_end || '',
       units: ts.units || '',
-      pay_rate: ts.pay_rate || 0,
-      unit_price: ts.unit_price || 0
+      // PO-line submissions are paid the line's rate, recorded on the submission itself
+      pay_rate: isPoLine ? (ts.units ? (ts.amount || 0) / ts.units : 0) : (ts.pay_rate || 0),
+      unit_price: isPoLine ? 0 : (ts.unit_price || 0),
+      po_line_number: isPoLine ? ts.po_line_number : null,
     });
     setEditPieceRateModal(true);
   };
@@ -1879,6 +1907,9 @@ export default function Timesheets() {
                         {isPieceRate ? (
                           <>
                             {ts.units || 0} units
+                            {ts.po_line_number != null && (
+                              <span style={{ fontSize: 11, color: '#64748b' }}> · Line {ts.po_line_number}</span>
+                            )}
                             <br />
                             <span style={{ fontSize: 11, color: '#64748b' }}>
                               ${(ts.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} pay
@@ -2073,7 +2104,7 @@ export default function Timesheets() {
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 20, fontWeight: 700, color: 'var(--primary)' }}>
                       {isPieceRate ? (
-                        <>{ts.units || 0}<span style={{ fontSize: 12, fontWeight: 400 }}> units</span></>
+                        <>{ts.units || 0}<span style={{ fontSize: 12, fontWeight: 400 }}> units{ts.po_line_number != null ? ` · Line ${ts.po_line_number}` : ''}</span></>
                       ) : isFixedPrice ? (
                         <>${(ts.amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</>
                       ) : ts.ot_hours > 0 ? (
@@ -2274,7 +2305,9 @@ export default function Timesheets() {
           }
         >
           <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>Piece Rate Project</div>
+            <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>
+              {editPieceRateForm.po_line_number ? `Piece Rate — PO Line ${editPieceRateForm.po_line_number}` : 'Piece Rate Project'}
+            </div>
             <div style={{ fontSize: 13, color: '#64748b' }}>
               Pay rate: <strong>${(editPieceRateForm.pay_rate || 0).toFixed(2)}/unit</strong>
               {editPieceRateForm.unit_price > 0 && (
@@ -2498,6 +2531,15 @@ export default function Timesheets() {
                 </>
               ) : isPieceRate ? (
                 <>
+                  {newFormPoLines.error && <div className="alert alert-error">{newFormPoLines.error}</div>}
+                  {newFormPoLines.lines.length > 0 ? (
+                    <PoLineUnitsPanel
+                      lines={newFormPoLines.lines}
+                      lineNumber={newForm.po_line_number}
+                      onLineChange={(value) => setNewForm({ ...newForm, po_line_number: value })}
+                      units={newForm.units}
+                    />
+                  ) : (
                   <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>
                     <div style={{ fontSize: 13, color: '#0369a1', fontWeight: 600, marginBottom: 4 }}>
                       Piece Rate Project
@@ -2509,6 +2551,7 @@ export default function Timesheets() {
                       )}
                     </div>
                   </div>
+                  )}
                   <div className="form-group">
                     <label className="form-label">Month *</label>
                     <input
@@ -2539,7 +2582,7 @@ export default function Timesheets() {
                       style={{ width: 150 }}
                     />
                   </div>
-                  {newForm.units > 0 && (
+                  {newForm.units > 0 && newFormPoLines.lines.length === 0 && (
                     <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, marginTop: 12 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#16a34a' }}>
                         Your Pay: ${(parseFloat(newForm.units) * payRate).toLocaleString('en-US', { minimumFractionDigits: 2 })}

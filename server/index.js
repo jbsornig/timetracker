@@ -12,6 +12,7 @@ const XLSX = require('xlsx');
 const { auth, adminOnly, JWT_SECRET } = require('./middleware');
 const { createInvoiceCostCalculator, getEngineerPaymentsInPeriod } = require('./revenue-costs');
 const vendorBilling = require('./vendor-billing');
+const poLineBilling = require('./po-line-billing');
 const invoicePdf = require('./invoice-pdf');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
@@ -1518,13 +1519,13 @@ app.get('/api/projects/:id/po-lines', auth, adminOnly, (req, res) => {
 
 app.post('/api/projects/:id/po-lines', auth, adminOnly, (req, res) => {
   const db = getDb();
-  const { line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount } = req.body;
+  const { line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount, pay_per_unit } = req.body;
   if (!line_number) return res.status(400).json({ error: 'line_number is required' });
   const existing = db.prepare('SELECT id FROM customer_po_lines WHERE project_id = ? AND line_number = ?').get(req.params.id, line_number);
   if (existing) return res.status(400).json({ error: `Line number ${line_number} already exists for this project` });
   const result = db.prepare(
-    'INSERT INTO customer_po_lines (project_id, line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(req.params.id, line_number, description || '', engineer_id || null, edi_uom || '', edi_po_quantity || 0, edi_unit_price || 0, po_line_amount || 0);
+    'INSERT INTO customer_po_lines (project_id, line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount, pay_per_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(req.params.id, line_number, description || '', engineer_id || null, edi_uom || '', edi_po_quantity || 0, edi_unit_price || 0, po_line_amount || 0, parseFloat(pay_per_unit) || 0);
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -1532,18 +1533,29 @@ app.put('/api/projects/:id/po-lines/:lineId', auth, adminOnly, (req, res) => {
   const db = getDb();
   const line = db.prepare('SELECT * FROM customer_po_lines WHERE id = ? AND project_id = ?').get(req.params.lineId, req.params.id);
   if (!line) return res.status(404).json({ error: 'PO line not found' });
-  const { line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount } = req.body;
+  const { line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount, pay_per_unit } = req.body;
   db.prepare(
-    'UPDATE customer_po_lines SET line_number = ?, description = ?, engineer_id = ?, edi_uom = ?, edi_po_quantity = ?, edi_unit_price = ?, po_line_amount = ? WHERE id = ?'
+    'UPDATE customer_po_lines SET line_number = ?, description = ?, engineer_id = ?, edi_uom = ?, edi_po_quantity = ?, edi_unit_price = ?, po_line_amount = ?, pay_per_unit = ? WHERE id = ?'
   ).run(
     line_number ?? line.line_number, description ?? line.description, engineer_id !== undefined ? (engineer_id || null) : line.engineer_id,
-    edi_uom ?? line.edi_uom, edi_po_quantity ?? line.edi_po_quantity, edi_unit_price ?? line.edi_unit_price, po_line_amount ?? line.po_line_amount, req.params.lineId
+    edi_uom ?? line.edi_uom, edi_po_quantity ?? line.edi_po_quantity, edi_unit_price ?? line.edi_unit_price, po_line_amount ?? line.po_line_amount,
+    pay_per_unit !== undefined ? (parseFloat(pay_per_unit) || 0) : line.pay_per_unit, req.params.lineId
   );
   res.json({ success: true });
 });
 
 app.delete('/api/projects/:id/po-lines/:lineId', auth, adminOnly, (req, res) => {
   const db = getDb();
+  const line = db.prepare('SELECT line_number FROM customer_po_lines WHERE id = ? AND project_id = ?').get(req.params.lineId, req.params.id);
+  if (!line) return res.status(404).json({ error: 'PO line not found' });
+  const keptLineNumbers = db.prepare('SELECT line_number FROM customer_po_lines WHERE project_id = ? AND id != ?')
+    .all(req.params.id, req.params.lineId).map(l => l.line_number);
+  try {
+    poLineBilling.assertLinesRemovable(db, req.params.id, keptLineNumbers);
+  } catch (err) {
+    if (err instanceof poLineBilling.PoLineBillingError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
   db.prepare('DELETE FROM customer_po_lines WHERE id = ? AND project_id = ?').run(req.params.lineId, req.params.id);
   res.json({ success: true });
 });
@@ -1552,19 +1564,48 @@ app.post('/api/projects/:id/po-lines/bulk', auth, adminOnly, (req, res) => {
   const db = getDb();
   const { lines } = req.body;
   if (!Array.isArray(lines)) return res.status(400).json({ error: 'lines array is required' });
+  try {
+    poLineBilling.assertLinesRemovable(db, req.params.id, lines.map(l => l.line_number || 0));
+  } catch (err) {
+    if (err instanceof poLineBilling.PoLineBillingError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  const project = db.prepare('SELECT project_type FROM projects WHERE id = ?').get(req.params.id);
   const deleteAll = db.prepare('DELETE FROM customer_po_lines WHERE project_id = ?');
   const insert = db.prepare(
-    'INSERT INTO customer_po_lines (project_id, line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO customer_po_lines (project_id, line_number, description, engineer_id, edi_uom, edi_po_quantity, edi_unit_price, po_line_amount, pay_per_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const transaction = db.transaction(() => {
     deleteAll.run(req.params.id);
     for (const l of lines) {
-      insert.run(req.params.id, l.line_number || 0, l.description || '', l.engineer_id || null, l.edi_uom || '', l.edi_po_quantity || 0, l.edi_unit_price || 0, l.po_line_amount || 0);
+      insert.run(req.params.id, l.line_number || 0, l.description || '', l.engineer_id || null, l.edi_uom || '', l.edi_po_quantity || 0, l.edi_unit_price || 0, l.po_line_amount || 0, parseFloat(l.pay_per_unit) || 0);
+    }
+    if (project && project.project_type === 'piece_rate') {
+      poLineBilling.ensureLineEngineersAssigned(db, req.params.id, lines);
     }
   });
   transaction();
   const saved = db.prepare('SELECT * FROM customer_po_lines WHERE project_id = ? ORDER BY line_number').all(req.params.id);
   res.json(saved);
+});
+
+// PO lines with reported, billed and remaining units (admin invoice screen)
+app.get('/api/projects/:id/po-line-status', auth, adminOnly, (req, res) => {
+  res.json(poLineBilling.getPoLineStatus(getDb(), req.params.id));
+});
+
+// The PO lines an engineer reports units on; admins may ask on behalf of an engineer
+app.get('/api/projects/:id/my-po-lines', auth, (req, res) => {
+  const userId = req.user.role === 'admin' && req.query.user_id ? req.query.user_id : req.user.id;
+  const lines = poLineBilling.getEngineerPoLines(getDb(), req.params.id, userId);
+  res.json(lines.map(l => ({
+    line_number: l.line_number,
+    description: l.description,
+    edi_uom: l.edi_uom,
+    po_quantity: l.edi_po_quantity,
+    pay_per_unit: l.pay_per_unit,
+    remaining_units: Math.max(0, l.remaining_units),
+  })));
 });
 
 app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) => {
@@ -1601,6 +1642,12 @@ app.post('/api/projects/:id/notify-engineer', auth, adminOnly, async (req, res) 
     } else {
       estTotal = monthlyPay;
     }
+  } else if (project.project_type === 'piece_rate' && poLineBilling.hasPoLines(db, project.id)) {
+    const lines = poLineBilling.getEngineerPoLines(db, project.id, user_id);
+    if (lines.length === 0) return res.status(400).json({ error: 'Assign this engineer to a PO line before sending the assignment email.' });
+    const described = poLineBilling.describeEngineerLinesHtml(lines);
+    compensationHtml = described.html;
+    estTotal = described.total;
   } else if (project.project_type === 'piece_rate') {
     const payRate = parseFloat(assignment.pay_rate || 0);
     compensationHtml = `<li><strong>Pay Rate:</strong> $${payRate.toFixed(2)}/unit</li>`;
@@ -1797,8 +1844,9 @@ function getProjectBudgetStatus(db, projectId, excludeTimesheetId) {
 
   if (project.project_type === 'piece_rate' || project.project_type === 'fixed_price') {
     // No timesheet_entries for these types; billing lives on the timesheet row
+    // PO-line submissions carry their own customer price; plain piece rate uses the project's
     const billExpr = project.project_type === 'piece_rate'
-      ? 'COALESCE(ts.units, 0) * ?'
+      ? 'COALESCE(ts.units, 0) * COALESCE(ts.bill_unit_price, ?)'
       : 'COALESCE(ts.amount, 0)';
     const billParams = project.project_type === 'piece_rate' ? [project.unit_price || 0] : [];
     const uninvoiced = db.prepare(`
@@ -1863,6 +1911,33 @@ app.get('/api/projects/over-budget', auth, adminOnly, (req, res) => {
   res.json(overBudget);
 });
 
+function sendPoLineError(res, err) {
+  if (err instanceof poLineBilling.PoLineBillingError) return res.status(400).json({ error: err.message });
+  throw err;
+}
+
+// Piece-rate units reported against one of the engineer's PO lines (one submission per line per month)
+function createPoLineSubmission(db, res, { user_id, project_id, period_start, period_end, units, po_line_number }) {
+  let line, priced;
+  try {
+    line = poLineBilling.resolveEngineerLine(db, project_id, user_id, po_line_number);
+    priced = poLineBilling.priceEngineerUnits(line, units);
+  } catch (err) {
+    return sendPoLineError(res, err);
+  }
+  const existing = db.prepare(
+    "SELECT id FROM timesheets WHERE user_id = ? AND project_id = ? AND po_line_number = ? AND period_start = ? AND status != 'rejected'"
+  ).get(user_id, project_id, line.line_number, period_start);
+  if (existing) {
+    return res.status(400).json({ error: `A submission for PO line ${line.line_number} already exists for this month. Edit that one instead.` });
+  }
+  const result = db.prepare(`
+    INSERT INTO timesheets (user_id, project_id, week_ending, period_start, period_end, units, amount, po_line_number, bill_unit_price)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(user_id, project_id, period_end, period_start, period_end, units, priced.amount, line.line_number, priced.bill_unit_price);
+  return res.json({ id: result.lastInsertRowid });
+}
+
 app.post('/api/timesheets', auth, lockClosedYear.timesheet, (req, res) => {
   const { project_id, week_ending, period_start, period_end, percentage, monthly_hours, description, ot_hours } = req.body;
   const user_id = req.user.role === 'admin' && req.body.user_id ? req.body.user_id : req.user.id;
@@ -1874,9 +1949,10 @@ app.post('/api/timesheets', auth, lockClosedYear.timesheet, (req, res) => {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  // Block timesheets against fully-used projects
+  // Block timesheets against fully-used projects (PO-line projects are checked per line below)
+  const usesPoLines = project.project_type === 'piece_rate' && poLineBilling.hasPoLines(db, project_id);
   if (project.project_type === 'piece_rate') {
-    if (project.po_amount > 0) {
+    if (project.po_amount > 0 && !usesPoLines) {
       const claimed = db.prepare(`
         SELECT COALESCE(SUM(COALESCE(ts.units, 0) * ?), 0) as total
         FROM timesheets ts
@@ -1960,6 +2036,9 @@ app.post('/api/timesheets', auth, lockClosedYear.timesheet, (req, res) => {
       const units = parseFloat(req.body.units);
       if (!units || units <= 0) {
         return res.status(400).json({ error: 'Number of units is required and must be positive' });
+      }
+      if (usesPoLines) {
+        return createPoLineSubmission(db, res, { user_id, project_id, period_start, period_end, units, po_line_number: req.body.po_line_number });
       }
       const existing = db.prepare(
         "SELECT id FROM timesheets WHERE user_id = ? AND project_id = ? AND period_start = ? AND status != 'rejected'"
@@ -2063,14 +2142,29 @@ app.put('/api/timesheets/:id/piece-rate', auth, lockClosedYear.timesheet, (req, 
   if (!ts) return res.status(404).json({ error: 'Not found' });
   if (req.user.role !== 'admin' && ts.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
   if (ts.status === 'approved') return res.status(400).json({ error: 'Cannot edit approved timesheet' });
+  const unitCount = parseFloat(units);
+  if (!unitCount || unitCount <= 0) return res.status(400).json({ error: 'Number of units is required and must be positive' });
+
+  if (ts.po_line_number !== null && ts.po_line_number !== undefined) {
+    let priced;
+    try {
+      const line = poLineBilling.resolveEngineerLine(db, ts.project_id, ts.user_id, ts.po_line_number, { excludeTimesheetId: ts.id });
+      priced = poLineBilling.priceEngineerUnits(line, unitCount);
+    } catch (err) {
+      return sendPoLineError(res, err);
+    }
+    db.prepare('UPDATE timesheets SET period_start=?, period_end=?, week_ending=?, units=?, amount=?, bill_unit_price=? WHERE id=?')
+      .run(period_start, period_end, period_end, unitCount, priced.amount, priced.bill_unit_price, req.params.id);
+    return res.json({ success: true });
+  }
 
   const ep = db.prepare('SELECT pay_rate FROM engineer_projects WHERE user_id = ? AND project_id = ?')
     .get(ts.user_id, ts.project_id);
   const payRate = ep?.pay_rate || 0;
-  const amount = parseFloat(units) * payRate;
+  const amount = unitCount * payRate;
 
   db.prepare('UPDATE timesheets SET period_start=?, period_end=?, week_ending=?, units=?, amount=? WHERE id=?')
-    .run(period_start, period_end, period_end, parseFloat(units), amount, req.params.id);
+    .run(period_start, period_end, period_end, unitCount, amount, req.params.id);
   res.json({ success: true });
 });
 
@@ -2248,7 +2342,7 @@ app.put('/api/timesheets/:id/approve', auth, adminOnly, lockClosedYear.timesheet
   if (budget) {
     let thisCost;
     if (ts.project_type === 'piece_rate') {
-      thisCost = (ts.units || 0) * (ts.unit_price || 0);
+      thisCost = (ts.units || 0) * (ts.bill_unit_price ?? ts.unit_price ?? 0);
     } else {
       const totalHours = db.prepare('SELECT COALESCE(SUM(hours), 0) as total FROM timesheet_entries WHERE timesheet_id = ?').get(req.params.id);
       thisCost = (totalHours.total || 0) * (ts.bill_rate || 0);
@@ -2377,6 +2471,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
       COUNT(DISTINCT ts.id) as timesheet_count,
       COALESCE(SUM(CASE WHEN p.project_type IN ('fixed_price', 'piece_rate') THEN ts.amount ELSE 0 END), 0) as fixed_amount,
       COALESCE(SUM(CASE WHEN p.project_type = 'piece_rate' THEN ts.units ELSE 0 END), 0) as total_units,
+      COALESCE(SUM(CASE WHEN p.project_type = 'piece_rate' THEN ts.units * COALESCE(ts.bill_unit_price, p.unit_price, 0) ELSE 0 END), 0) as piece_rate_amount,
       COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'piece_rate') THEN te.hours ELSE 0 END), 0) as total_hours,
       COALESCE(SUM(CASE WHEN p.project_type NOT IN ('fixed_price', 'fixed_monthly', 'piece_rate') THEN
         (te.hours - COALESCE(ts.ot_hours, 0)) * ep.bill_rate
@@ -2404,7 +2499,7 @@ app.get('/api/invoices/find-ready', auth, adminOnly, (req, res) => {
   const results = projects.map(p => {
     let estimated_amount;
     if (p.project_type === 'piece_rate') {
-      estimated_amount = (p.total_units || 0) * (p.unit_price || 0);
+      estimated_amount = p.piece_rate_amount || 0;
     } else if (p.project_type === 'fixed_price') {
       const engineerTotals = db.prepare('SELECT SUM(total_payment) as total FROM engineer_projects WHERE project_id = ?').get(p.id);
       const totalEngineerPayments = engineerTotals?.total || 0;
@@ -2643,26 +2738,19 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     totalEngineerPayments = engineerTotals?.total || 0;
   }
 
+  const invoicePoLines = isPieceRate ? poLineBilling.getPoLineStatus(db, invoice.project_id) : [];
+
   for (const ts of timesheetsToUse) {
     if (isPieceRate) {
-      const engineerAmt = ts.amount || 0;
-      const invoiceAmt = (ts.units || 0) * (invoice.unit_price || 0);
-      lineItems.push({
-        engineer: ts.engineer_name,
-        units: ts.units || 0,
-        unit_price: invoice.unit_price || 0,
-        engineer_amount: engineerAmt,
-        amount: invoiceAmt,
-        period_start: ts.period_start,
-        period_end: ts.period_end,
-        is_piece_rate: true
-      });
+      const line = invoicePoLines.find(l => l.line_number === ts.po_line_number);
+      lineItems.push(poLineBilling.buildPieceRateItem(ts, { line, fallbackUnitPrice: invoice.unit_price }));
       timesheetDetails.push({
         id: ts.id,
         engineer_name: ts.engineer_name,
         engineer_id: ts.engineer_id,
         units: ts.units || 0,
-        amount: engineerAmt,
+        amount: ts.amount || 0,
+        po_line_number: ts.po_line_number,
         period_start: ts.period_start,
         period_end: ts.period_end,
         is_piece_rate: true
@@ -2809,6 +2897,13 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     lineItems.push(...vendorBilling.buildVendorLineItems(vendorPayments, invoice.total_cost));
   }
 
+  // PO-line invoices: add admin-billed lines and show one row per PO line
+  if (isPieceRate) {
+    const merged = poLineBilling.mergePoLineItems([...lineItems, ...poLineBilling.getBilledLineItems(db, req.params.id)]);
+    lineItems.splice(0, lineItems.length, ...merged);
+  }
+  const poLineQuantities = isPieceRate ? poLineBilling.getBilledLineQuantities(db, req.params.id) : [];
+
   // Consolidate line items into a single line if project is configured for it
   if (invoice.invoice_consolidate && lineItems.length > 1) {
     const totalHours = lineItems.reduce((sum, item) => sum + (item.hours || 0), 0);
@@ -2843,7 +2938,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
     });
   });
 
-  res.json({ ...invoice, settings, lineItems, timesheetDetails, adjustments, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate });
+  res.json({ ...invoice, settings, lineItems, timesheetDetails, adjustments, po_line_quantities: poLineQuantities, is_fixed_price: isFixedPrice, is_fixed_monthly: isFixedMonthly, is_piece_rate: isPieceRate });
   } catch (err) {
     console.error('Error viewing invoice:', err);
     res.status(500).json({ error: err.message });
@@ -2888,6 +2983,7 @@ app.delete('/api/invoices/:id', auth, adminOnly, lockClosedYear.invoice, (req, r
   db.prepare('UPDATE timesheet_entries SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
   db.prepare('UPDATE timesheets SET invoice_id = NULL WHERE invoice_id = ?').run(req.params.id);
   vendorBilling.releaseVendorPayments(db, req.params.id);
+  poLineBilling.deleteBilledLineItems(db, req.params.id);
 
   db.prepare('DELETE FROM invoices WHERE id = ?').run(req.params.id);
   res.json({ success: true });
@@ -3288,28 +3384,21 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
       totalEngineerPayments = engineerTotals?.total || 0;
     }
 
+    const projectPoLines = isPieceRate ? poLineBilling.getPoLineStatus(db, project_id) : [];
+
     for (const ts of timesheets) {
       if (isPieceRate) {
-        const engineerAmt = ts.amount || 0;
-        const invoiceAmt = (ts.units || 0) * (project.unit_price || 0);
-        total_amount += invoiceAmt;
-
-        lineItems.push({
-          engineer: ts.engineer_name,
-          units: ts.units || 0,
-          unit_price: project.unit_price || 0,
-          engineer_amount: engineerAmt,
-          amount: invoiceAmt,
-          period_start: ts.period_start,
-          period_end: ts.period_end,
-          is_piece_rate: true
-        });
+        const line = projectPoLines.find(l => l.line_number === ts.po_line_number);
+        const item = poLineBilling.buildPieceRateItem(ts, { line, fallbackUnitPrice: project.unit_price });
+        total_amount += item.amount;
+        lineItems.push(item);
         timesheetDetails.push({
           id: ts.id,
           engineer_name: ts.engineer_name,
           engineer_id: ts.engineer_id,
           units: ts.units || 0,
-          amount: engineerAmt,
+          amount: ts.amount || 0,
+          po_line_number: ts.po_line_number,
           period_start: ts.period_start,
           period_end: ts.period_end,
           is_piece_rate: true
@@ -3472,6 +3561,18 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     }
     const printNotes = vendorBilling.combinePrintNotes(req.body.print_notes, vendorBilling.collectInvoiceNotes(vendorPayments));
 
+    // PO lines without an engineer are billed by the quantities entered on the invoice screen
+    let billedLineItems = [];
+    if (isPieceRate) {
+      try {
+        billedLineItems = poLineBilling.buildBilledLineItems(db, project_id, req.body.po_line_quantities);
+      } catch (err) {
+        return sendPoLineError(res, err);
+      }
+      total_amount = Math.round((total_amount + billedLineItems.reduce((s, i) => s + i.amount, 0)) * 100) / 100;
+      lineItems.splice(0, lineItems.length, ...poLineBilling.mergePoLineItems([...lineItems, ...billedLineItems]));
+    }
+
     // Consolidate line items into a single line if project is configured for it
     if (project.invoice_consolidate && lineItems.length > 1) {
       const totalHours = lineItems.reduce((sum, item) => sum + (item.hours || 0), 0);
@@ -3529,6 +3630,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     const result = db.prepare('INSERT INTO invoices (project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes, print_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(project_id, invoice_number, period_start, period_end, total_hours, total_amount, notes, printNotes);
     const invoiceId = result.lastInsertRowid;
     vendorBilling.stampVendorPayments(db, vendorPayments, invoiceId);
+    poLineBilling.saveBilledLineItems(db, invoiceId, billedLineItems);
 
     // Stamp timesheet entries and timesheets as invoiced to prevent double-billing
     if (isFixedPrice || isPieceRate) {
@@ -4249,7 +4351,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
     const db = getDb();
     const invoice = db.prepare(`
       SELECT i.*, p.name as project_name, p.po_number, p.location, p.project_type,
-             p.total_cost, p.edi_uom, p.edi_plant_code, p.edi_po_quantity, p.edi_unit_price,
+             p.total_cost, p.edi_uom, p.edi_plant_code, p.edi_po_quantity, p.edi_unit_price, p.unit_price,
              c.name as customer_name, c.supplier_number
       FROM invoices i
       JOIN projects p ON p.id = i.project_id
@@ -4348,6 +4450,11 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
       lineItems.push(...vendorItems.map(item => ({ engineer: '', amount: item.amount, is_fixed_price: true })));
     }
 
+    // Piece rate has no timesheet entries; its units (per PO line when the PO has lines) come from the invoice
+    if (invoice.project_type === 'piece_rate') {
+      lineItems.push(...poLineBilling.getPieceRateInvoiceItems(db, req.params.id, invoice.unit_price).items);
+    }
+
     const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(req.params.id);
     adjustments.forEach(adj => {
       lineItems.push({ description: adj.description, hours: adj.hours || 0, rate: adj.rate || 0, amount: adj.amount, is_adjustment: true });
@@ -4360,7 +4467,7 @@ app.get('/api/invoices/:id/edi-810', auth, adminOnly, (req, res) => {
 
     if (poLines.length > 0) {
       for (const item of lineItems) {
-        if (item.is_adjustment) continue;
+        if (item.is_adjustment || item.is_po_line) continue;
         const matchedLine = item.user_id
           ? poLines.find(pl => pl.engineer_id === item.user_id)
           : poLines.find(pl => {
@@ -4498,7 +4605,12 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
     const itemPoQuantity = item.edi_po_quantity || poQuantity;
     const itemPoUnitPrice = item.edi_unit_price || poUnitPrice;
 
-    if (itemEdiUom) {
+    if (item.is_po_line) {
+      // Billed against a specific PO line: units at the PO line's unit price
+      uom = itemEdiUom === 'MON' ? 'MO' : (itemEdiUom || 'EA');
+      quantity = Number.isInteger(item.units) ? String(item.units) : (item.units || 0).toFixed(3);
+      unitPrice = (item.unit_price || 0).toFixed(2);
+    } else if (itemEdiUom) {
       const normalizedUom = itemEdiUom === 'MON' ? 'MO' : itemEdiUom;
       uom = normalizedUom;
       switch (itemEdiUom) {
@@ -4537,7 +4649,8 @@ function generateEdi810({ invoice, lineItems, supplierCode, plantCode, poNumber,
       unitPrice = item.rate ? item.rate.toFixed(2) : item.amount ? item.amount.toFixed(2) : '0.00';
     }
 
-    segments.push(`IT1${ELEM_SEP}${lineCount}${ELEM_SEP}${quantity}${ELEM_SEP}${uom}${ELEM_SEP}${unitPrice}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}PO${ELEM_SEP}${poNumber}${SEG_TERM}`);
+    const lineId = item.is_po_line ? item.po_line_number : lineCount;
+    segments.push(`IT1${ELEM_SEP}${lineId}${ELEM_SEP}${quantity}${ELEM_SEP}${uom}${ELEM_SEP}${unitPrice}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}${ELEM_SEP}PO${ELEM_SEP}${poNumber}${SEG_TERM}`);
 
     segments.push(`REF${ELEM_SEP}PK${ELEM_SEP}${poNumber.slice(0, 16)}${SEG_TERM}`);
   }
@@ -6650,6 +6763,7 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
            c.id as customer_id, c.name as customer_name,
            ep.pay_rate,
            COALESCE(SUM(ts.units), 0) as total_units,
+           COALESCE(SUM(ts.units * COALESCE(ts.bill_unit_price, p.unit_price, 0)), 0) as billed_amount,
            COALESCE(SUM(ts.amount), 0) as engineer_cost
     FROM timesheets ts
     JOIN users u ON u.id = ts.user_id
@@ -6669,7 +6783,7 @@ app.get('/api/reports/profitability', auth, adminOnly, (req, res) => {
   for (const row of pieceRateRows) {
     const key = `${row.engineer_id}-${row.project_id}`;
     if (seen.has(key)) continue;
-    const billed = (row.total_units || 0) * (row.unit_price || 0);
+    const billed = row.billed_amount || 0;
     const cost = row.engineer_cost || 0;
     results.push({
       engineer_id: row.engineer_id, engineer_name: row.engineer_name, engineer_code: row.engineer_code,

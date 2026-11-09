@@ -2,6 +2,7 @@ const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
+const { migratePoLineBilling } = require('./po-line-billing');
 
 // Use persistent disk in production if available
 let DATA_DIR = __dirname;
@@ -956,6 +957,7 @@ function initSchema() {
     )
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_customer_po_lines_project_id ON customer_po_lines(project_id)`);
+  migratePoLineBilling(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS payment_adjustments (

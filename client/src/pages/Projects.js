@@ -503,6 +503,8 @@ export default function Projects() {
 
   const sortIndicator = (field) => sortField === field ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
+  const isPieceRateForm = form.project_type === 'piece_rate';
+
   if (loading) return <div style={{ padding: 40, color: '#94a3b8' }}>Loading...</div>;
 
   return (
@@ -971,6 +973,12 @@ export default function Projects() {
             {form.project_type === 'piece_rate' && (
               <div style={{ background: '#f0f9ff', padding: 16, borderRadius: 8, marginBottom: 16 }}>
                 <div style={{ fontWeight: 600, marginBottom: 12 }}>Piece Rate Configuration</div>
+                {poLines.length > 0 ? (
+                  <div className="form-hint" style={{ marginTop: 0 }}>
+                    Prices come from the PO line items below. Pick an engineer and their pay per unit on each line they build;
+                    lines with no engineer are billed by you when you generate the invoice.
+                  </div>
+                ) : (
                 <div className="form-group">
                   <label className="form-label">Unit Price ($)</label>
                   <input
@@ -987,6 +995,7 @@ export default function Projects() {
                       ` — Total quantity: ${Math.floor(parseFloat(form.po_amount) / parseFloat(form.unit_price))} units`}
                   </div>
                 </div>
+                )}
               </div>
             )}
             <div className="form-row">
@@ -1072,7 +1081,9 @@ export default function Projects() {
                 <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <strong style={{ fontSize: 14 }}>PO Line Items</strong>
-                    <span style={{ fontSize: 12, color: '#64748b' }}>For multi-line POs (e.g. one line per engineer)</span>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                      {isPieceRateForm ? 'Engineers are paid per unit they report; lines with no engineer are billed by you' : 'For multi-line POs (e.g. one line per engineer)'}
+                    </span>
                   </div>
                   {poLines.length > 0 && (
                     <div className="table-wrap" style={{ marginBottom: 8 }}>
@@ -1082,6 +1093,7 @@ export default function Projects() {
                             <th>Line #</th>
                             <th>Description</th>
                             <th>Engineer</th>
+                            {isPieceRateForm && <th>Pay / Unit</th>}
                             <th>UOM</th>
                             <th>Qty</th>
                             <th>Unit Price</th>
@@ -1100,16 +1112,34 @@ export default function Projects() {
                                   style={{ fontSize: 12, padding: '2px 4px', minWidth: 120 }}
                                   value={pl.engineer_id || ''}
                                   onChange={(e) => {
-                                    const updated = poLines.map((l, i) => i === idx ? { ...l, engineer_id: e.target.value ? parseInt(e.target.value) : null } : l);
+                                    const engineerId = e.target.value ? parseInt(e.target.value) : null;
+                                    const updated = poLines.map((l, i) => i === idx ? { ...l, engineer_id: engineerId, pay_per_unit: engineerId ? l.pay_per_unit : 0 } : l);
                                     setPoLines(updated);
                                   }}
                                 >
-                                  <option value="">— Select —</option>
+                                  <option value="">{isPieceRateForm ? '— None (billed by you) —' : '— Select —'}</option>
                                   {engineers.filter(u => u.role === 'engineer').map(u => (
                                     <option key={u.id} value={u.id}>{u.name}</option>
                                   ))}
                                 </select>
                               </td>
+                              {isPieceRateForm && (
+                                <td>
+                                  {pl.engineer_id ? (
+                                    <input
+                                      className="form-input"
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      aria-label={`Pay per unit for line ${pl.line_number}`}
+                                      style={{ fontSize: 12, padding: '2px 4px', width: 90 }}
+                                      value={pl.pay_per_unit || ''}
+                                      placeholder="0.00"
+                                      onChange={(e) => setPoLines(poLines.map((l, i) => i === idx ? { ...l, pay_per_unit: e.target.value } : l))}
+                                    />
+                                  ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                                </td>
+                              )}
                               <td>{pl.edi_uom || '—'}</td>
                               <td style={{ textAlign: 'right' }}>{pl.edi_po_quantity || '—'}</td>
                               <td style={{ textAlign: 'right' }}>{pl.edi_unit_price ? `$${parseFloat(pl.edi_unit_price).toFixed(2)}` : '—'}</td>
@@ -1121,12 +1151,18 @@ export default function Projects() {
                             </tr>
                           ))}
                           <tr style={{ fontWeight: 600, background: '#f8fafc' }}>
-                            <td colSpan="6" style={{ textAlign: 'right' }}>Total:</td>
+                            <td colSpan={isPieceRateForm ? 7 : 6} style={{ textAlign: 'right' }}>Total:</td>
                             <td style={{ textAlign: 'right' }}>${poLines.reduce((s, l) => s + (parseFloat(l.po_line_amount) || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
                             <td></td>
                           </tr>
                         </tbody>
                       </table>
+                    </div>
+                  )}
+                  {isPieceRateForm && poLines.some(l => l.engineer_id) && (
+                    <div className="form-hint" style={{ marginBottom: 8 }}>
+                      Engineer pay if every unit is built: {formatMoney(poLines.reduce((s, l) => s + (l.engineer_id ? (parseFloat(l.pay_per_unit) || 0) * (parseFloat(l.edi_po_quantity) || 0) : 0), 0))}.
+                      Engineers on a line are added to the project automatically when you save.
                     </div>
                   )}
                   {!showAddPoLine ? (

@@ -3,10 +3,11 @@ const fs = require('fs');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 const vendorBilling = require('./vendor-billing');
+const poLineBilling = require('./po-line-billing');
 
 const INVOICE_EMAIL_QUERY = `
 SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
-       p.include_timesheets, p.show_invoice_period,
+       p.include_timesheets, p.show_invoice_period, p.project_type, p.unit_price,
        c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
        c.ap_email, c.email as customer_email, c.currency_symbol, c.send_invoice_to_self,
        cc.name as contact_name, cc.email as contact_email
@@ -122,6 +123,11 @@ function buildInvoicePdf(db, invoice, settings) {
     }
   }
 
+  // Piece rate has no timesheet entries: bill its units (one row per PO line when the PO has lines)
+  if (invoice.project_type === 'piece_rate') {
+    lineItems.push(...poLineBilling.getPieceRateInvoiceItems(db, invoice.id, invoice.unit_price).items);
+  }
+
   const adjustments = db.prepare('SELECT * FROM invoice_adjustments WHERE invoice_id = ? ORDER BY id').all(invoice.id);
   adjustments.forEach(adj => {
     lineItems.push({ description: adj.description, hours: adj.hours || 0, rate: adj.rate || 0, amount: adj.amount, is_adjustment: true });
@@ -177,15 +183,23 @@ function buildInvoicePdf(db, invoice, settings) {
   const withPeriod = (text, range) => (showPeriod ? `${text} - ${range}` : text);
   const hasHours = lineItems.some(item => item.hours > 0);
   const lineItemRows = lineItems.map(item => {
-    const qty = item.hours > 0 ? item.hours.toFixed(2) : '1';
-    const rate = item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const isUnitItem = item.is_piece_rate && item.units !== undefined;
+    const qty = isUnitItem ? String(item.units) : item.hours > 0 ? item.hours.toFixed(2) : '1';
+    const rate = isUnitItem
+      ? formatCurrency(item.unit_price)
+      : item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const desc = item.is_adjustment
       ? item.description
+      : item.is_po_line
+      ? poLineBilling.escapeHtml(item.description)
+      : isUnitItem
+      ? withPeriod(`${invoice.project_description || 'Units Produced'} - ${item.engineer}`, periodRange)
       : withPeriod(`${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer}`, weekRange(item.week_ending));
+    const itemLabel = item.is_po_line ? `Line ${item.po_line_number}` : (invoice.po_number || 'Engineering');
     return `
     <tr>
       <td style="border: 1px solid #ccc; padding: 8px;">${qty}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
+      <td style="border: 1px solid #ccc; padding: 8px;">${itemLabel}</td>
       <td style="border: 1px solid #ccc; padding: 8px;">${desc}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rate}</td>
       <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>

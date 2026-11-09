@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 import { PrintNotesField, InvoiceNotesEditor } from '../components/InvoiceNotes';
+import PoLineBillingFields, { toPoLineQuantities } from '../components/PoLineBillingFields';
+
+// Piece-rate rows (including PO lines) bill a unit count at a unit price
+const isUnitItem = (item) => !!item.is_piece_rate && item.units !== undefined && !item.is_consolidated;
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -586,9 +590,10 @@ export default function Invoices() {
     setSaving(true);
     setError('');
     try {
+      const { po_line_quantities: lineQuantities, ...formFields } = generateForm;
       const result = await apiFetch('/invoices/generate', {
         method: 'POST',
-        body: generateForm,
+        body: { ...formFields, po_line_quantities: toPoLineQuantities(lineQuantities) },
       });
       setViewingInvoice(result);
       await loadData();
@@ -717,6 +722,7 @@ export default function Invoices() {
         period_end: viewingInvoice.period_end,
         notes: viewingInvoice.notes || '',
         print_notes: viewingInvoice.print_notes || '',
+        po_line_quantities: viewingInvoice.po_line_quantities || [],
       };
 
       // Delete the old invoice
@@ -2072,6 +2078,7 @@ export default function Invoices() {
       {modal === 'generate' && (
         <Modal
           title="Generate Invoice"
+          wide={projects.find(p => String(p.id) === String(generateForm.project_id))?.project_type === 'piece_rate'}
           onClose={() => setModal(null)}
           footer={
             <>
@@ -2092,7 +2099,7 @@ export default function Invoices() {
               <select
                 className="form-select"
                 value={generateForm.project_id}
-                onChange={(e) => setGenerateForm({ ...generateForm, project_id: e.target.value })}
+                onChange={(e) => setGenerateForm({ ...generateForm, project_id: e.target.value, po_line_quantities: {} })}
               >
                 <option value="">Select a project...</option>
                 {projects.filter(p => !p.internal).map((p) => (
@@ -2138,6 +2145,13 @@ export default function Invoices() {
                 Current Month
               </button>
             </div>
+            {projects.find(p => String(p.id) === String(generateForm.project_id))?.project_type === 'piece_rate' && (
+              <PoLineBillingFields
+                projectId={generateForm.project_id}
+                quantities={generateForm.po_line_quantities}
+                onChange={(value) => setGenerateForm({ ...generateForm, po_line_quantities: value })}
+              />
+            )}
             <PrintNotesField
               value={generateForm.print_notes}
               onChange={(value) => setGenerateForm({ ...generateForm, print_notes: value })}
@@ -2880,12 +2894,18 @@ function InvoiceContent({ inv, settings }) {
                     ? (item.hours ? item.hours.toFixed(2) : '1')
                     : item.is_consolidated
                     ? (item.hours ? item.hours.toFixed(2) : '1')
+                    : isUnitItem(item)
+                    ? item.units
                     : item.is_fixed_price ? (inv.billing_method === 'monthly_installment' ? 'Monthly' : `${item.percentage}%`) : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
                 </td>
-                <td style={{ border: '1px solid #ccc', padding: '8px' }}>{poNumber || 'Engineering'}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px' }}>{item.is_po_line ? `Line ${item.po_line_number}` : (poNumber || 'Engineering')}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px' }}>
                   {item.is_adjustment
                     ? item.description
+                    : item.is_po_line
+                    ? item.description
+                    : isUnitItem(item)
+                    ? withPeriod(`${projectDescription || 'Units Produced'} - ${item.engineer}`, periodRange)
                     : item.is_consolidated
                     ? withPeriod(projectDescription || 'Engineering Services', periodRange)
                     : item.is_fixed_price
@@ -2896,7 +2916,7 @@ function InvoiceContent({ inv, settings }) {
                   }
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
-                  {item.is_adjustment ? (item.rate ? `${cs}${item.rate.toFixed(2)}` : `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : item.is_consolidated ? `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}` : item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
+                  {item.is_adjustment ? (item.rate ? `${cs}${item.rate.toFixed(2)}` : `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : isUnitItem(item) ? `${cs}${(item.unit_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : item.is_consolidated ? `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}` : item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
                 </td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{cs}{item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
