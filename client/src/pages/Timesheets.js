@@ -868,8 +868,7 @@ export default function Timesheets() {
     }));
   };
 
-  const handleSaveEntries = async () => {
-    setSaving(true);
+  const saveEntries = async () => {
     setError('');
     try {
       const result = await apiFetch(`/timesheets/${selectedTimesheet.id}/entries`, {
@@ -890,17 +889,28 @@ export default function Timesheets() {
       }));
       setEntries(mappedEntries);
       setOriginalEntries(mappedEntries);
+      return true;
     } catch (e) {
       setError(e.message);
-    } finally {
-      setSaving(false);
+      return false;
     }
   };
 
+  const handleSaveEntries = async () => {
+    setSaving(true);
+    await saveEntries();
+    setSaving(false);
+  };
+
   const handleSubmit = async () => {
-    if (!window.confirm('Submit this timesheet for approval?')) return;
+    const needsSave = hasUnsavedChanges();
+    const prompt = needsSave
+      ? 'Your changes will be saved, then this timesheet will be submitted for approval. Continue?'
+      : 'Submit this timesheet for approval?';
+    if (!window.confirm(prompt)) return;
     setSaving(true);
     try {
+      if (needsSave && !(await saveEntries())) return;
       await apiFetch(`/timesheets/${selectedTimesheet.id}/submit`, { method: 'PUT' });
       const ts = await apiFetch(`/timesheets/${selectedTimesheet.id}`);
       setSelectedTimesheet(ts);
