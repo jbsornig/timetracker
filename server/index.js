@@ -1153,30 +1153,48 @@ function parseRockwellPoPdf(text) {
   return result;
 }
 
+// FCA PO line item: "<item no><description>\nDelivery date: ...\n<qty><UOM><price>/1/"
+// The description is the single text line right before "Delivery date:" and may contain any characters.
+const FCA_LINE_ITEM_PATTERN = /\n([^\n]+)\n\s*Delivery date:[^\n]*\n\s*([\d,.]+)(HR|LO|EA|MON|PCE|UN)([\d,.]+)\/1\//g;
+
+// The PDF text glues the item number to the description ("26 port switch" is item 2, "6 port switch").
+// FCA numbers items 1, 2, 3..., so prefer the expected next number before falling back to all leading digits.
+function splitFcaItemHeader(header, expectedNumber) {
+  const trimmed = header.trim();
+  const expected = String(expectedNumber);
+  if (trimmed.startsWith(expected) && trimmed.length > expected.length) {
+    return { lineNumber: expectedNumber, description: trimmed.slice(expected.length).trim() };
+  }
+  const match = trimmed.match(/^(\d+)(\D.*)$/);
+  return match ? { lineNumber: parseInt(match[1], 10), description: match[2].trim() } : null;
+}
+
+function parseFcaLineItems(text) {
+  const lineItems = [];
+  for (const match of text.matchAll(FCA_LINE_ITEM_PATTERN)) {
+    const previousNumber = lineItems.length > 0 ? lineItems[lineItems.length - 1].line_number : 0;
+    const header = splitFcaItemHeader(match[1], previousNumber + 1);
+    if (!header) continue;
+    const quantity = parseFloat(match[2].replace(/,/g, ''));
+    const unitPrice = parseFloat(match[4].replace(/,/g, ''));
+    lineItems.push({
+      line_number: header.lineNumber,
+      description: header.description,
+      quantity,
+      uom: match[3],
+      unit_price: unitPrice,
+      po_line_amount: Math.round(quantity * unitPrice * 100) / 100,
+    });
+  }
+  return lineItems;
+}
+
 function parseFcaPoPdf(text) {
   const poMatch = text.match(/Purchase Order:\s*(\d+)/);
   const plantMatch = text.match(/Plant Code:\s*(\d+)/);
   const dateMatch = text.match(/Original Document Date:\s*([\d/]+)/);
 
-  // Extract all line items: pattern is "<line_number><description>\nDelivery date: ...\n<qty><UOM><price>/1/"
-  const lineItems = [];
-  const linePattern = /\n(\d+)([\w\s.,'/-]+?)(?:\n\s*Delivery date:.*?\n)\s*([\d,.]+)(HR|LO|EA|MON|PCE|UN)([\d,.]+)\/1\//g;
-  let lineMatch;
-  while ((lineMatch = linePattern.exec(text)) !== null) {
-    const lineNum = parseInt(lineMatch[1]);
-    const desc = lineMatch[2].trim();
-    const qty = parseFloat(lineMatch[3].replace(/,/g, ''));
-    const uomVal = lineMatch[4];
-    const price = parseFloat(lineMatch[5].replace(/,/g, ''));
-    lineItems.push({
-      line_number: lineNum,
-      description: desc,
-      quantity: qty,
-      uom: uomVal,
-      unit_price: price,
-      po_line_amount: qty * price,
-    });
-  }
+  const lineItems = parseFcaLineItems(text);
 
   let description = '';
   let uom = '';
