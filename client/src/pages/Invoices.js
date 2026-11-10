@@ -3,6 +3,7 @@ import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 import { PrintNotesField, InvoiceNotesEditor } from '../components/InvoiceNotes';
 import PoLineBillingFields, { toPoLineQuantities } from '../components/PoLineBillingFields';
+import RecipientBlock from '../components/RecipientBlock';
 
 // Piece-rate rows (including PO lines) bill a unit count at a unit price
 const isUnitItem = (item) => !!item.is_piece_rate && item.units !== undefined && !item.is_consolidated;
@@ -2839,16 +2840,8 @@ function InvoiceContent({ inv, settings }) {
       </div>
 
       {/* Bill To and Logo */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-        <div>
-          <div style={{ fontWeight: 'bold', marginBottom: 4 }}>To:</div>
-          <div style={{ lineHeight: 1.5, marginLeft: 20 }}>
-            <div style={{ fontWeight: 'bold' }}>{customerName}</div>
-            {customerAddress && customerAddress.split('\n').map((line, i) => (
-              <div key={i}>{line}</div>
-            ))}
-          </div>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
+        <RecipientBlock customerName={customerName} customerAddress={customerAddress} />
         {settings.company_logo && (
           <div style={{ textAlign: 'right' }}>
             <img

@@ -4,6 +4,7 @@ const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
 const vendorBilling = require('./vendor-billing');
 const poLineBilling = require('./po-line-billing');
+const { renderRecipientBlockHtml } = require('./recipient-address');
 
 const INVOICE_EMAIL_QUERY = `
 SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
@@ -250,14 +251,8 @@ function buildInvoicePdf(db, invoice, settings) {
       </div>
 
       <!-- Bill To and Logo -->
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-        <div>
-          <div style="font-weight: bold; margin-bottom: 4px;">To:</div>
-          <div style="line-height: 1.5; margin-left: 20px;">
-            <div style="font-weight: bold;">${invoice.customer_name}</div>
-            ${(invoice.customer_address || '').split('\n').map(line => `<div>${line}</div>`).join('')}
-          </div>
-        </div>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px;">
+        ${renderRecipientBlockHtml(invoice.customer_name, invoice.customer_address)}
         ${settings.company_logo ? `<div style="text-align: right;"><img src="${settings.company_logo}" style="max-width: 200px; max-height: 80px;" /></div>` : ''}
       </div>
 
