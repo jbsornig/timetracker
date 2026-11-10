@@ -5,12 +5,13 @@ const chromium = require('@sparticuz/chromium');
 const vendorBilling = require('./vendor-billing');
 const poLineBilling = require('./po-line-billing');
 const { renderRecipientBlockHtml } = require('./recipient-address');
+const { normalizeInvoiceLayout, renderClassicInvoicePageHtml } = require('./classic-invoice-page');
 
 const INVOICE_EMAIL_QUERY = `
 SELECT i.*, p.name as project_name, p.description as project_description, p.po_number, p.location,
        p.include_timesheets, p.show_invoice_period, p.project_type, p.unit_price,
        c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
-       c.ap_email, c.email as customer_email, c.currency_symbol, c.send_invoice_to_self,
+       c.ap_email, c.email as customer_email, c.currency_symbol, c.send_invoice_to_self, c.invoice_layout,
        cc.name as contact_name, cc.email as contact_email
 FROM invoices i
 JOIN projects p ON p.id = i.project_id
@@ -183,13 +184,15 @@ function buildInvoicePdf(db, invoice, settings) {
   const showPeriod = invoice.show_invoice_period !== 0;
   const withPeriod = (text, range) => (showPeriod ? `${text} - ${range}` : text);
   const hasHours = lineItems.some(item => item.hours > 0);
-  const lineItemRows = lineItems.map(item => {
+  const money = (amount) => (amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // One row per line item, shared by the standard and classic layouts (description is HTML-safe)
+  const itemRows = lineItems.length > 0 ? lineItems.map(item => {
     const isUnitItem = item.is_piece_rate && item.units !== undefined;
     const qty = isUnitItem ? String(item.units) : item.hours > 0 ? item.hours.toFixed(2) : '1';
-    const rate = isUnitItem
+    const unitPrice = isUnitItem
       ? formatCurrency(item.unit_price)
-      : item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const desc = item.is_adjustment
+      : item.rate > 0 ? `${cs}${item.rate.toFixed(2)}` : `${cs}${money(item.amount)}`;
+    const description = item.is_adjustment
       ? item.description
       : item.is_po_line
       ? poLineBilling.escapeHtml(item.description)
@@ -197,34 +200,28 @@ function buildInvoicePdf(db, invoice, settings) {
       ? withPeriod(`${invoice.project_description || 'Units Produced'} - ${item.engineer}`, periodRange)
       : withPeriod(`${invoice.project_description || 'Engineering Labor Hours'} - ${item.engineer}`, weekRange(item.week_ending));
     const itemLabel = item.is_po_line ? `Line ${item.po_line_number}` : (invoice.po_number || 'Engineering');
-    return `
+    return { qty, item: itemLabel, description, unitPrice, lineTotal: `${cs}${money(item.amount)}` };
+  }) : [{
+    qty: invoice.total_hours > 0 ? invoice.total_hours.toFixed(2) : '1',
+    item: invoice.po_number || 'Engineering',
+    description: withPeriod(invoice.project_description || 'Engineering Labor Hours', periodRange),
+    unitPrice: invoice.total_hours > 0 ? '—' : `${cs}${money(invoice.total_amount)}`,
+    lineTotal: `${cs}${money(invoice.total_amount)}`,
+  }];
+  const cell = (content, align) => `<td style="border: 1px solid #ccc; padding: 8px;${align ? ` text-align: ${align};` : ''}">${content}</td>`;
+  const lineItemRows = itemRows.map(row => `
     <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${qty}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${itemLabel}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${desc}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${rate}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(item.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      ${cell(row.qty)}${cell(row.item)}${cell(row.description)}${cell(row.unitPrice, 'right')}${cell('', 'right')}${cell(row.lineTotal, 'right')}
     </tr>
-  `;
-  }).join('');
+  `).join('');
   const totalHoursRow = hasHours && lineItems.length > 1 ? `
     <tr style="border-top: 2px solid #000; font-weight: bold;">
       <td style="border: 1px solid #ccc; padding: 8px;">${lineItems.reduce((s, i) => s + (i.hours || 0), 0).toFixed(2)}</td>
       <td style="border: 1px solid #ccc; padding: 8px;" colspan="4">Total Hours</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${lineItems.reduce((s, i) => s + (i.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${money(lineItems.reduce((s, i) => s + (i.amount || 0), 0))}</td>
     </tr>
   ` : '';
-  const lineItemsHtml = lineItems.length > 0 ? lineItemRows + totalHoursRow : `
-    <tr>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.total_hours > 0 ? invoice.total_hours.toFixed(2) : '1'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${invoice.po_number || 'Engineering'}</td>
-      <td style="border: 1px solid #ccc; padding: 8px;">${withPeriod(invoice.project_description || 'Engineering Labor Hours', periodRange)}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${invoice.total_hours > 0 ? '—' : cs + (invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;"></td>
-      <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${cs}${(invoice.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-    </tr>
-  `;
+  const lineItemsHtml = lineItemRows + totalHoursRow;
 
   const invoicePageHtml = `
     <div style="font-family: Arial, sans-serif; color: #000; padding: 20px;">
@@ -457,7 +454,12 @@ function buildInvoicePdf(db, invoice, settings) {
       </style>
     </head>
     <body>
-      ${invoicePageHtml}
+      ${normalizeInvoiceLayout(invoice.invoice_layout) === 'classic'
+        ? renderClassicInvoicePageHtml({
+          invoice, settings, rows: itemRows, invoiceDateStr, dueDateStr, formatCurrency,
+          notesHtml: vendorBilling.renderPrintNotesHtml(invoice.print_notes),
+        })
+        : invoicePageHtml}
       ${timesheetPagesHtml}
     </body>
     </html>

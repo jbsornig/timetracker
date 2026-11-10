@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 
-const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '', currency_symbol: '$', send_invoice_to_self: false, edi_invoicing: false, outlook_invoice_sent_folder: '', outlook_invoice_received_folder: '' };
+const emptyCustomer = { name: '', contact: '', contact_title: '', email: '', phone: '', address: '', supplier_number: '', payment_terms: 'Net 30', ap_email: '', currency_symbol: '$', send_invoice_to_self: false, edi_invoicing: false, invoice_layout: 'standard', outlook_invoice_sent_folder: '', outlook_invoice_received_folder: '' };
 const PAYMENT_TERMS_OPTIONS = ['Immediate', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'Net 75', 'Net 90'];
 const emptyContact = { name: '', title: '', email: '', phone: '' };
 
@@ -339,6 +339,18 @@ export default function Customers() {
                   placeholder="ap@company.com"
                 />
                 <div className="form-hint">Invoices will be emailed to this address</div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Invoice Layout</label>
+                <select
+                  className="form-input"
+                  value={form.invoice_layout || 'standard'}
+                  onChange={(e) => setForm({ ...form, invoice_layout: e.target.value })}
+                >
+                  <option value="standard">Standard</option>
+                  <option value="classic">Classic (2024 layout)</option>
+                </select>
+                <div className="form-hint">Classic matches the invoices sent before TimeTracker. Use it for customers whose invoice-scanning system rejects the standard layout.</div>
               </div>
               <div className="form-group">
                 <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>

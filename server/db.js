@@ -233,6 +233,11 @@ function initSchema() {
     db.exec('ALTER TABLE customers ADD COLUMN send_invoice_to_self INTEGER DEFAULT 0');
     console.log('✅ Migration: Added send_invoice_to_self column to customers');
   }
+  // Invoice page layout per customer: 'standard' or 'classic' (the pre-TimeTracker 2024 layout)
+  if (!customerCols.find(c => c.name === 'invoice_layout')) {
+    db.exec("ALTER TABLE customers ADD COLUMN invoice_layout TEXT DEFAULT 'standard'");
+    console.log('✅ Migration: Added invoice_layout column to customers');
+  }
   // Add edi_invoicing column to customers
   if (!customerCols.find(c => c.name === 'edi_invoicing')) {
     db.exec('ALTER TABLE customers ADD COLUMN edi_invoicing INTEGER DEFAULT 0');
@@ -565,6 +570,12 @@ function initSchema() {
   if (!projectCols3.find(c => c.name === 'edi_plant_code')) {
     db.exec("ALTER TABLE projects ADD COLUMN edi_plant_code TEXT DEFAULT ''");
     console.log('✅ Migration: Added edi_plant_code column to projects');
+  }
+
+  // Boxes/systems covered by the PO; NULL = not recorded (used for per-plant totals)
+  if (!projectCols3.find(c => c.name === 'box_count')) {
+    db.exec('ALTER TABLE projects ADD COLUMN box_count INTEGER');
+    console.log('✅ Migration: Added box_count column to projects');
   }
 
   // Add edi_po_quantity and edi_unit_price columns to projects for EA/MON EDI line items

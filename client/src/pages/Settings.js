@@ -44,6 +44,7 @@ export default function Settings() {
     company_phone: '',
     company_fax: '',
     company_email: '',
+    invoice_sales_person: '',
     company_logo: '',
     next_invoice_number: '1000',
     admin_notification_email: '',
@@ -476,6 +477,17 @@ export default function Settings() {
               onChange={(e) => handleChange('company_email', e.target.value)}
               placeholder="billing@yourcompany.com"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Sales Person (Classic invoices)</label>
+            <input
+              className="form-input"
+              value={settings.invoice_sales_person}
+              onChange={(e) => handleChange('invoice_sales_person', e.target.value)}
+              placeholder="James B. Sornig"
+            />
+            <div className="form-hint">Printed in the Sales Person box on Classic-layout invoices. Leave blank to print the company name.</div>
           </div>
 
           <div className="form-group">

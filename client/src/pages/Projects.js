@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
+import ProjectPlantSummary from '../components/ProjectPlantSummary';
+import { matchesProjectSearch } from '../project-search';
 
-const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, show_invoice_period: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false, unit_price: '' };
+const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, show_invoice_period: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false, unit_price: '', box_count: '' };
 
 const NO_ENGINEER_FILTER = 'none';
 
@@ -76,6 +78,7 @@ export default function Projects() {
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [contactFilter, setContactFilter] = useState('');
+  const [searchText, setSearchText] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [importingPo, setImportingPo] = useState(false);
@@ -153,6 +156,7 @@ export default function Projects() {
       edi_unit_price: project.edi_unit_price || '',
       overtime_type: project.overtime_type || 'none',
       invoice_consolidate: project.invoice_consolidate === 1,
+      box_count: project.box_count ?? '',
     });
     setError('');
     if (project.customer_id) {
@@ -198,6 +202,7 @@ export default function Projects() {
     if (!matchesEngineerFilter(p)) return false;
     if (dateFrom && p.created_at && p.created_at.slice(0, 10) < dateFrom) return false;
     if (dateTo && p.created_at && p.created_at.slice(0, 10) > dateTo) return false;
+    if (!matchesProjectSearch(p, searchText)) return false;
     return true;
   };
 
@@ -518,6 +523,18 @@ export default function Projects() {
       </div>
 
       <div className="card" style={{ marginBottom: 16, padding: '12px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <input
+            type="search"
+            className="form-input"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Search projects, POs, descriptions and PO lines (use commas for OR: error proofing, vision)"
+            aria-label="Search projects"
+            style={{ flex: 1, maxWidth: 640 }}
+          />
+          {searchText && <button className="btn btn-secondary btn-sm" onClick={() => setSearchText('')}>Clear</button>}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: '#64748b' }}>Status:</span>
@@ -587,6 +604,10 @@ export default function Projects() {
           </span>
         </div>
       </div>
+
+      {searchText.trim() && (
+        <ProjectPlantSummary projects={projects.filter(matchesFilters)} />
+      )}
 
       <div className="card">
         {projects.length === 0 ? (
@@ -667,7 +688,14 @@ export default function Projects() {
                       </td>
                       <td>{p.customer_name}</td>
                       <td>{p.contact_name || '—'}</td>
-                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>{p.po_number || '—'}</td>
+                      <td style={{ fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                        {p.po_number || '—'}
+                        {(p.edi_plant_code || p.box_count != null) && (
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                            {[p.edi_plant_code && `Plant ${p.edi_plant_code}`, p.box_count != null && `${p.box_count} box${p.box_count === 1 ? '' : 'es'}`].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                      </td>
                       <td>${budget.toLocaleString()}</td>
                       <td>${billed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td style={{ color: paid >= billed && billed > 0 ? '#16a34a' : paid > 0 ? '#d97706' : undefined }}>
@@ -1018,6 +1046,19 @@ export default function Projects() {
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Box Count</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.box_count}
+                  onChange={(e) => setForm({ ...form, box_count: e.target.value })}
+                  placeholder="Not recorded"
+                />
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Boxes or systems this PO covers. Leave blank if unknown.</div>
               </div>
             </div>
             {!!customers.find(c => String(c.id) === String(form.customer_id) && c.edi_invoicing) && (

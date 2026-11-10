@@ -4,6 +4,7 @@ import Modal from '../components/Modal';
 import { PrintNotesField, InvoiceNotesEditor } from '../components/InvoiceNotes';
 import PoLineBillingFields, { toPoLineQuantities } from '../components/PoLineBillingFields';
 import RecipientBlock from '../components/RecipientBlock';
+import ClassicInvoice from '../components/ClassicInvoice';
 
 // Piece-rate rows (including PO lines) bill a unit count at a unit price
 const isUnitItem = (item) => !!item.is_piece_rate && item.units !== undefined && !item.is_consolidated;
@@ -2769,6 +2770,58 @@ function DailyTimeReport({ timesheet, settings, projectName, customerName, locat
   );
 }
 
+function formatMoney(cs, amount) {
+  return `${cs}${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function describeQuantity(item, inv) {
+  if (item.is_adjustment || item.is_consolidated) return item.hours ? item.hours.toFixed(2) : '1';
+  if (isUnitItem(item)) return String(item.units);
+  if (item.is_fixed_price) return inv.billing_method === 'monthly_installment' ? 'Monthly' : `${item.percentage}%`;
+  if (item.is_fixed_monthly) return `${item.hours?.toFixed(2)} hrs`;
+  return item.hours?.toFixed(2) ?? '';
+}
+
+function describeLine(item, { projectDescription, periodRange, withPeriod, weekRange }) {
+  if (item.is_adjustment || item.is_po_line) return item.description;
+  if (isUnitItem(item)) return withPeriod(`${projectDescription || 'Units Produced'} - ${item.engineer}`, periodRange);
+  if (item.is_consolidated) return withPeriod(projectDescription || 'Engineering Services', periodRange);
+  if (item.is_fixed_price) return item.engineer ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}` : projectDescription || 'Fixed Price Service';
+  if (item.is_fixed_monthly) return withPeriod(`${projectDescription || 'Monthly Service'} - ${item.engineer}`, periodRange);
+  return withPeriod(`${projectDescription || 'Engineering Labor Hours'} - ${item.engineer}`, weekRange(item.week_ending));
+}
+
+function describeUnitPrice(item, cs) {
+  if (item.is_adjustment) return item.rate ? `${cs}${item.rate.toFixed(2)}` : formatMoney(cs, item.amount);
+  if (isUnitItem(item)) return formatMoney(cs, item.unit_price);
+  if (item.is_consolidated) return formatMoney(cs, item.amount);
+  if (item.is_fixed_price) return 'Fixed';
+  if (item.is_fixed_monthly) return 'Monthly';
+  return `${cs}${item.rate?.toFixed(2) || '0.00'}`;
+}
+
+// The invoice's line-item rows as display text, shared by the standard and classic layouts
+function buildInvoiceRows(inv, context) {
+  const { cs, poNumber, projectDescription, periodRange, withPeriod } = context;
+  if (!inv.lineItems || inv.lineItems.length === 0) {
+    return [{
+      qty: inv.total_hours?.toFixed(2) || '0.00',
+      item: poNumber || 'Engineering',
+      description: withPeriod(projectDescription || 'Engineering Labor Hours', periodRange),
+      unitPrice: '—',
+      lineTotal: formatMoney(cs, inv.total_amount),
+    }];
+  }
+  return inv.lineItems.map(item => ({
+    qty: describeQuantity(item, inv),
+    item: item.is_po_line ? `Line ${item.po_line_number}` : (poNumber || 'Engineering'),
+    description: describeLine(item, context),
+    unitPrice: describeUnitPrice(item, cs),
+    lineTotal: formatMoney(cs, item.amount),
+    isAdjustment: !!item.is_adjustment,
+  }));
+}
+
 function InvoiceContent({ inv, settings }) {
   // Handle both generated (nested in project) and loaded (flat) invoice data structures
   const customerName = inv.customer_name || inv.project?.customer_name || '';
@@ -2794,6 +2847,21 @@ function InvoiceContent({ inv, settings }) {
 
   const invoiceDate = inv.created_at ? formatDate(inv.created_at) : formatDate(new Date().toISOString().split('T')[0]);
   const dueDate = getDueDate(inv.created_at || new Date(), paymentTerms);
+  const rows = buildInvoiceRows(inv, { cs, poNumber, projectDescription, periodRange, withPeriod, weekRange });
+
+  if ((inv.invoice_layout || inv.project?.invoice_layout) === 'classic') {
+    return (
+      <ClassicInvoice
+        settings={settings}
+        invoice={{
+          invoiceNumber: inv.invoice_number, invoiceDate, dueDate, supplierNumber, poNumber, projectName,
+          customerName, customerAddress, contactName, paymentTerms, printNotes: inv.print_notes,
+          total: formatMoney(cs, inv.total_amount), salesTax: formatMoney(cs, 0),
+        }}
+        rows={rows}
+      />
+    );
+  }
 
   return (
     <div style={{ fontFamily: 'Arial, sans-serif', color: '#000' }}>
@@ -2880,39 +2948,14 @@ function InvoiceContent({ inv, settings }) {
         <tbody>
           {inv.lineItems && inv.lineItems.length > 0 ? (
             <>
-            {inv.lineItems.map((item, idx) => (
-              <tr key={idx} style={item.is_adjustment ? { background: '#fffbeb' } : undefined}>
-                <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_adjustment
-                    ? (item.hours ? item.hours.toFixed(2) : '1')
-                    : item.is_consolidated
-                    ? (item.hours ? item.hours.toFixed(2) : '1')
-                    : isUnitItem(item)
-                    ? item.units
-                    : item.is_fixed_price ? (inv.billing_method === 'monthly_installment' ? 'Monthly' : `${item.percentage}%`) : item.is_fixed_monthly ? `${item.hours?.toFixed(2)} hrs` : item.hours?.toFixed(2)}
-                </td>
-                <td style={{ border: '1px solid #ccc', padding: '8px' }}>{item.is_po_line ? `Line ${item.po_line_number}` : (poNumber || 'Engineering')}</td>
-                <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                  {item.is_adjustment
-                    ? item.description
-                    : item.is_po_line
-                    ? item.description
-                    : isUnitItem(item)
-                    ? withPeriod(`${projectDescription || 'Units Produced'} - ${item.engineer}`, periodRange)
-                    : item.is_consolidated
-                    ? withPeriod(projectDescription || 'Engineering Services', periodRange)
-                    : item.is_fixed_price
-                    ? (item.engineer ? `${projectDescription || 'Fixed Price Service'} - ${item.engineer}` : projectDescription || 'Fixed Price Service')
-                    : item.is_fixed_monthly
-                    ? withPeriod(`${projectDescription || 'Monthly Service'} - ${item.engineer}`, periodRange)
-                    : withPeriod(`${projectDescription || 'Engineering Labor Hours'} - ${item.engineer}`, weekRange(item.week_ending))
-                  }
-                </td>
-                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>
-                  {item.is_adjustment ? (item.rate ? `${cs}${item.rate.toFixed(2)}` : `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : isUnitItem(item) ? `${cs}${(item.unit_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : item.is_consolidated ? `${cs}${item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}` : item.is_fixed_price ? 'Fixed' : item.is_fixed_monthly ? 'Monthly' : `${cs}${item.rate?.toFixed(2) || '0.00'}`}
-                </td>
+            {rows.map((row, idx) => (
+              <tr key={idx} style={row.isAdjustment ? { background: '#fffbeb' } : undefined}>
+                <td style={{ border: '1px solid #ccc', padding: '8px' }}>{row.qty}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px' }}>{row.item}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px' }}>{row.description}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{row.unitPrice}</td>
                 <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}></td>
-                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{cs}{item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</td>
+                <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'right' }}>{row.lineTotal}</td>
               </tr>
             ))}
             {inv.lineItems.some(item => item.hours > 0) && inv.lineItems.length > 1 && (

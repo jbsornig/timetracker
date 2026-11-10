@@ -14,6 +14,8 @@ const { createInvoiceCostCalculator, getEngineerPaymentsInPeriod } = require('./
 const vendorBilling = require('./vendor-billing');
 const poLineBilling = require('./po-line-billing');
 const invoicePdf = require('./invoice-pdf');
+const { normalizeInvoiceLayout } = require('./classic-invoice-page');
+const { normalizeBoxCount, BoxCountError } = require('./box-count');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
 const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
@@ -798,9 +800,9 @@ app.get('/api/customers', auth, (req, res) => {
 });
 
 app.post('/api/customers', auth, adminOnly, (req, res) => {
-  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder } = req.body;
+  const { name, contact, contact_title, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder, invoice_layout } = req.body;
   const db = getDb();
-  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, outlook_invoice_sent_folder || '', outlook_invoice_received_folder || '');
+  const result = db.prepare('INSERT INTO customers (name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder, invoice_layout) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, outlook_invoice_sent_folder || '', outlook_invoice_received_folder || '', normalizeInvoiceLayout(invoice_layout));
   const customerId = result.lastInsertRowid;
 
   // Auto-create a contact record if primary contact name is provided
@@ -812,9 +814,9 @@ app.post('/api/customers', auth, adminOnly, (req, res) => {
 });
 
 app.put('/api/customers/:id', auth, adminOnly, (req, res) => {
-  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder } = req.body;
+  const { name, contact, email, phone, address, supplier_number, payment_terms, ap_email, currency_symbol, send_invoice_to_self, edi_invoicing, outlook_invoice_sent_folder, outlook_invoice_received_folder, invoice_layout } = req.body;
   const db = getDb();
-  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=?, send_invoice_to_self=?, edi_invoicing=?, outlook_invoice_sent_folder=?, outlook_invoice_received_folder=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, outlook_invoice_sent_folder || '', outlook_invoice_received_folder || '', req.params.id);
+  db.prepare('UPDATE customers SET name=?, contact=?, email=?, phone=?, address=?, supplier_number=?, payment_terms=?, ap_email=?, currency_symbol=?, send_invoice_to_self=?, edi_invoicing=?, outlook_invoice_sent_folder=?, outlook_invoice_received_folder=?, invoice_layout=? WHERE id=?').run(name, contact, email, phone, address, supplier_number, payment_terms || 'Net 30', ap_email || null, currency_symbol || '$', send_invoice_to_self ? 1 : 0, edi_invoicing ? 1 : 0, outlook_invoice_sent_folder || '', outlook_invoice_received_folder || '', normalizeInvoiceLayout(invoice_layout), req.params.id);
   res.json({ success: true });
 });
 
@@ -900,7 +902,9 @@ app.get('/api/projects', auth, (req, res) => {
           JOIN timesheets ts2 ON ts2.id = te2.timesheet_id
           LEFT JOIN engineer_projects ep2 ON ep2.user_id = ts2.user_id AND ep2.project_id = ts2.project_id
           WHERE ts2.project_id = p.id AND ts2.status IN ('submitted', 'approved')
-          AND te2.invoice_id IS NULL), 0) as amount_unbilled
+          AND te2.invoice_id IS NULL), 0) as amount_unbilled,
+        (SELECT GROUP_CONCAT(pl.description, ' | ') FROM customer_po_lines pl
+          WHERE pl.project_id = p.id) as po_line_text
       FROM projects p
       JOIN customers c ON p.customer_id = c.id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
@@ -1404,6 +1408,13 @@ function parseMercedesPoPdf(text) {
 app.post('/api/projects', auth, adminOnly, (req, res) => {
   const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, unit_price } = req.body;
   const db = getDb();
+  let boxCount;
+  try {
+    boxCount = normalizeBoxCount(req.body.box_count);
+  } catch (error) {
+    if (error instanceof BoxCountError) return res.status(400).json({ error: error.message });
+    throw error;
+  }
   if (po_number && po_number.trim()) {
     const existing = db.prepare('SELECT id, name FROM projects WHERE po_number = ?').get(po_number.trim());
     if (existing) {
@@ -1414,12 +1425,22 @@ app.post('/api/projects', auth, adminOnly, (req, res) => {
   if (req.body.show_invoice_period === false) {
     db.prepare('UPDATE projects SET show_invoice_period = 0 WHERE id = ?').run(result.lastInsertRowid);
   }
+  if (boxCount !== null) {
+    db.prepare('UPDATE projects SET box_count = ? WHERE id = ?').run(boxCount, result.lastInsertRowid);
+  }
   res.json({ id: result.lastInsertRowid, ...req.body });
 });
 
 app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
   const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, confirm_inactive, unit_price } = req.body;
   const db = getDb();
+  let boxCount;
+  try {
+    boxCount = normalizeBoxCount(req.body.box_count);
+  } catch (error) {
+    if (error instanceof BoxCountError) return res.status(400).json({ error: error.message });
+    throw error;
+  }
 
   if (po_number && po_number.trim()) {
     const existing = db.prepare('SELECT id, name FROM projects WHERE po_number = ? AND id != ?').get(po_number.trim(), req.params.id);
@@ -1448,6 +1469,9 @@ app.put('/api/projects/:id', auth, adminOnly, (req, res) => {
   db.prepare('UPDATE projects SET customer_id=?, contact_id=?, name=?, description=?, po_number=?, po_amount=?, location=?, status=?, include_timesheets=?, project_type=?, total_cost=?, requires_daily_logs=?, billing_method=?, monthly_engineer_pay=?, monthly_invoice_amount=?, internal=?, edi_uom=?, edi_plant_code=?, edi_po_quantity=?, edi_unit_price=?, overtime_type=?, invoice_consolidate=?, unit_price=? WHERE id=?').run(customer_id, contact_id || null, name, description || null, po_number, po_amount, location, status, include_timesheets ? 1 : 0, project_type || 'hourly', total_cost || 0, requires_daily_logs ? 1 : 0, billing_method || 'percentage', monthly_engineer_pay || 0, monthly_invoice_amount || 0, internal ? 1 : 0, edi_uom || '', edi_plant_code || '', edi_po_quantity || 0, edi_unit_price || 0, overtime_type || 'none', invoice_consolidate ? 1 : 0, unit_price || 0, req.params.id);
   if (req.body.show_invoice_period !== undefined) {
     db.prepare('UPDATE projects SET show_invoice_period = ? WHERE id = ?').run(req.body.show_invoice_period ? 1 : 0, req.params.id);
+  }
+  if (req.body.box_count !== undefined) {
+    db.prepare('UPDATE projects SET box_count = ? WHERE id = ?').run(boxCount, req.params.id);
   }
   res.json({ success: true });
 });
@@ -2665,7 +2689,7 @@ app.get('/api/invoices/:id', auth, adminOnly, (req, res) => {
            p.project_type, p.total_cost, p.include_timesheets, p.billing_method, p.invoice_consolidate, p.overtime_type, p.requires_daily_logs, p.unit_price,
            p.show_invoice_period,
            c.name as customer_name, c.address as customer_address, c.supplier_number, c.payment_terms,
-           c.currency_symbol, cc.name as contact_name
+           c.currency_symbol, c.invoice_layout, cc.name as contact_name
     FROM invoices i
     JOIN projects p ON p.id = i.project_id
     JOIN customers c ON c.id = p.customer_id
@@ -3334,7 +3358,7 @@ app.post('/api/invoices/generate', auth, adminOnly, (req, res) => {
     // Check project type
     const project = db.prepare(`
       SELECT p.*, p.description as project_description, c.name as customer_name, c.address as customer_address,
-             c.supplier_number, c.payment_terms, c.currency_symbol, cc.name as contact_name
+             c.supplier_number, c.payment_terms, c.currency_symbol, c.invoice_layout, cc.name as contact_name
       FROM projects p
       JOIN customers c ON c.id = p.customer_id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
@@ -3673,7 +3697,7 @@ app.post('/api/invoices/manual', auth, adminOnly, (req, res) => {
 
     const project = db.prepare(`
       SELECT p.*, c.name as customer_name, c.address as customer_address,
-             c.supplier_number, c.payment_terms, c.currency_symbol, cc.name as contact_name
+             c.supplier_number, c.payment_terms, c.currency_symbol, c.invoice_layout, cc.name as contact_name
       FROM projects p
       JOIN customers c ON c.id = p.customer_id
       LEFT JOIN customer_contacts cc ON p.contact_id = cc.id
@@ -3707,7 +3731,7 @@ app.post('/api/invoices/manual', auth, adminOnly, (req, res) => {
     const invoice = db.prepare(`
       SELECT i.*, p.name as project_name, p.po_number, p.description as project_description,
              c.name as customer_name, c.address as customer_address, c.supplier_number,
-             c.payment_terms, c.currency_symbol, cc.name as contact_name
+             c.payment_terms, c.currency_symbol, c.invoice_layout, cc.name as contact_name
       FROM invoices i
       JOIN projects p ON p.id = i.project_id
       JOIN customers c ON c.id = p.customer_id
@@ -8317,8 +8341,8 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
       // Restore customers
       if (backup.data.customers) {
         for (const c of backup.data.customers) {
-          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, ap_email, edi_invoicing, currency_symbol, send_invoice_to_self, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.ap_email || null, c.edi_invoicing || 0, c.currency_symbol || '$', c.send_invoice_to_self || 0, c.created_at
+          db.prepare('INSERT INTO customers (id, name, contact, email, phone, address, supplier_number, payment_terms, ap_email, edi_invoicing, currency_symbol, send_invoice_to_self, invoice_layout, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            c.id, c.name, c.contact, c.email, c.phone, c.address, c.supplier_number, c.payment_terms, c.ap_email || null, c.edi_invoicing || 0, c.currency_symbol || '$', c.send_invoice_to_self || 0, normalizeInvoiceLayout(c.invoice_layout), c.created_at
           );
         }
       }
@@ -8338,6 +8362,9 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
           db.prepare('INSERT INTO projects (id, customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, unit_price, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
             p.id, p.customer_id, p.contact_id, p.name, p.description, p.po_number, p.po_amount, p.location, p.status, p.include_timesheets ?? 1, p.project_type || 'hourly', p.total_cost || 0, p.requires_daily_logs || 0, p.billing_method || null, p.monthly_engineer_pay || null, p.monthly_invoice_amount || null, p.internal || 0, p.edi_uom || null, p.edi_plant_code || null, p.edi_po_quantity || null, p.edi_unit_price || null, p.overtime_type || 'none', p.invoice_consolidate || 0, p.unit_price || 0, p.created_at
           );
+          if (p.box_count !== undefined && p.box_count !== null) {
+            db.prepare('UPDATE projects SET box_count = ? WHERE id = ?').run(p.box_count, p.id);
+          }
         }
       }
 
