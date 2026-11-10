@@ -131,6 +131,29 @@ describe('po-line-billing', () => {
     });
   });
 
+  describe('assertInvoiceRestorable', () => {
+    function billVoidedInvoice(quantity) {
+      const invoiceId = addInvoice(db, { voided: true });
+      poLines.saveBilledLineItems(db, invoiceId, poLines.buildBilledLineItems(db, PROJECT_ID, [{ line_number: 2, quantity }]));
+      return invoiceId;
+    }
+
+    it('allows unvoiding when its quantities still fit on the PO', () => {
+      const voidedId = billVoidedInvoice(4);
+      assert.doesNotThrow(() => poLines.assertInvoiceRestorable(db, voidedId));
+    });
+
+    it('blocks unvoiding once the quantities were billed again on another invoice', () => {
+      const voidedId = billVoidedInvoice(6);
+      poLines.saveBilledLineItems(db, addInvoice(db), poLines.buildBilledLineItems(db, PROJECT_ID, [{ line_number: 2, quantity: 6 }]));
+      assert.throws(() => poLines.assertInvoiceRestorable(db, voidedId), /Cannot unvoid: PO line 2 .* only 0 units remain/);
+    });
+
+    it('allows unvoiding an invoice with no billed PO lines', () => {
+      assert.doesNotThrow(() => poLines.assertInvoiceRestorable(db, addInvoice(db, { voided: true })));
+    });
+  });
+
   describe('getPieceRateInvoiceItems', () => {
     it('bills the whole FCA PO as one row per line in line order', () => {
       const invoiceId = addInvoice(db);

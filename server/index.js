@@ -4127,6 +4127,12 @@ app.put('/api/invoices/:id/unvoid', auth, adminOnly, lockClosedYear.invoice, (re
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
   if (invoice.status !== 'voided') return res.status(400).json({ error: 'Invoice is not voided' });
 
+  try {
+    poLineBilling.assertInvoiceRestorable(db, invoice.id);
+  } catch (err) {
+    return sendPoLineError(res, err);
+  }
+
   // Determine status based on payments
   let newStatus = 'unpaid';
   if (invoice.amount_paid >= invoice.total_amount) {

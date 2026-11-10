@@ -256,6 +256,23 @@ function getPieceRateInvoiceItems(db, invoiceId, fallbackUnitPrice) {
   return { timesheets, items: mergePoLineItems([...submitted, ...getBilledLineItems(db, invoiceId)]) };
 }
 
+// Refuses to unvoid an invoice whose billed quantities have since been billed again elsewhere
+function assertInvoiceRestorable(db, invoiceId) {
+  const billed = getBilledLineQuantities(db, invoiceId);
+  if (billed.length === 0) return;
+  const { project_id: projectId } = db.prepare('SELECT project_id FROM invoices WHERE id = ?').get(invoiceId);
+  const lines = getPoLineStatus(db, projectId);
+  billed.forEach(({ line_number: lineNumber, quantity }) => {
+    const line = lines.find(l => l.line_number === lineNumber);
+    const remaining = Math.max(0, line ? line.remaining_units : 0);
+    if (quantity > remaining + QUANTITY_TOLERANCE) {
+      throw new PoLineBillingError(`Cannot unvoid: PO line ${lineNumber} would be billed past the PO quantity `
+        + `(this invoice has ${formatQuantity(quantity)}, only ${formatQuantity(remaining)} units remain). `
+        + 'Void or delete the invoice that re-billed it first.');
+    }
+  });
+}
+
 // Refuses to drop PO lines that already have units reported or billed against them
 function assertLinesRemovable(db, projectId, keptLineNumbers) {
   const kept = new Set(keptLineNumbers.map(Number));
@@ -317,6 +334,7 @@ module.exports = {
   getBilledLineQuantities,
   deleteBilledLineItems,
   getPieceRateInvoiceItems,
+  assertInvoiceRestorable,
   assertLinesRemovable,
   ensureLineEngineersAssigned,
 };
