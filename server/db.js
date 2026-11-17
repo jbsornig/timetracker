@@ -578,6 +578,12 @@ function initSchema() {
     console.log('✅ Migration: Added box_count column to projects');
   }
 
+  // Optional saved "what if" hours plan (JSON) for the project's hours budget
+  if (!projectCols3.find(c => c.name === 'hours_plan')) {
+    db.exec('ALTER TABLE projects ADD COLUMN hours_plan TEXT');
+    console.log('✅ Migration: Added hours_plan column to projects');
+  }
+
   // Add edi_po_quantity and edi_unit_price columns to projects for EA/MON EDI line items
   if (!projectCols3.find(c => c.name === 'edi_po_quantity')) {
     db.exec("ALTER TABLE projects ADD COLUMN edi_po_quantity REAL DEFAULT 0");

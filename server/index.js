@@ -16,6 +16,7 @@ const poLineBilling = require('./po-line-billing');
 const invoicePdf = require('./invoice-pdf');
 const { normalizeInvoiceLayout } = require('./classic-invoice-page');
 const { normalizeBoxCount, BoxCountError } = require('./box-count');
+const hoursBudget = require('./hours-budget');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
 const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
@@ -1404,6 +1405,26 @@ function parseMercedesPoPdf(text) {
     requester_email: requesterEmail,
   };
 }
+
+app.get('/api/projects/:id/hours-budget', auth, adminOnly, (req, res) => {
+  const budget = hoursBudget.getHoursBudget(getDb(), req.params.id);
+  if (!budget) return res.status(404).json({ error: 'Project not found' });
+  res.json(budget);
+});
+
+app.put('/api/projects/:id/hours-plan', auth, adminOnly, (req, res) => {
+  const db = getDb();
+  if (!db.prepare('SELECT id FROM projects WHERE id = ?').get(req.params.id)) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+  try {
+    const plan = hoursBudget.saveHoursPlan(db, req.params.id, req.body.plan);
+    res.json({ plan });
+  } catch (error) {
+    if (error instanceof hoursBudget.HoursPlanError) return res.status(400).json({ error: error.message });
+    throw error;
+  }
+});
 
 app.post('/api/projects', auth, adminOnly, (req, res) => {
   const { customer_id, contact_id, name, description, po_number, po_amount, location, status, include_timesheets, project_type, total_cost, requires_daily_logs, billing_method, monthly_engineer_pay, monthly_invoice_amount, internal, edi_uom, edi_plant_code, edi_po_quantity, edi_unit_price, overtime_type, invoice_consolidate, unit_price } = req.body;
@@ -8364,6 +8385,9 @@ app.post('/api/restore', auth, adminOnly, (req, res) => {
           );
           if (p.box_count !== undefined && p.box_count !== null) {
             db.prepare('UPDATE projects SET box_count = ? WHERE id = ?').run(p.box_count, p.id);
+          }
+          if (p.hours_plan) {
+            db.prepare('UPDATE projects SET hours_plan = ? WHERE id = ?').run(p.hours_plan, p.id);
           }
         }
       }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
 import ProjectPlantSummary from '../components/ProjectPlantSummary';
+import HoursBudgetModal from '../components/HoursBudgetModal';
 import { matchesProjectSearch } from '../project-search';
 
 const emptyProject = { customer_id: '', contact_id: '', name: '', description: '', po_number: '', po_amount: '', location: '', status: 'active', include_timesheets: true, show_invoice_period: true, project_type: 'hourly', total_cost: '', requires_daily_logs: true, billing_method: 'percentage', monthly_engineer_pay: '', monthly_invoice_amount: '', internal: false, edi_uom: '', edi_plant_code: '', edi_po_quantity: '', edi_unit_price: '', overtime_type: 'none', invoice_consolidate: false, unit_price: '', box_count: '' };
@@ -79,6 +80,7 @@ export default function Projects() {
   const [sortDir, setSortDir] = useState('asc');
   const [contactFilter, setContactFilter] = useState('');
   const [searchText, setSearchText] = useState('');
+  const [budgetProjectId, setBudgetProjectId] = useState(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [importingPo, setImportingPo] = useState(false);
@@ -727,6 +729,9 @@ export default function Projects() {
                       <td>
                         <button className="btn btn-secondary btn-sm" onClick={() => openAssign(p)} style={{ marginRight: 4 }}>Engineers</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)} style={{ marginRight: 4 }}>Edit</button>
+                        {(p.project_type || 'hourly') === 'hourly' && (
+                          <button className="btn btn-secondary btn-sm" onClick={() => setBudgetProjectId(p.id)} style={{ marginRight: 4 }}>Budget</button>
+                        )}
                         <button className="btn btn-secondary btn-sm" onClick={() => openReassign(p)} style={{ marginRight: 4 }}>Reassign</button>
                         <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}>Delete</button>
                       </td>
@@ -738,6 +743,10 @@ export default function Projects() {
           </div>
         )}
       </div>
+
+      {budgetProjectId && (
+        <HoursBudgetModal projectId={budgetProjectId} onClose={() => setBudgetProjectId(null)} />
+      )}
 
       {(modal === 'add' || modal === 'edit') && (
         <Modal
