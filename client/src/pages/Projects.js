@@ -1128,172 +1128,172 @@ export default function Projects() {
                     <div className="form-hint">UOM, plant code, PO quantity and unit price from the FCA PO — used in EDI 810 generation</div>
                   </>
                 )}
-                <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <strong style={{ fontSize: 14 }}>PO Line Items</strong>
-                    <span style={{ fontSize: 12, color: '#64748b' }}>
-                      {isPieceRateForm ? 'Engineers are paid per unit they report; lines with no engineer are billed by you' : 'For multi-line POs (e.g. one line per engineer)'}
-                    </span>
-                  </div>
-                  {poLines.length > 0 && (
-                    <div className="table-wrap" style={{ marginBottom: 8 }}>
-                      <table style={{ fontSize: 13 }}>
-                        <thead>
-                          <tr>
-                            <th>Line #</th>
-                            <th>Description</th>
-                            <th>Engineer</th>
-                            {isPieceRateForm && <th>Pay / Unit</th>}
-                            <th>UOM</th>
-                            <th>Qty</th>
-                            <th>Unit Price</th>
-                            <th>Amount</th>
-                            <th></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {poLines.map((pl, idx) => (
-                            <tr key={idx}>
-                              <td>{pl.line_number}</td>
-                              <td>{pl.description || '—'}</td>
-                              <td>
-                                <select
-                                  className="form-select"
-                                  style={{ fontSize: 12, padding: '2px 4px', minWidth: 120 }}
-                                  value={pl.engineer_id || ''}
-                                  onChange={(e) => {
-                                    const engineerId = e.target.value ? parseInt(e.target.value) : null;
-                                    const updated = poLines.map((l, i) => i === idx ? { ...l, engineer_id: engineerId, pay_per_unit: engineerId ? l.pay_per_unit : 0 } : l);
-                                    setPoLines(updated);
-                                  }}
-                                >
-                                  <option value="">{isPieceRateForm ? '— None (billed by you) —' : '— Select —'}</option>
-                                  {engineers.filter(u => u.role === 'engineer').map(u => (
-                                    <option key={u.id} value={u.id}>{u.name}</option>
-                                  ))}
-                                </select>
-                              </td>
-                              {isPieceRateForm && (
-                                <td>
-                                  {pl.engineer_id ? (
-                                    <input
-                                      className="form-input"
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      aria-label={`Pay per unit for line ${pl.line_number}`}
-                                      style={{ fontSize: 12, padding: '2px 4px', width: 90 }}
-                                      value={pl.pay_per_unit || ''}
-                                      placeholder="0.00"
-                                      onChange={(e) => setPoLines(poLines.map((l, i) => i === idx ? { ...l, pay_per_unit: e.target.value } : l))}
-                                    />
-                                  ) : <span style={{ color: '#94a3b8' }}>—</span>}
-                                </td>
-                              )}
-                              <td>{pl.edi_uom || '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{pl.edi_po_quantity || '—'}</td>
-                              <td style={{ textAlign: 'right' }}>{pl.edi_unit_price ? `$${parseFloat(pl.edi_unit_price).toFixed(2)}` : '—'}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{pl.po_line_amount ? `$${parseFloat(pl.po_line_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'}</td>
-                              <td>
-                                <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 6px', color: '#dc2626' }}
-                                  onClick={() => setPoLines(poLines.filter((_, i) => i !== idx))}>Remove</button>
-                              </td>
-                            </tr>
-                          ))}
-                          <tr style={{ fontWeight: 600, background: '#f8fafc' }}>
-                            <td colSpan={isPieceRateForm ? 7 : 6} style={{ textAlign: 'right' }}>Total:</td>
-                            <td style={{ textAlign: 'right' }}>${poLines.reduce((s, l) => s + (parseFloat(l.po_line_amount) || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                            <td></td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  {isPieceRateForm && poLines.some(l => l.engineer_id) && (
-                    <div className="form-hint" style={{ marginBottom: 8 }}>
-                      Engineer pay if every unit is built: {formatMoney(poLines.reduce((s, l) => s + (l.engineer_id ? (parseFloat(l.pay_per_unit) || 0) * (parseFloat(l.edi_po_quantity) || 0) : 0), 0))}.
-                      Engineers on a line are added to the project automatically when you save.
-                    </div>
-                  )}
-                  {!showAddPoLine ? (
-                    <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }}
-                      onClick={() => setShowAddPoLine(true)}>+ Add Line Manually</button>
-                  ) : (
-                    <div style={{ background: '#f8fafc', borderRadius: 6, padding: 10, marginTop: 4 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Add Line Item</span>
-                        <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8' }}
-                          onClick={() => setShowAddPoLine(false)}>Cancel</button>
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                        <div>
-                          <label style={{ fontSize: 11, color: '#64748b' }}>Line #</label>
-                          <input className="form-input" style={{ width: 60, fontSize: 12, padding: '4px 6px' }} type="number"
-                            value={poLineForm.line_number} onChange={e => setPoLineForm({ ...poLineForm, line_number: e.target.value })} placeholder="10" />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 11, color: '#64748b' }}>Description</label>
-                          <input className="form-input" style={{ width: 140, fontSize: 12, padding: '4px 6px' }}
-                            value={poLineForm.description} onChange={e => setPoLineForm({ ...poLineForm, description: e.target.value })} placeholder="Engineer name / service" />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 11, color: '#64748b' }}>Engineer</label>
-                          <select className="form-select" style={{ fontSize: 12, padding: '4px 6px', minWidth: 120 }}
-                            value={poLineForm.engineer_id} onChange={e => setPoLineForm({ ...poLineForm, engineer_id: e.target.value })}>
-                            <option value="">— None —</option>
-                            {engineers.filter(u => u.role === 'engineer').map(u => (
-                              <option key={u.id} value={u.id}>{u.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 11, color: '#64748b' }}>UOM</label>
-                          <select className="form-select" style={{ fontSize: 12, padding: '4px 6px', width: 70 }}
-                            value={poLineForm.edi_uom} onChange={e => setPoLineForm({ ...poLineForm, edi_uom: e.target.value })}>
-                            <option value="HR">HR</option>
-                            <option value="LO">LO</option>
-                            <option value="EA">EA</option>
-                            <option value="MON">MON</option>
-                            <option value="PCE">PCE</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 11, color: '#64748b' }}>Qty</label>
-                          <input className="form-input" style={{ width: 70, fontSize: 12, padding: '4px 6px' }} type="number"
-                            value={poLineForm.edi_po_quantity} onChange={e => setPoLineForm({ ...poLineForm, edi_po_quantity: e.target.value })} placeholder="1" />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 11, color: '#64748b' }}>Unit Price</label>
-                          <input className="form-input" style={{ width: 100, fontSize: 12, padding: '4px 6px' }} type="number" step="0.01"
-                            value={poLineForm.edi_unit_price} onChange={e => setPoLineForm({ ...poLineForm, edi_unit_price: e.target.value })} placeholder="192000.00" />
-                        </div>
-                        <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }}
-                          onClick={() => {
-                            if (!poLineForm.line_number) return;
-                            if (poLines.some(l => String(l.line_number) === String(poLineForm.line_number))) {
-                              alert(`Line number ${poLineForm.line_number} already exists`);
-                              return;
-                            }
-                            const qty = parseFloat(poLineForm.edi_po_quantity) || 0;
-                            const price = parseFloat(poLineForm.edi_unit_price) || 0;
-                            setPoLines([...poLines, {
-                              line_number: parseInt(poLineForm.line_number),
-                              description: poLineForm.description,
-                              engineer_id: poLineForm.engineer_id ? parseInt(poLineForm.engineer_id) : null,
-                              edi_uom: poLineForm.edi_uom,
-                              edi_po_quantity: qty,
-                              edi_unit_price: price,
-                              po_line_amount: qty * price,
-                            }].sort((a, b) => a.line_number - b.line_number));
-                            setPoLineForm({ line_number: '', description: '', engineer_id: '', edi_uom: 'HR', edi_po_quantity: '', edi_unit_price: '', po_line_amount: '' });
-                            setShowAddPoLine(false);
-                          }}>Add</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </>
             )}
+            <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <strong style={{ fontSize: 14 }}>PO Line Items</strong>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  {isPieceRateForm ? 'Engineers are paid per unit they report; lines with no engineer are billed by you' : 'For multi-line POs (e.g. one line per engineer)'}
+                </span>
+              </div>
+              {poLines.length > 0 && (
+                <div className="table-wrap" style={{ marginBottom: 8 }}>
+                  <table style={{ fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        <th>Line #</th>
+                        <th>Description</th>
+                        <th>Engineer</th>
+                        {isPieceRateForm && <th>Pay / Unit</th>}
+                        <th>UOM</th>
+                        <th>Qty</th>
+                        <th>Unit Price</th>
+                        <th>Amount</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {poLines.map((pl, idx) => (
+                        <tr key={idx}>
+                          <td>{pl.line_number}</td>
+                          <td>{pl.description || '—'}</td>
+                          <td>
+                            <select
+                              className="form-select"
+                              style={{ fontSize: 12, padding: '2px 4px', minWidth: 120 }}
+                              value={pl.engineer_id || ''}
+                              onChange={(e) => {
+                                const engineerId = e.target.value ? parseInt(e.target.value) : null;
+                                const updated = poLines.map((l, i) => i === idx ? { ...l, engineer_id: engineerId, pay_per_unit: engineerId ? l.pay_per_unit : 0 } : l);
+                                setPoLines(updated);
+                              }}
+                            >
+                              <option value="">{isPieceRateForm ? '— None (billed by you) —' : '— Select —'}</option>
+                              {engineers.filter(u => u.role === 'engineer').map(u => (
+                                <option key={u.id} value={u.id}>{u.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          {isPieceRateForm && (
+                            <td>
+                              {pl.engineer_id ? (
+                                <input
+                                  className="form-input"
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  aria-label={`Pay per unit for line ${pl.line_number}`}
+                                  style={{ fontSize: 12, padding: '2px 4px', width: 90 }}
+                                  value={pl.pay_per_unit || ''}
+                                  placeholder="0.00"
+                                  onChange={(e) => setPoLines(poLines.map((l, i) => i === idx ? { ...l, pay_per_unit: e.target.value } : l))}
+                                />
+                              ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                            </td>
+                          )}
+                          <td>{pl.edi_uom || '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{pl.edi_po_quantity || '—'}</td>
+                          <td style={{ textAlign: 'right' }}>{pl.edi_unit_price ? `$${parseFloat(pl.edi_unit_price).toFixed(2)}` : '—'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{pl.po_line_amount ? `$${parseFloat(pl.po_line_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'}</td>
+                          <td>
+                            <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 6px', color: '#dc2626' }}
+                              onClick={() => setPoLines(poLines.filter((_, i) => i !== idx))}>Remove</button>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr style={{ fontWeight: 600, background: '#f8fafc' }}>
+                        <td colSpan={isPieceRateForm ? 7 : 6} style={{ textAlign: 'right' }}>Total:</td>
+                        <td style={{ textAlign: 'right' }}>${poLines.reduce((s, l) => s + (parseFloat(l.po_line_amount) || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                        <td></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {isPieceRateForm && poLines.some(l => l.engineer_id) && (
+                <div className="form-hint" style={{ marginBottom: 8 }}>
+                  Engineer pay if every unit is built: {formatMoney(poLines.reduce((s, l) => s + (l.engineer_id ? (parseFloat(l.pay_per_unit) || 0) * (parseFloat(l.edi_po_quantity) || 0) : 0), 0))}.
+                  Engineers on a line are added to the project automatically when you save.
+                </div>
+              )}
+              {!showAddPoLine ? (
+                <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }}
+                  onClick={() => setShowAddPoLine(true)}>+ Add Line Manually</button>
+              ) : (
+                <div style={{ background: '#f8fafc', borderRadius: 6, padding: 10, marginTop: 4 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Add Line Item</span>
+                    <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8' }}
+                      onClick={() => setShowAddPoLine(false)}>Cancel</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Line #</label>
+                      <input className="form-input" style={{ width: 60, fontSize: 12, padding: '4px 6px' }} type="number"
+                        value={poLineForm.line_number} onChange={e => setPoLineForm({ ...poLineForm, line_number: e.target.value })} placeholder="10" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Description</label>
+                      <input className="form-input" style={{ width: 140, fontSize: 12, padding: '4px 6px' }}
+                        value={poLineForm.description} onChange={e => setPoLineForm({ ...poLineForm, description: e.target.value })} placeholder="Engineer name / service" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Engineer</label>
+                      <select className="form-select" style={{ fontSize: 12, padding: '4px 6px', minWidth: 120 }}
+                        value={poLineForm.engineer_id} onChange={e => setPoLineForm({ ...poLineForm, engineer_id: e.target.value })}>
+                        <option value="">— None —</option>
+                        {engineers.filter(u => u.role === 'engineer').map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>UOM</label>
+                      <select className="form-select" style={{ fontSize: 12, padding: '4px 6px', width: 70 }}
+                        value={poLineForm.edi_uom} onChange={e => setPoLineForm({ ...poLineForm, edi_uom: e.target.value })}>
+                        <option value="HR">HR</option>
+                        <option value="LO">LO</option>
+                        <option value="EA">EA</option>
+                        <option value="MON">MON</option>
+                        <option value="PCE">PCE</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Qty</label>
+                      <input className="form-input" style={{ width: 70, fontSize: 12, padding: '4px 6px' }} type="number"
+                        value={poLineForm.edi_po_quantity} onChange={e => setPoLineForm({ ...poLineForm, edi_po_quantity: e.target.value })} placeholder="1" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b' }}>Unit Price</label>
+                      <input className="form-input" style={{ width: 100, fontSize: 12, padding: '4px 6px' }} type="number" step="0.01"
+                        value={poLineForm.edi_unit_price} onChange={e => setPoLineForm({ ...poLineForm, edi_unit_price: e.target.value })} placeholder="192000.00" />
+                    </div>
+                    <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }}
+                      onClick={() => {
+                        if (!poLineForm.line_number) return;
+                        if (poLines.some(l => String(l.line_number) === String(poLineForm.line_number))) {
+                          alert(`Line number ${poLineForm.line_number} already exists`);
+                          return;
+                        }
+                        const qty = parseFloat(poLineForm.edi_po_quantity) || 0;
+                        const price = parseFloat(poLineForm.edi_unit_price) || 0;
+                        setPoLines([...poLines, {
+                          line_number: parseInt(poLineForm.line_number),
+                          description: poLineForm.description,
+                          engineer_id: poLineForm.engineer_id ? parseInt(poLineForm.engineer_id) : null,
+                          edi_uom: poLineForm.edi_uom,
+                          edi_po_quantity: qty,
+                          edi_unit_price: price,
+                          po_line_amount: qty * price,
+                        }].sort((a, b) => a.line_number - b.line_number));
+                        setPoLineForm({ line_number: '', description: '', engineer_id: '', edi_uom: 'HR', edi_po_quantity: '', edi_unit_price: '', po_line_amount: '' });
+                        setShowAddPoLine(false);
+                      }}>Add</button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="form-group" style={{ marginTop: 8 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input
