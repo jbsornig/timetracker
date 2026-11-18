@@ -17,6 +17,7 @@ const invoicePdf = require('./invoice-pdf');
 const { normalizeInvoiceLayout } = require('./classic-invoice-page');
 const { normalizeBoxCount, BoxCountError } = require('./box-count');
 const hoursBudget = require('./hours-budget');
+const { parseMercedesItems } = require('./mercedes-po');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
 const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
@@ -1289,6 +1290,7 @@ function parseMercedesPoPdf(text) {
   let poNumber = '', poDate = '', description = '', quantity = '', unitPrice = '', netAmount = '';
   let requesterName = '', requesterEmail = '';
   let location = '';
+  let lineItems = [];
 
   const isSpanishFormat = text.includes('Número de documento:') || text.includes('Pedido\n');
   const isNewFormat = text.includes('Document Number:\n');
@@ -1354,6 +1356,7 @@ function parseMercedesPoPdf(text) {
       requesterEmail = contactMatch[3].trim();
     }
 
+    lineItems = parseMercedesItems(text);
     const descMatch = text.match(/Item 1\s+\nDescription\n(.+)\nQuantity/);
     if (descMatch) description = descMatch[1].trim();
 
@@ -1391,19 +1394,22 @@ function parseMercedesPoPdf(text) {
     }
   }
 
-  return {
+  const multiLine = lineItems.length > 1;
+  const result = {
     po_number: poNumber,
     name: description,
     edi_plant_code: '',
     edi_uom: '',
     po_amount: netAmount || (unitPrice && quantity ? (parseFloat(unitPrice) * parseFloat(quantity)).toFixed(2) : ''),
-    unit_price: unitPrice,
-    quantity: quantity,
+    unit_price: multiLine ? '' : unitPrice,
+    quantity: multiLine ? '' : quantity,
     location: location || 'MBUSI Tuscaloosa',
     po_date: poDate,
     requester_name: requesterName,
     requester_email: requesterEmail,
   };
+  if (multiLine) result.line_items = lineItems;
+  return result;
 }
 
 app.get('/api/projects/:id/hours-budget', auth, adminOnly, (req, res) => {
