@@ -17,7 +17,7 @@ const invoicePdf = require('./invoice-pdf');
 const { normalizeInvoiceLayout } = require('./classic-invoice-page');
 const { normalizeBoxCount, BoxCountError } = require('./box-count');
 const hoursBudget = require('./hours-budget');
-const { parseMercedesItems } = require('./mercedes-po');
+const { parseMercedesItems, parseMercedesContact } = require('./mercedes-po');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
 const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
@@ -1350,11 +1350,9 @@ function parseMercedesPoPdf(text) {
     const dateMatch = text.match(/Date:([\d]+-\w+-\d+)/);
     if (dateMatch) poDate = dateMatch[1];
 
-    const contactMatch = text.match(/Your technical contact person:\s*\n(.+)\n([+\d ]+)\n([\w.@-]+)/);
-    if (contactMatch) {
-      requesterName = contactMatch[1].trim();
-      requesterEmail = contactMatch[3].trim();
-    }
+    const contact = parseMercedesContact(text);
+    requesterName = contact.name;
+    requesterEmail = contact.email;
 
     lineItems = parseMercedesItems(text);
     const descMatch = text.match(/Item 1\s+\nDescription\n(.+)\nQuantity/);

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseMercedesItems } = require('./mercedes-po');
+const { parseMercedesItems, parseMercedesContact } = require('./mercedes-po');
 
 const PAGE_BREAK = '\n\nPurchase Order\nDocument Number:\n1013877091\nSupplier No.:15649390\nDate:18-Nov-2026\nName:Unlimited Technologies Consulting LLC\nPage: 5/7\n';
 
@@ -41,4 +41,23 @@ test('divides the price when it is quoted per more than one unit', () => {
 
 test('returns no items when the PO has none in this layout', () => {
   assert.deepStrictEqual(parseMercedesItems('Document no. Date\n1157504889'), []);
+});
+
+test('reads the technical contact when the phone number has a dash', () => {
+  const text = 'Your technical contact person:\nJohn Chryczyk\n+1 205 534-0278\njohn.j.chryczyk@mercedes-benz.com\nThis Purchase Order';
+  assert.deepStrictEqual(parseMercedesContact(text), { name: 'John Chryczyk', email: 'john.j.chryczyk@mercedes-benz.com' });
+});
+
+test('reads the technical contact when the phone number is digits only', () => {
+  const text = 'Your technical contact person:\nRoberto Luiz De Mello\n+1 205 8726197\nroberto.mello@mercedes-benz.com\n';
+  assert.deepStrictEqual(parseMercedesContact(text), { name: 'Roberto Luiz De Mello', email: 'roberto.mello@mercedes-benz.com' });
+});
+
+test('reads the contact when no phone number is listed', () => {
+  const text = 'Your technical contact person:\nAna Ruiz\nana.ruiz@mercedes-benz.com\n';
+  assert.deepStrictEqual(parseMercedesContact(text), { name: 'Ana Ruiz', email: 'ana.ruiz@mercedes-benz.com' });
+});
+
+test('returns blanks when the PO has no technical contact', () => {
+  assert.deepStrictEqual(parseMercedesContact('Document no. Date'), { name: '', email: '' });
 });

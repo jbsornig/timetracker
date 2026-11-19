@@ -47,4 +47,13 @@ function parseMercedesItems(text) {
   });
 }
 
-module.exports = { parseMercedesItems };
+// "Your technical contact person:" is followed by the name, an optional phone line in any
+// format (e.g. "+1 205 534-0278"), then the email.
+const CONTACT_PATTERN = /Your technical contact person:\s*\n([^\n]+)\n(?:[^\n@]*\n)?\s*([\w.+-]+@[\w.-]+)/;
+
+function parseMercedesContact(text) {
+  const match = text.match(CONTACT_PATTERN);
+  return match ? { name: match[1].trim(), email: match[2].trim() } : { name: '', email: '' };
+}
+
+module.exports = { parseMercedesItems, parseMercedesContact };
