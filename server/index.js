@@ -18,6 +18,7 @@ const { normalizeInvoiceLayout } = require('./classic-invoice-page');
 const { normalizeBoxCount, BoxCountError } = require('./box-count');
 const hoursBudget = require('./hours-budget');
 const { parseMercedesItems, parseMercedesContact } = require('./mercedes-po');
+const passwordSetup = require('./password-setup');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
 const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
@@ -677,14 +678,69 @@ app.get('/api/users/export-csv', auth, adminOnly, (req, res) => {
   res.send(csv);
 });
 
+// ─── WELCOME EMAIL / SET PASSWORD ───────────────────────────────────────────
+
+async function sendWelcomeEmail(db, userId, origin) {
+  const user = db.prepare('SELECT id, name, email, active FROM users WHERE id = ?').get(userId);
+  if (!user) return { status: 404, error: 'User not found' };
+  if (!user.email) return { status: 400, error: 'This user has no email address.' };
+  if (user.active === 0) return { status: 400, error: 'This user is inactive. Make them active before sending a welcome email.' };
+  const settings = {};
+  db.prepare("SELECT key, value FROM settings WHERE key IN ('smtp_email', 'smtp_password', 'company_name')").all()
+    .forEach(row => { settings[row.key] = row.value; });
+  if (!settings.smtp_email || !settings.smtp_password) {
+    return { status: 400, error: 'Email is not set up. Add the SMTP email and password in Settings.' };
+  }
+  const siteUrl = passwordSetup.resolveSiteUrl(origin);
+  const token = passwordSetup.createSetupToken(db, user.id);
+  const message = passwordSetup.buildWelcomeEmail({
+    name: user.name, email: user.email, link: `${siteUrl}/?setup=${token}`, siteUrl, companyName: settings.company_name,
+  });
+  const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: settings.smtp_email, pass: settings.smtp_password } });
+  await transporter.sendMail({ from: settings.smtp_email, to: user.email, subject: message.subject, html: message.html, text: message.text });
+  return { status: 200, message: `Welcome email sent to ${user.email}` };
+}
+
+app.post('/api/users/:id/welcome-email', auth, adminOnly, async (req, res) => {
+  try {
+    const result = await sendWelcomeEmail(getDb(), req.params.id, req.get('origin'));
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json({ success: true, message: result.message });
+  } catch (err) {
+    console.error('Failed to send welcome email:', err.message);
+    res.status(500).json({ error: 'Failed to send the welcome email: ' + err.message });
+  }
+});
+
+// Public: lets the set-password page greet the person and spot a dead link before they type.
+app.get('/api/password-setup/:token', (req, res) => {
+  const user = passwordSetup.findSetupUser(getDb(), req.params.token);
+  if (!user) return res.status(404).json({ error: 'This link has expired or was already used. Ask your administrator to send a new one.' });
+  res.json({ name: user.name, email: user.email });
+});
+
+app.post('/api/password-setup', (req, res) => {
+  const { token, password } = req.body || {};
+  try {
+    const user = passwordSetup.setPasswordWithToken(getDb(), String(token || ''), password);
+    res.json({ success: true, email: user.email });
+  } catch (err) {
+    if (err instanceof passwordSetup.PasswordSetupError) return res.status(400).json({ error: err.message });
+    console.error('Failed to set password from link:', err.message);
+    res.status(500).json({ error: 'Could not set the password. Try again.' });
+  }
+});
+
 app.post('/api/users', auth, adminOnly, (req, res) => {
   const { name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
           address, city, state, zip, start_date, phone, carrier, tax_id,
           bank_routing, bank_account, bank_account_type,
           bank_routing_2, bank_account_2, bank_account_type_2, bank_pct_1, bank_pct_2 } = req.body;
   const db = getDb();
+  if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
   try {
-    const hash = bcrypt.hashSync(password, 10);
+    // With no password (welcome email path) the account gets a random one nobody knows until they set their own.
+    const hash = bcrypt.hashSync(password || crypto.randomBytes(32).toString('hex'), 10);
     const encryptedTaxId = tax_id ? encryptTaxId(tax_id) : '';
     const result = db.prepare(`INSERT INTO users (name, email, password, role, engineer_id, holiday_pay_eligible, holiday_pay_rate, pay_delay_months,
       address, city, state, zip, start_date, phone, carrier, tax_id,

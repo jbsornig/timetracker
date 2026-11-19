@@ -14,6 +14,10 @@ import Account from './pages/Account';
 import Earnings from './pages/Earnings';
 import More from './pages/More';
 import PurchaseOrders from './pages/PurchaseOrders';
+import SetPassword from './pages/SetPassword';
+
+// A welcome-email link opens the app at /?setup=<token>
+const setupToken = new URLSearchParams(window.location.search).get('setup');
 
 const ENGINEER_PAGES = ['dashboard', 'timesheets', 'account', 'earnings'];
 const ADMIN_PAGES = ['dashboard', 'timesheets', 'customers', 'projects', 'engineers', 'invoices', 'purchase-orders', 'reports', 'settings', 'more'];
@@ -41,6 +45,7 @@ function AppInner() {
     }
   }, [user, page]);
 
+  if (setupToken) return <SetPassword token={setupToken} />;
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#64748b' }}>Loading…</div>;
   if (!user) return <Login />;
 

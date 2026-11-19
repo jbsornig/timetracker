@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api';
 import Modal from '../components/Modal';
+import WelcomeEmailButton, { sendWelcomeEmail } from '../components/WelcomeEmailButton';
 import DataExportControls from '../components/DataExportControls';
 
 function formatPhone(value) {
@@ -19,7 +20,8 @@ const emptyUser = {
   bank_routing_2: '', bank_account_2: '', bank_account_type_2: 'checking',
   bank_pct_1: 100, bank_pct_2: 0,
   pay_delay_months: 0,
-  active: 1
+  active: 1,
+  send_welcome: true,
 };
 
 export default function Engineers() {
@@ -203,8 +205,8 @@ export default function Engineers() {
       setError('Name and email are required');
       return;
     }
-    if (modal === 'add' && !form.password) {
-      setError('Password is required for new engineers');
+    if (modal === 'add' && !form.password && !form.send_welcome) {
+      setError('Enter a password, or tick "Email a welcome message" so they can set their own');
       return;
     }
     setSaving(true);
@@ -242,7 +244,16 @@ export default function Engineers() {
         body.password = form.password;
       }
       if (modal === 'add') {
-        await apiFetch('/users', { method: 'POST', body });
+        const created = await apiFetch('/users', { method: 'POST', body });
+        if (form.send_welcome) {
+          try {
+            await sendWelcomeEmail(created.id);
+            window.alert(`Saved. A welcome email is on its way to ${form.email}.`);
+          } catch (welcomeError) {
+            window.alert(`Saved, but the welcome email was not sent: ${welcomeError.message}
+Use the Welcome Email button to try again.`);
+          }
+        }
       } else {
         await apiFetch(`/users/${form.id}`, { method: 'PUT', body });
       }
@@ -327,6 +338,7 @@ export default function Engineers() {
                     </td>
                     <td>
                       <button className="btn btn-secondary btn-sm" onClick={() => openEdit(admin)} style={{ marginRight: 8 }}>Edit</button>
+                      <WelcomeEmailButton user={admin} style={{ marginRight: 8 }} />
                       {admins.length > 1 && (
                         <button className="btn btn-danger btn-sm" onClick={() => handleDelete(admin.id)}>Delete</button>
                       )}
@@ -462,6 +474,7 @@ export default function Engineers() {
                     <td>
                       <button className="btn btn-secondary btn-sm" onClick={() => openEdit(eng)} style={{ marginRight: 8 }}>Edit</button>
                       <button className="btn btn-secondary btn-sm" onClick={() => setDataExportEngineer(eng)} style={{ marginRight: 8 }}>Data</button>
+                      <WelcomeEmailButton user={eng} style={{ marginRight: 8 }} />
                       <button className="btn btn-danger btn-sm" onClick={() => handleDelete(eng.id)}>Delete</button>
                     </td>
                   </tr>
@@ -478,6 +491,7 @@ export default function Engineers() {
           onClose={() => setModal(null)}
           footer={
             <>
+              {modal === 'edit' && <WelcomeEmailButton user={[...engineers, ...admins].find(u => u.id === form.id) || form} className="btn btn-secondary" style={{ marginRight: 'auto' }} />}
               <button className="btn btn-secondary" onClick={() => setModal(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
                 {saving ? 'Saving...' : 'Save'}
@@ -518,13 +532,19 @@ export default function Engineers() {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">{modal === 'add' ? 'Password *' : 'Password (leave blank to keep current)'}</label>
+              {modal === 'add' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8, fontSize: 14 }}>
+                  <input type="checkbox" checked={form.send_welcome} onChange={(e) => setForm({ ...form, send_welcome: e.target.checked })} style={{ width: 18, height: 18 }} />
+                  <span>Email a welcome message with a link to set their own password</span>
+                </label>
+              )}
+              <label className="form-label">{modal === 'add' ? (form.send_welcome ? 'Password (optional)' : 'Password *') : 'Password (leave blank to keep current)'}</label>
               <input
                 className="form-input"
                 type="password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder={modal === 'add' ? 'Enter password' : 'Leave blank to keep current'}
+                placeholder={modal === 'add' ? (form.send_welcome ? 'Leave blank - they set it from the email' : 'Enter password') : 'Leave blank to keep current'}
               />
             </div>
             {form.role === 'engineer' && (
