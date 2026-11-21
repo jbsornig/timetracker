@@ -19,6 +19,7 @@ const { normalizeBoxCount, BoxCountError } = require('./box-count');
 const hoursBudget = require('./hours-budget');
 const { parseMercedesItems, parseMercedesContact } = require('./mercedes-po');
 const passwordSetup = require('./password-setup');
+const { refreshInvoiceStatus } = require('./invoice-status');
 const pastDueStatement = require('./past-due-statement');
 const yearClose = require('./year-close');
 const { buildYearEndWorkbook, buildWorkbookFilename } = require('./year-end-workbook');
@@ -3064,8 +3065,9 @@ app.post('/api/invoices/:id/adjustments', auth, adminOnly, lockClosedYear.invoic
     .run(req.params.id, description.trim(), hours || 0, rate || 0, amount);
 
   db.prepare('UPDATE invoices SET total_amount = total_amount + ? WHERE id = ?').run(amount, req.params.id);
+  const updated = refreshInvoiceStatus(db, req.params.id);
 
-  res.json({ success: true });
+  res.json({ success: true, status: updated.status });
 });
 
 app.delete('/api/invoices/:id/adjustments/:adjId', auth, adminOnly, lockClosedYear.invoice, (req, res) => {
@@ -3075,8 +3077,9 @@ app.delete('/api/invoices/:id/adjustments/:adjId', auth, adminOnly, lockClosedYe
 
   db.prepare('DELETE FROM invoice_adjustments WHERE id = ?').run(req.params.adjId);
   db.prepare('UPDATE invoices SET total_amount = total_amount - ? WHERE id = ?').run(adj.amount, req.params.id);
+  const updated = refreshInvoiceStatus(db, req.params.id);
 
-  res.json({ success: true });
+  res.json({ success: true, status: updated.status });
 });
 
 app.delete('/api/invoices/:id', auth, adminOnly, lockClosedYear.invoice, (req, res) => {
